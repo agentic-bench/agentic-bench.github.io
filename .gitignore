@@ -10,3 +10,5 @@
 .pyc
 
 *.log
+
+benchmarks/contextcrbench/input-dataset/contextcrbench2
