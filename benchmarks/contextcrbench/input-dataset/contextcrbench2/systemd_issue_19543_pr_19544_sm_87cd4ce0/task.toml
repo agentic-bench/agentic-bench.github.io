@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "systemd_issue_19543_pr_19544_sm_87cd4ce0"
+contextcrbench2_full_name = "systemd/systemd"
+contextcrbench2_lang = "c"
+contextcrbench2_issue_number = "19543"
+contextcrbench2_issue_title = "Build error on fedora-rawhide-aarch64"
+contextcrbench2_pr_number = "19544"
+contextcrbench2_pr_title = "string-util: fix build error on aarch64"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "87cd4ce09efca26c0d5a6d5aa76df2d3df4a85bc"
+contextcrbench2_commit_id = "87cd4ce09efca26c0d5a6d5aa76df2d3df4a85bc"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2021-05-07T19:57:20Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

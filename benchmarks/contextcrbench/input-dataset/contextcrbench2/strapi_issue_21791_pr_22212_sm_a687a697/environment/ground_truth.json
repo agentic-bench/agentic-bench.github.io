@@ -1,0 +1,12 @@
+[
+  {
+    "path": "packages/core/content-manager/admin/src/utils/api.ts",
+    "line": 39,
+    "original_line": 39,
+    "review_comment": [
+      "Isn't buildValidParams used in a lot of places? Did you check the impact removing this has?",
+      "not yet! I will do the QA today",
+      "It's exposed and documented so it could technically be a BC, though i doubt it would impact anything"
+    ]
+  }
+]

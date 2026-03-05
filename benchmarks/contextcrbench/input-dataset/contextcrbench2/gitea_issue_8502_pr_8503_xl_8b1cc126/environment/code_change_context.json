@@ -1,0 +1,6 @@
+{
+  "issue_title": "upgrade to blackfriday/v2",
+  "issue_body": "russross/blackfriday made breaking api changes and has recently released v2.0.1. This change dramatically simplifies the `blackfriday.Renderer` and `blackfriday.Markdown` interfaces, and will require some work to bring `modules/markup/markdown/markdown.go` up to speed. It does seem active development and support is moving to the v2 branch, so it would be good to finish off the migration sooner over later. Otherwise there has been some symbol renaming that will need to be fixed up.",
+  "pr_title": "upgrade github.com/russross/blackfriday",
+  "pr_body": "russross/blackfriday made breaking api changes and has recently released\r\nv2.0.1. Some symbol renaming occurred, so this change consumes that\r\ndelta.\r\n\r\nIt will also be required to rework the modules/markup/markdown.Renderer\r\nstruct set to meet the new blackfriday.Renderer interface.\r\n\r\nClose #8502.\r\n"
+}

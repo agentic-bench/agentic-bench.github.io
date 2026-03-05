@@ -1,0 +1,12 @@
+/agents
+/harbor_logs
+/contextcrbench_baseline
+
+/src/test_contextcrbench_generation.py
+/src/test_provider.py
+/src/test_direct_gateway.py
+
+.env
+.pyc
+
+*.log

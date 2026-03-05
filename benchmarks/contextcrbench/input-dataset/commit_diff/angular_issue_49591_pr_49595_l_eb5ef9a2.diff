@@ -1,0 +1,235 @@
+diff --git a/packages/zone.js/lib/common/events.ts b/packages/zone.js/lib/common/events.ts
+index 4633e7318b0b..0c27767e785a 100644
+--- a/packages/zone.js/lib/common/events.ts
++++ b/packages/zone.js/lib/common/events.ts
+@@ -293,16 +293,6 @@ export function patchEventTarget(
+       // if task is not marked as isRemoved, this call is directly
+       // from Zone.prototype.cancelTask, we should remove the task
+       // from tasksList of target first
+-      const signal = task?.options?.signal;
+-      if (typeof signal === 'object' && signal?.tasks) {
+-        const abortTasks = signal.tasks;
+-        for (let i = 0; i < abortTasks?.length || 0; i++) {
+-          if (abortTasks[i] === task) {
+-            abortTasks.splice(i, 1);
+-            break;
+-          }
+-        }
+-      }
+       if (!task.isRemoved) {
+         const symbolEventNames = zoneSymbolEventNames[task.eventName];
+         let symbolEventName;
+@@ -404,8 +394,11 @@ export function patchEventTarget(
+         const passive =
+             passiveSupported && !!passiveEvents && passiveEvents.indexOf(eventName) !== -1;
+         const options = buildEventListenerOptions(arguments[2], passive);
+-        const signal = typeof options === 'object' && options?.signal;
+-        if (typeof signal === 'object' && signal?.aborted) {
++        const signal = options && typeof options === 'object' && options.signal &&
++                typeof options.signal === 'object' ?
++            options.signal :
++            undefined;
++        if (signal?.aborted) {
+           // the signal is an aborted one, just return without attaching the event listener.
+           return;
+         }
+@@ -480,7 +473,7 @@ export function patchEventTarget(
+           (data as any).taskData = taskData;
+         }
+ 
+-        if (signal && typeof signal === 'object') {
++        if (signal) {
+           // if addEventListener with signal options, we don't pass it to
+           // native addEventListener, instead we keep the signal setting
+           // and handle ourselves.
+@@ -489,20 +482,12 @@ export function patchEventTarget(
+         const task: any =
+             zone.scheduleEventTask(source, delegate, data, customScheduleFn, customCancelFn);
+ 
+-        if (signal && typeof signal === 'object') {
++        if (signal) {
+           // after task is scheduled, we need to store the signal back to task.options
+           taskData.options.signal = signal;
+-          const tasks = signal.tasks || [];
+-          tasks.push(task);
+-          signal.tasks = tasks;
+-          if (!signal[Zone.__symbol__('abortListener')]) {
+-            signal[Zone.__symbol__('abortListener')] = true;
+-            nativeListener.call(signal, 'abort', function() {
+-              const sTasks = signal.tasks.slice();
+-              sTasks.forEach((task: Task) => task.zone.cancelTask(task));
+-              signal.tasks.length = 0;
+-            });
+-          }
++          nativeListener.call(signal, 'abort', () => {
++            task.zone.cancelTask(task);
++          }, {once: true});
+         }
+ 
+         // should clear taskData.target to avoid memory leak
+diff --git a/packages/zone.js/lib/common/fetch.ts b/packages/zone.js/lib/common/fetch.ts
+index b7ebbc9afcc9..2ff4a5684370 100644
+--- a/packages/zone.js/lib/common/fetch.ts
++++ b/packages/zone.js/lib/common/fetch.ts
+@@ -26,15 +26,22 @@ Zone.__load_patch('fetch', (global: any, Zone: ZoneType, api: _ZonePrivate) => {
+   const ZoneAwarePromise = global.Promise;
+   const symbolThenPatched = api.symbol('thenPatched');
+   const fetchTaskScheduling = api.symbol('fetchTaskScheduling');
+-  const fetchTaskAborting = api.symbol('fetchTaskAborting');
+-  const OriginalAbortController = global['AbortController'];
+-  const supportAbort = typeof OriginalAbortController === 'function';
+-  let abortNative: Function|null = OriginalAbortController?.prototype[api.symbol('abort')];
+   const placeholder = function() {};
+   global['fetch'] = function() {
+     const args = Array.prototype.slice.call(arguments);
+-    const options = args.length > 1 ? args[1] : null;
++    const options = args.length > 1 ? args[1] : {};
+     const signal = options && options.signal;
++    const ac = new AbortController();
++    const fetchSignal = ac.signal;
++    options.signal = fetchSignal;
++    args[1] = options;
++    if (signal) {
++      const nativeAddEventListener =
++          signal[Zone.__symbol__('addEventListener')] || signal.addEventListener;
++      nativeAddEventListener.call(signal, 'abort', function() {
++        ac!.abort();
++      }, {once: true});
++    }
+     return new Promise((res, rej) => {
+       const task = Zone.current.scheduleMacroTask(
+           'fetch', placeholder, {fetchArgs: args} as FetchTaskData,
+@@ -72,25 +79,8 @@ Zone.__load_patch('fetch', (global: any, Zone: ZoneType, api: _ZonePrivate) => {
+                 });
+           },
+           () => {
+-            if (!supportAbort) {
+-              rej('No AbortController supported, can not cancel fetch');
+-              return;
+-            }
+-            if (signal && signal.abortController && !signal.aborted &&
+-                typeof signal.abortController.abort === 'function' && abortNative) {
+-              try {
+-                (Zone.current as any)[fetchTaskAborting] = true;
+-                abortNative.call(signal.abortController);
+-              } finally {
+-                (Zone.current as any)[fetchTaskAborting] = false;
+-              }
+-            } else {
+-              rej('cancel fetch need a AbortController.signal');
+-            }
++            ac.abort();
+           });
+-      if (signal && signal.abortController) {
+-        signal.abortController.tasks = [task];
+-      }
+     });
+   };
+ });
+diff --git a/packages/zone.js/test/browser/browser.spec.ts b/packages/zone.js/test/browser/browser.spec.ts
+index bd35c17e33ae..974d2d4ce44f 100644
+--- a/packages/zone.js/test/browser/browser.spec.ts
++++ b/packages/zone.js/test/browser/browser.spec.ts
+@@ -1809,7 +1809,7 @@ describe('Zone', function() {
+         expect(logs.length).toBe(2);
+         expect(logs).toEqual(['click1', 'click2']);
+ 
+-        button.removeEventListener('click', listener1);
++        ac.abort();
+         listeners = button.eventListeners!('click');
+         expect(listeners.length).toBe(1);
+ 
+@@ -1820,11 +1820,92 @@ describe('Zone', function() {
+         expect(logs.length).toBe(1);
+         expect(listeners.length).toBe(1);
+         expect(logs).toEqual(['click2']);
++      });
+ 
+-        ac.abort();
++      it('should not break remove event listeners with AbortController', function() {
++        let logs: string[] = [];
++        const ac = new AbortController();
++
++        const listener1 = function() {
++          logs.push('click1');
++        };
++        button.addEventListener('click', listener1, {signal: ac.signal});
++        button.addEventListener('click', function() {
++          logs.push('click2');
++        });
++        let listeners = button.eventListeners!('click');
++        expect(listeners.length).toBe(2);
++
++        button.dispatchEvent(clickEvent);
++        expect(logs.length).toBe(2);
++        expect(logs).toEqual(['click1', 'click2']);
++
++        button.removeEventListener('click', listener1);
++        listeners = button.eventListeners!('click');
++        expect(listeners.length).toBe(1);
++
++        logs = [];
++
++        listeners = button.eventListeners!('click');
++        button.dispatchEvent(clickEvent);
++        expect(logs.length).toBe(1);
++        expect(listeners.length).toBe(1);
+         expect(logs).toEqual(['click2']);
+       });
+ 
++      it('should support remove multiple event listeners with the same AbortController',
++         function() {
++           let logs: string[] = [];
++           const ac = new AbortController();
++           const button1 = document.createElement('button');
++           const keyEvent: any = document.createEvent('KeyboardEvent');
++           keyEvent.initKeyboardEvent(
++               'keypress',  // typeArg,
++               true,        // canBubbleArg,
++               true,        // cancelableArg,
++               null,        // viewArg, Specifies UIEvent.view. This value may be null.
++               '',
++               0,
++               false,  // ctrlKeyArg,
++               false,  // altKeyArg,
++               false,  // shiftKeyArg,
++               false,  // metaKeyArg,
++           );
++           document.body.appendChild(button1);
++
++           const listener1 = function() {
++             logs.push('click1');
++           };
++           button.addEventListener('click', listener1, {signal: ac.signal});
++           button.addEventListener('click', function() {
++             logs.push('click2');
++           });
++           button1.addEventListener('keypress', () => logs.push('click3'), {signal: ac.signal});
++           button1.addEventListener('keypress', function() {
++             logs.push('click4');
++           });
++           let listeners = button.eventListeners!('click');
++           expect(listeners.length).toBe(2);
++
++           button.dispatchEvent(clickEvent);
++           expect(logs.length).toBe(2);
++           expect(logs).toEqual(['click1', 'click2']);
++           button1.dispatchEvent(keyEvent);
++           expect(logs.length).toBe(4);
++           expect(logs).toEqual(['click1', 'click2', 'click3', 'click4']);
++
++           logs = [];
++           ac.abort();
++           listeners = button.eventListeners!('click');
++           button.dispatchEvent(clickEvent);
++           expect(logs.length).toBe(1);
++           expect(listeners.length).toBe(1);
++           expect(logs).toEqual(['click2']);
++           button1.dispatchEvent(keyEvent);
++           expect(logs.length).toBe(2);
++           expect(logs).toEqual(['click2', 'click4']);
++         });
++
+       it('should not add event listeners with aborted signal', function() {
+         let logs: string[] = [];
+ 

@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "osu_issue_11660_pr_11671_l_75f1ebd5"
+contextcrbench2_full_name = "ppy/osu"
+contextcrbench2_lang = "c_sharp"
+contextcrbench2_issue_number = "11660"
+contextcrbench2_issue_title = "Changing a mod customisation value causes errors at the beginning of gameplay"
+contextcrbench2_pr_number = "11671"
+contextcrbench2_pr_title = "Add custom MessagePack resolver for mod settings dictionary"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "75f1ebd5f92ef4200f21f457bea58a23d4cdfa70"
+contextcrbench2_commit_id = "ae98263f2de1d22a8a11b4275be4f6475d3c1513"
+contextcrbench2_created_at = "2021-02-03T11:01:18Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

@@ -1,0 +1,6 @@
+{
+  "issue_title": "Implement \"Automatic use_repo fixups for module extensions\"",
+  "issue_body": "Proposal: https://docs.google.com/document/d/1dj8SN5L6nwhNOufNqjBhYkk5f-BJI_FPYWKxlB3GAmA/edit",
+  "pr_title": "Add `module_ctx.extension_metadata`",
+  "pr_body": "Fixes #17908 "
+}

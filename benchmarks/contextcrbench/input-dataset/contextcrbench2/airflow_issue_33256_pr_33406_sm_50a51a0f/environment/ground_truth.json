@@ -1,0 +1,20 @@
+[
+  {
+    "path": "tests/sensors/test_time_sensor.py",
+    "line": 78,
+    "original_line": 78,
+    "review_comment": [
+      "Add a docstring describing what this is testing",
+      "Done."
+    ]
+  },
+  {
+    "path": "tests/sensors/test_time_sensor.py",
+    "line": 88,
+    "original_line": 88,
+    "review_comment": [
+      "If it fallbacks to `UTC` before this changes, should we test with another timezone instead?",
+      "The line you're referring to here, `target_datetime`, is the datetime being given to `DateTimeTrigger` -> `defer`. It must always be converted to UTC.\r\n![Code - 2023-09-20 08 40 43](https://github.com/apache/airflow/assets/10685096/a52465ff-b36f-4b6b-9ae9-f9164b699a48)\r\n"
+    ]
+  }
+]

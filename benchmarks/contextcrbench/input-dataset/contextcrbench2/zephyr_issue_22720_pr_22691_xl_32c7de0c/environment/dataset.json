@@ -1,0 +1,13 @@
+[
+  {
+    "id": 28078,
+    "full_name": "zephyrproject-rtos/zephyr",
+    "lang": "c",
+    "issue_number": 22720,
+    "pr_number": 22691,
+    "diff_hunk": "@@ -205,11 +205,20 @@ void configure_builtin_stack_guard(struct k_thread *thread)\n \t\t * User threads executing in user mode do not require a stack\n \t\t * limit protection.\n \t\t */\n+\t\t__set_PSPLIM(0);\n \t\treturn;\n \t}\n-\tu32_t guard_start = thread->arch.priv_stack_start ?\n-\t\t\t    (u32_t)thread->arch.priv_stack_start :\n-\t\t\t    (u32_t)thread->stack_obj;\n+\t/* Only configure PSPLIM to guard the privileged stack area, if\n+\t * the thread is currently using it, otherwise guard the default\n+\t * thread stack. Note that the conditional check relies on the\n+\t * thread privileged stack being allocated in higher memory area\n+\t * than the default thread stack (ensured by design).\n+\t */\n+\tu32_t guard_start =\n+\t\t((thread->arch.priv_stack_start) &&\n+\t\t\t(__get_PSP() >= thread->arch.priv_stack_start)) ?\n+\t\t(u32_t)thread->arch.priv_stack_start :\n+\t\t(u32_t)thread->stack_obj;\n \n \t__ASSERT(thread->stack_info.start == ((u32_t)thread->stack_obj),\n \t\t\"stack_info.start does not point to the start of the\"\n",
+    "diff_hunk_content_with_line_number": "[205][205]  \t\t * User threads executing in user mode do not require a stack\n[206][206]  \t\t * limit protection.\n[207][207]  \t\t */\n[][208] +\t\t__set_PSPLIM(0);\n[208][209]  \t\treturn;\n[209][210]  \t}\n[210][] -\tu32_t guard_start = thread->arch.priv_stack_start ?\n[211][] -\t\t\t    (u32_t)thread->arch.priv_stack_start :\n[212][] -\t\t\t    (u32_t)thread->stack_obj;\n[][211] +\t/* Only configure PSPLIM to guard the privileged stack area, if\n[][212] +\t * the thread is currently using it, otherwise guard the default\n[][213] +\t * thread stack. Note that the conditional check relies on the\n[][214] +\t * thread privileged stack being allocated in higher memory area\n[][215] +\t * than the default thread stack (ensured by design).\n[][216] +\t */\n[][217] +\tu32_t guard_start =\n[][218] +\t\t((thread->arch.priv_stack_start) &&\n[][219] +\t\t\t(__get_PSP() >= thread->arch.priv_stack_start)) ?\n[][220] +\t\t(u32_t)thread->arch.priv_stack_start :\n[][221] +\t\t(u32_t)thread->stack_obj;\n[213][222]  \n[214][223]  \t__ASSERT(thread->stack_info.start == ((u32_t)thread->stack_obj),\n[215][224]  \t\t\"stack_info.start does not point to the start of the\"",
+    "checked_commit_id": "32c7de0c806e91fee51d18f62dc4310127afa6b7",
+    "pr_size": "xl"
+  }
+]

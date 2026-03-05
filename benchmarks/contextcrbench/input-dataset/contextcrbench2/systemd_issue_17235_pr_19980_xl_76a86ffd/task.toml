@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "systemd_issue_17235_pr_19980_xl_76a86ffd"
+contextcrbench2_full_name = "systemd/systemd"
+contextcrbench2_lang = "c"
+contextcrbench2_issue_number = "17235"
+contextcrbench2_issue_title = "SendDecline side effect with multiple interface on the same network"
+contextcrbench2_pr_number = "19980"
+contextcrbench2_pr_title = "network: IPv4LL and ACD fixes"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "76a86ffdbee2dd9ef0f2b5338e14eb6ba7671456"
+contextcrbench2_commit_id = "449244312499eff837b48638db55f65007db500b"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2021-06-30T20:20:17Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

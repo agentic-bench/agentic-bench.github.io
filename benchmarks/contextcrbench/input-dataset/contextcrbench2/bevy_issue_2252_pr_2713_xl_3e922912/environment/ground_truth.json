@@ -1,0 +1,12 @@
+[
+  {
+    "path": "examples/ecs/custom_query_param.rs",
+    "line": 8,
+    "original_line": 8,
+    "review_comment": [
+      "Could you include `Entity` in one of the derived queries? It's a very useful bit of functionality and isn't always obvious that it works the same way as querying for components.",
+      "It's already included in the first query example.",
+      "Ah, my bad!"
+    ]
+  }
+]

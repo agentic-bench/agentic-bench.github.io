@@ -1,0 +1,13 @@
+[
+  {
+    "id": 2937,
+    "full_name": "fastlane/fastlane",
+    "lang": "ruby",
+    "issue_number": 18768,
+    "pr_number": 18825,
+    "diff_hunk": "@@ -72,6 +67,24 @@ def run\n       return self\n     end\n \n+    def load_cookies(content)\n+      # When Ruby 2.5 support is dropped, we can safely get rid of the latter branch.\n+      if YAML.name == 'Psych' && Gem::Version.new(Psych::VERSION) >= Gem::Version.new('3.1')\n+        YAML.safe_load(\n+          content,\n+          permitted_classes: [HTTP::Cookie, Time],\n+          aliases: true\n+        )\n+      else\n+        YAML.safe_load(\n+          content,\n+          [HTTP::Cookie, Time], # classes allowlist\n+          [],                   # symbols allowlist\n+          true                  # allow YAML aliases\n+        )\n+      end\n+    end\n+\n     def session_string\n       FastlaneCore::UI.user_error!(\"`#{__method__}` method called before calling `run` in `SpaceauthRunner`\") unless @yaml\n       @yaml\n",
+    "diff_hunk_content_with_line_number": "[72][67]        return self\n[73][68]      end\n[74][69]  \n[][70] +    def load_cookies(content)\n[][71] +      # When Ruby 2.5 support is dropped, we can safely get rid of the latter branch.\n[][72] +      if YAML.name == 'Psych' && Gem::Version.new(Psych::VERSION) >= Gem::Version.new('3.1')\n[][73] +        YAML.safe_load(\n[][74] +          content,\n[][75] +          permitted_classes: [HTTP::Cookie, Time],\n[][76] +          aliases: true\n[][77] +        )\n[][78] +      else\n[][79] +        YAML.safe_load(\n[][80] +          content,\n[][81] +          [HTTP::Cookie, Time], # classes allowlist\n[][82] +          [],                   # symbols allowlist\n[][83] +          true                  # allow YAML aliases\n[][84] +        )\n[][85] +      end\n[][86] +    end\n[][87] +\n[75][88]      def session_string\n[76][89]        FastlaneCore::UI.user_error!(\"`#{__method__}` method called before calling `run` in `SpaceauthRunner`\") unless @yaml\n[77][90]        @yaml",
+    "checked_commit_id": "301c9cace2358e6046797f0935f6a2594a857517",
+    "pr_size": "sm"
+  }
+]

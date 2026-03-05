@@ -1,0 +1,77 @@
+diff --git a/Algorithm/QCAlgorithm.Indicators.cs b/Algorithm/QCAlgorithm.Indicators.cs
+index dc52f50525d1..9bf33a4a16b4 100644
+--- a/Algorithm/QCAlgorithm.Indicators.cs
++++ b/Algorithm/QCAlgorithm.Indicators.cs
+@@ -1702,7 +1702,7 @@ public WilderMovingAverage WWMA(Symbol symbol, int period, Resolution? resolutio
+         /// <returns>The Arms Index indicator for the requested symbol over the specified period</returns>
+         public ArmsIndex TRIN(IEnumerable<Symbol> symbols, Resolution? resolution = null)
+         {
+-            var name = CreateIndicatorName(QuantConnect.Symbol.Empty, "TRIN", resolution ?? GetSubscription(symbols.First()).Resolution);
++            var name = CreateIndicatorName(QuantConnect.Symbol.None, "TRIN", resolution ?? GetSubscription(symbols.First()).Resolution);
+             var trin = new ArmsIndex(name);
+             foreach (var symbol in symbols)
+             {
+@@ -1726,7 +1726,7 @@ public ArmsIndex TRIN(IEnumerable<Symbol> symbols, Resolution? resolution = null
+         /// <returns>The Advance/Decline Ratio indicator for the requested symbol over the specified period</returns>
+         public AdvanceDeclineRatio ADR(IEnumerable<Symbol> symbols, Resolution? resolution = null)
+         {
+-            var name = CreateIndicatorName(QuantConnect.Symbol.Empty, "A/D Ratio", resolution ?? GetSubscription(symbols.First()).Resolution);
++            var name = CreateIndicatorName(QuantConnect.Symbol.None, "A/D Ratio", resolution ?? GetSubscription(symbols.First()).Resolution);
+             var adr = new AdvanceDeclineRatio(name);
+             foreach (var symbol in symbols)
+             {
+@@ -1750,7 +1750,7 @@ public AdvanceDeclineRatio ADR(IEnumerable<Symbol> symbols, Resolution? resoluti
+         /// <returns>The Advance/Decline Volume Ratio indicator for the requested symbol over the specified period</returns>
+         public AdvanceDeclineVolumeRatio ADVR(IEnumerable<Symbol> symbols, Resolution? resolution = null)
+         {
+-            var name = CreateIndicatorName(QuantConnect.Symbol.Empty, "A/D Volume Rate", resolution ?? GetSubscription(symbols.First()).Resolution);
++            var name = CreateIndicatorName(QuantConnect.Symbol.None, "A/D Volume Rate", resolution ?? GetSubscription(symbols.First()).Resolution);
+             var advr = new AdvanceDeclineVolumeRatio(name);
+             foreach (var symbol in symbols)
+             {
+@@ -1814,8 +1814,14 @@ public string CreateIndicatorName(Symbol symbol, string type, Resolution? resolu
+                     throw new ArgumentOutOfRangeException(nameof(resolution), resolution, "resolution parameter is out of range.");
+             }
+ 
+-            var parts = new[] { symbol.ToString(), res }
+-                .Where(p => !string.IsNullOrEmpty(p));
++            var parts = new List<string>();
++
++            if (symbol != QuantConnect.Symbol.None && symbol != QuantConnect.Symbol.Empty)
++            {
++                parts.Add(symbol.ToString());
++            }
++            parts.Add(res);
++            
+             return Invariant($"{type}({string.Join("_", parts)})").Replace(")(", ",");
+         }
+ 
+diff --git a/Tests/Algorithm/AlgorithmRegisterIndicatorTests.cs b/Tests/Algorithm/AlgorithmRegisterIndicatorTests.cs
+index e30176ca4c1d..ad4d8f6c71e1 100644
+--- a/Tests/Algorithm/AlgorithmRegisterIndicatorTests.cs
++++ b/Tests/Algorithm/AlgorithmRegisterIndicatorTests.cs
+@@ -88,6 +88,24 @@ public void RegistersIndicatorProperly()
+             }
+         }
+ 
++
++        private static TestCaseData[] IndicatorNameParameters => new[]
++        {
++            new TestCaseData(Symbols.SPY, "TEST", Resolution.Tick, "TEST(SPY_tick)"),
++            new TestCaseData(Symbols.SPY, "TEST", Resolution.Second, "TEST(SPY_sec)"),
++            new TestCaseData(Symbols.SPY, "TEST", Resolution.Minute, "TEST(SPY_min)"),
++            new TestCaseData(Symbols.SPY, "TEST", Resolution.Hour, "TEST(SPY_hr)"),
++            new TestCaseData(Symbols.SPY, "TEST", Resolution.Daily, "TEST(SPY_day)"),
++            new TestCaseData(Symbol.Empty, "TEST", Resolution.Minute, "TEST(min)"),
++            new TestCaseData(Symbol.None, "TEST", Resolution.Minute, "TEST(min)")
++        };
++
++        [Test, TestCaseSource(nameof(IndicatorNameParameters))]
++        public void CreateIndicatorName(Symbol symbol, string baseName, Resolution resolution, string expectation)
++        {
++            Assert.AreEqual(expectation, _algorithm.CreateIndicatorName(symbol, baseName, resolution));
++        }
++
+         [Test]
+         public void PlotAndRegistersIndicatorProperlyPython()
+         {

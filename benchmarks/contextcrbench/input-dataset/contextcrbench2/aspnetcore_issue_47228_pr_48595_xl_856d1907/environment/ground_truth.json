@@ -1,0 +1,23 @@
+[
+  {
+    "path": "src/Identity/Core/src/IdentityServiceCollectionExtensions.cs",
+    "line": 134,
+    "original_line": 134,
+    "review_comment": [
+      "Is there any reason we don't add this to the IdentityBuilder API? I was looking at my todo app and I want to call it here:\r\n\r\nhttps://github.com/davidfowl/TodoApi/blob/213325a86a615ac516124896a3c7d3138b665be1/TodoApi/Program.cs#L15-L16\r\n\r\nNot on the top level. I dont' want cookies involved.",
+      "`AddApiEndpoints` is the IdentityBuilder extension method which is called by `AddIdentityApiEndpoints<TUser>`. Everything `AddIdentityApiEndpoints<TUser>` calls is public, so you can just skip the cookie parts and do everything else. That's exactly what I do in [AddIdentityEndpointsBearerOnly in the MapIdenityTests](https://github.com/dotnet/aspnetcore/pull/48595/files#diff-d88f54b4508524c717fc2d147db4e69bf6da267e6f1d8b1cbd3c627a8b88a3acR382-R390 ).\r\n\r\n",
+      "```C#\r\nservices\r\n            .AddIdentityCore<ApplicationUser>()\r\n            .AddEntityFrameworkStores<ApplicationDbContext>()\r\n            .AddApiEndpoints();\r\n        services\r\n            .AddAuthentication(IdentityConstants.BearerScheme)\r\n            .AddIdentityBearerToken<ApplicationUser>();\r\n```\r\n\r\nWhy doesn't AddApiEndpoints add the authentication scheme as well?",
+      "Is there any reason I need to specify the scheme directly? We default to the single scheme if there's only one right? ",
+      "You can use the endpoints with just cookies or just bearer tokens, and I don't think it really makes sense to pick a preferred authentication scheme. So you either call `AddIdentityApiEndpoints<TUser>` to add both schemes, or you add whichever scheme you want manually.\r\n\r\nI didn't know about auth picking the default to the single scheme if there's only one. I just tried it, and that is indeed the case."
+    ]
+  },
+  {
+    "path": "src/Security/Authentication/BearerToken/src/BearerTokenOptions.cs",
+    "line": 41,
+    "original_line": 41,
+    "review_comment": [
+      "just curious, are these defaults we are making up? or there's some RFC or something we should ref?",
+      "I didn't see any suggested default for the refresh token lifetime in the oauth2 RFC [1] or any suggestion that it necessarily needs to expire at all.\r\n\r\nMicrosoft identity platform default to 24 hours for SPAs and 90 days for everything else [2]. Auth0 defaults to 30 days [3]. And our Cookie auth handler's cookie expiration defaults to 14 days [4].\r\n\r\nSince cookies have sliding expiration similar to refresh by default, and cookies and refresh tokens are created the same way by default, I went with the Cookie auth handler's cookie expiration of 14 days.\r\n\r\n1. https://datatracker.ietf.org/doc/html/rfc6749#section-1.5\r\n2. https://learn.microsoft.com/en-us/azure/active-directory/develop/refresh-tokens#token-lifetime\r\n3. https://auth0.com/docs/secure/tokens/refresh-tokens/configure-refresh-token-expiration\r\n4. https://github.com/dotnet/aspnetcore/blob/e4c6621d9a09cae8565ad918ba5083c9b28840bd/src/Security/Authentication/Cookies/src/CookieAuthenticationOptions.cs#L30\r\n\r\nEdit: Not that we're trying to implement oauth2 here ofc. I only looked at these for comparison purposes."
+    ]
+  }
+]

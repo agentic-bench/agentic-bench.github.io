@@ -1,0 +1,6 @@
+{
+  "issue_title": "tests: sockets: tcp: add a tls test",
+  "issue_body": "**Is your enhancement proposal related to a problem? Please describe.**\r\nCurrently I'm attempting to use mbedTLS in a custom application and am creating a test to verify TLS in CI. The test is multi-threaded and uses TCP sockets with the TLS extensions; the server server socket is managed by one thread and the client socket is managed by the main thread.\r\n\r\nMy reference(s) for the application were the `echo_server` / `echo_client` sample applications and I'm just using the certificates / keys from those sample applications as-is. However, I'm experiencing a handshake error in TLS.\r\n\r\n**Describe the solution you'd like**\r\nIt might be useful to have it a test that verified this kind of functionality in Zephyr CI\r\n\r\n**Describe alternatives you've considered**\r\nHave looked around for existing tests that exercise this particular setup, but have found none.\r\n\r\n**Additional context**\r\n",
+  "pr_title": "tests: sockets: add test for socket api tls extensions",
+  "pr_body": "This change adds a test for the socket API TLS extensions.\r\n\r\nFixes #30936\r\n"
+}

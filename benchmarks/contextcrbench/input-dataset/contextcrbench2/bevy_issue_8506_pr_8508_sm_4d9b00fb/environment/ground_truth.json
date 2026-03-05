@@ -1,0 +1,12 @@
+[
+  {
+    "path": "crates/bevy_pbr/src/render/light.rs",
+    "line": 223,
+    "original_line": 223,
+    "review_comment": [
+      "Hmm, is this the case for _all_ WebGL2? Or just with some Adreno GPU drivers?",
+      "Its actually only the case for Adreno GPU drivers, but I am not sure how to address that. \r\n",
+      "I don't think it's possible if we're using a const here, since you have to query the gpu driver at runtime.\r\n\r\nedit: Also, is this for all Adreno GPUs, or only certain ones? Do you know if it's an issue on just Android, or does it also impact Linux?\r\n\r\nedit2: I should've read the linked issues first..."
+    ]
+  }
+]

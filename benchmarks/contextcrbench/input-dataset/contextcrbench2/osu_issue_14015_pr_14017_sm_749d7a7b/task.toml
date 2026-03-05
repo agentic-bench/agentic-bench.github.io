@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "osu_issue_14015_pr_14017_sm_749d7a7b"
+contextcrbench2_full_name = "ppy/osu"
+contextcrbench2_lang = "c_sharp"
+contextcrbench2_issue_number = "14015"
+contextcrbench2_issue_title = "Rooms in the online-play longue screen aren't scrollable by dragging"
+contextcrbench2_pr_number = "14017"
+contextcrbench2_pr_title = "Fix rooms in online-play longue screen no longer scrollable by dragging"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "749d7a7b24e329fa68a2a706e721bb729bac9338"
+contextcrbench2_commit_id = "749d7a7b24e329fa68a2a706e721bb729bac9338"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2021-07-26T02:58:19Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

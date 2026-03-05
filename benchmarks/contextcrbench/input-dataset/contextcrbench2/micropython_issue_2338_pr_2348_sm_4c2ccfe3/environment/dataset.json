@@ -1,0 +1,13 @@
+[
+  {
+    "id": 23034,
+    "full_name": "micropython/micropython",
+    "lang": "c",
+    "issue_number": 2338,
+    "pr_number": 2348,
+    "diff_hunk": "@@ -162,7 +162,7 @@ STATIC mp_obj_t fatfs_mount(size_t n_args, const mp_obj_t *pos_args, mp_map_t *k\n }\n MP_DEFINE_CONST_FUN_OBJ_KW(fsuser_mount_obj, 2, fatfs_mount);\n \n-STATIC mp_obj_t fatfs_umount(mp_obj_t bdev_or_path_in) {\n+mp_obj_t fatfs_umount(mp_obj_t bdev_or_path_in) {\n     size_t i = 0;\n     if (MP_OBJ_IS_STR(bdev_or_path_in)) {\n         mp_uint_t mnt_len;\n",
+    "diff_hunk_content_with_line_number": "[162][162]  }\n[163][163]  MP_DEFINE_CONST_FUN_OBJ_KW(fsuser_mount_obj, 2, fatfs_mount);\n[164][164]  \n[165][] -STATIC mp_obj_t fatfs_umount(mp_obj_t bdev_or_path_in) {\n[][165] +mp_obj_t fatfs_umount(mp_obj_t bdev_or_path_in) {\n[166][166]      size_t i = 0;\n[167][167]      if (MP_OBJ_IS_STR(bdev_or_path_in)) {\n[168][168]          mp_uint_t mnt_len;",
+    "checked_commit_id": "4c2ccfe3d6ed132126420b6459886d7ad1451862",
+    "pr_size": "sm"
+  }
+]

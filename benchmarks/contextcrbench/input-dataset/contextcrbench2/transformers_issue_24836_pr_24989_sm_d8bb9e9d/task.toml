@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "transformers_issue_24836_pr_24989_sm_d8bb9e9d"
+contextcrbench2_full_name = "huggingface/transformers"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "24836"
+contextcrbench2_issue_title = "Pipeline feature request for min_new_tokens"
+contextcrbench2_pr_number = "24989"
+contextcrbench2_pr_title = "Generate: `ImageToTextPipeline` now supports generation kwargs"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "d8bb9e9d386a9658bb52fa1ebe154f9d8e29fd5f"
+contextcrbench2_commit_id = "d8bb9e9d386a9658bb52fa1ebe154f9d8e29fd5f"
+contextcrbench2_created_at = "2023-07-21T12:43:47Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

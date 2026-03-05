@@ -1,0 +1,12 @@
+[
+  {
+    "path": "broker/src/main/java/org/apache/rocketmq/broker/processor/AdminBrokerProcessor.java",
+    "line": 1029,
+    "original_line": 1029,
+    "review_comment": [
+      "It would be better to make an optional configuration here, because some users also want to show the consumption progress of topics that they have subscribed to, and it seems that users in the community are already used to this usage, so forward compatibility is necessary",
+      "@duhenglucky so maybe I should add request flag for client, then broker will check flag bool indicator to dicide to filter ? ",
+      "@ IMHO, it seems that add a flag in the client will be a better choice"
+    ]
+  }
+]

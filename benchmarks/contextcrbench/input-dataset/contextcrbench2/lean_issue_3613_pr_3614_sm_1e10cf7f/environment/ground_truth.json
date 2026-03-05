@@ -1,0 +1,22 @@
+[
+  {
+    "path": "ToolBox/SmartInsider/SmartInsiderProgram.cs",
+    "line": 31,
+    "original_line": 31,
+    "review_comment": [
+      "Isn't this default value already handled by the caller using `GetParameterOrDefault()`?",
+      "We need to set a default for external callers of this method"
+    ]
+  },
+  {
+    "path": "ToolBox/SmartInsider/SmartInsiderConverter.cs",
+    "line": 253,
+    "original_line": 252,
+    "review_comment": [
+      "Not sure I follow how this works, are the logs at 251 and 258 now outdated?\r\n`processedFile` is the combination of `_processedFilesDirectory.FullName` and `destinationDirectory.Name`?",
+      "`destinationDirectory.Name` gets the `transactions` or `intentions` part of the path, so that we know where to load up the existing files from.",
+      "thanks for the updated docs - The log at 252 seems to supposed that the `finalFile` is the same as the `processedFile` which isn't the case anymore? ",
+      "I believe it makes sense to keep the logs as-is so that we can differentiate whether we're writing to a new file, or an existing file. Maybe some rewording of that log message would be ideal for further clarity."
+    ]
+  }
+]

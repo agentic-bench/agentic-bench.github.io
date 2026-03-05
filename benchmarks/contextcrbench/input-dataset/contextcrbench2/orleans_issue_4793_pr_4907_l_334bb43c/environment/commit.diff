@@ -1,0 +1,613 @@
+diff --git a/src/Orleans.Core/Messaging/ClientMessageCenter.cs b/src/Orleans.Core/Messaging/ClientMessageCenter.cs
+index ad2ddef6422..f23592d708b 100644
+--- a/src/Orleans.Core/Messaging/ClientMessageCenter.cs
++++ b/src/Orleans.Core/Messaging/ClientMessageCenter.cs
+@@ -376,11 +376,10 @@ internal void QueueIncomingMessage(Message msg)
+             PendingInboundMessages.Add(msg);
+         }
+ 
+-        private void RejectMessage(Message msg, string reasonFormat, params object[] reasonParams)
++        public void RejectMessage(Message msg, string reason, Exception exc = null)
+         {
+             if (!Running) return;
+-
+-            var reason = String.Format(reasonFormat, reasonParams);
++            
+             if (msg.Direction != Message.Directions.Request)
+             {
+                 if (logger.IsEnabled(LogLevel.Debug)) logger.Debug(ErrorCode.ProxyClient_DroppingMsg, "Dropping message: {0}. Reason = {1}", msg, reason);
+@@ -389,7 +388,7 @@ private void RejectMessage(Message msg, string reasonFormat, params object[] rea
+             {
+                 if (logger.IsEnabled(LogLevel.Debug)) logger.Debug(ErrorCode.ProxyClient_RejectingMsg, "Rejecting message: {0}. Reason = {1}", msg, reason);
+                 MessagingStatisticsGroup.OnRejectedMessage(msg);
+-                Message error = this.messageFactory.CreateRejectionResponse(msg, Message.RejectionTypes.Unrecoverable, reason);
++                Message error = this.messageFactory.CreateRejectionResponse(msg, Message.RejectionTypes.Unrecoverable, reason, exc);
+                 QueueIncomingMessage(error);
+             }
+         }
+diff --git a/src/Orleans.Core/Messaging/GatewayConnection.cs b/src/Orleans.Core/Messaging/GatewayConnection.cs
+index 39b1a7b2e33..387d310b8c7 100644
+--- a/src/Orleans.Core/Messaging/GatewayConnection.cs
++++ b/src/Orleans.Core/Messaging/GatewayConnection.cs
+@@ -250,28 +250,42 @@ protected override void OnGetSendingSocketFailure(Message msg, string error)
+         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Design", "CA1031:DoNotCatchGeneralExceptionTypes")]
+         protected override void OnMessageSerializationFailure(Message msg, Exception exc)
+         {
+-            // we only get here if we failed to serialise the msg (or any other catastrophic failure).
+-            // Request msg fails to serialise on the sending silo, so we just enqueue a rejection msg.
+-            Log.Warn(ErrorCode.ProxyClient_SerializationError, $"Unexpected error serializing message to gateway {Address}.", exc);
+-            FailMessage(msg, $"Unexpected error serializing message to gateway {Address}. {exc}");
+-            if (msg.Direction == Message.Directions.Request || msg.Direction == Message.Directions.OneWay)
++            // we only get here if we failed to serialize the msg (or any other catastrophic failure).
++            // Request msg fails to serialize on the sender, so we just enqueue a rejection msg.
++            // Response msg fails to serialize on the responding silo, so we try to send an error response back.
++            this.Log.LogWarning(
++                (int) ErrorCode.ProxyClient_SerializationError,
++                "Unexpected error serializing message {Message}: {Exception}",
++                msg,
++                exc);
++
++            msg.ReleaseBodyAndHeaderBuffers();
++            MessagingStatisticsGroup.OnFailedSentMessage(msg);
++
++            var retryCount = msg.RetryCount ?? 0;
++
++            if (msg.Direction == Message.Directions.Request)
+             {
+-                return;
++                this.MsgCenter.RejectMessage(msg, $"Unable to serialize message. Encountered exception: {exc?.GetType()}: {exc?.Message}", exc);
+             }
+-
+-            // Response msg fails to serialize on the responding silo, so we try to send an error response back.
+-            // if we failed sending an original response, turn the response body into an error and reply with it.
+-            msg.Result = Message.ResponseTypes.Error;
+-            msg.BodyObject = Response.ExceptionResponse(exc);
+-            try
++            else if (msg.Direction == Message.Directions.Response && retryCount < 1)
+             {
+-                MsgCenter.SendMessage(msg);
++                // if we failed sending an original response, turn the response body into an error and reply with it.
++                // unless we have already tried sending the response multiple times.
++                msg.Result = Message.ResponseTypes.Error;
++                msg.BodyObject = Response.ExceptionResponse(exc);
++                msg.RetryCount = retryCount + 1;
++                this.MsgCenter.SendMessage(msg);
+             }
+-            catch (Exception ex)
++            else
+             {
+-                // If we still can't serialize, drop the message on the floor
+-                Log.Warn(ErrorCode.ProxyClient_DroppingMsg, "Unable to serialize message - DROPPING " + msg, ex);
+-                msg.ReleaseBodyAndHeaderBuffers();
++                this.Log.LogWarning(
++                    (int)ErrorCode.ProxyClient_DroppingMsg,
++                    "Gateway client is dropping message which failed during serialization: {Message}. Exception = {Exception}",
++                    msg,
++                    exc);
++
++                MessagingStatisticsGroup.OnDroppedSentMessage(msg);
+             }
+         }
+ 
+diff --git a/src/Orleans.Core/Runtime/InvokableObjectManager.cs b/src/Orleans.Core/Runtime/InvokableObjectManager.cs
+index f1ef499e357..1edafd849d0 100644
+--- a/src/Orleans.Core/Runtime/InvokableObjectManager.cs
++++ b/src/Orleans.Core/Runtime/InvokableObjectManager.cs
+@@ -145,12 +145,31 @@ private async Task LocalObjectMessagePumpAsync(LocalObjectData objectData)
+                         continue;
+ 
+                     RequestContextExtensions.Import(message.RequestContextData);
+-                    var request = (InvokeMethodRequest)message.GetDeserializedBody(this.serializationManager);
++                    InvokeMethodRequest request = null;
++                    try
++                    {
++                        request = (InvokeMethodRequest) message.GetDeserializedBody(this.serializationManager);
++                    }
++                    catch (Exception deserializationException)
++                    {
++                        if (this.logger.IsEnabled(LogLevel.Warning))
++                        {
++                            this.logger.LogWarning(
++                                "Exception during message body deserialization in " + nameof(LocalObjectMessagePumpAsync) + " for message: {Message}, Exception: {Exception}",
++                                message,
++                                deserializationException);
++                        }
++
++                        this.runtimeClient.SendResponse(message, Response.ExceptionResponse(deserializationException));
++                        continue;
++                    }
++
+                     var targetOb = (IAddressable)objectData.LocalObject.Target;
+                     object resultObject = null;
+                     Exception caught = null;
+                     try
+                     {
++
+                         // exceptions thrown within this scope are not considered to be thrown from user code
+                         // and not from runtime code.
+                         var resultPromise = objectData.Invoker.Invoke(targetOb, request);
+@@ -170,9 +189,14 @@ private async Task LocalObjectMessagePumpAsync(LocalObjectData objectData)
+                     else if (message.Direction != Message.Directions.OneWay)
+                         this.SendResponseAsync(message, resultObject);
+                 }
+-                catch (Exception)
++                catch (Exception outerException)
+                 {
+                     // ignore, keep looping.
++                    this.logger.LogWarning("Exception in " + nameof(LocalObjectMessagePumpAsync) + ": {Exception}", outerException);
++                }
++                finally
++                {
++                    RequestContext.Clear();
+                 }
+             }
+         }
+diff --git a/src/Orleans.Runtime/Messaging/Gateway.cs b/src/Orleans.Runtime/Messaging/Gateway.cs
+index 2cf01755c51..2f3c6b5d8e2 100644
+--- a/src/Orleans.Runtime/Messaging/Gateway.cs
++++ b/src/Orleans.Runtime/Messaging/Gateway.cs
+@@ -588,10 +588,41 @@ private void OnMessageSerializationFailure(Message msg, Exception exc)
+                 // we only get here if we failed to serialize the msg (or any other catastrophic failure).
+                 // Request msg fails to serialize on the sending silo, so we just enqueue a rejection msg.
+                 // Response msg fails to serialize on the responding silo, so we try to send an error response back.
+-                Log.Warn(ErrorCode.Messaging_Gateway_SerializationError, String.Format("Unexpected error serializing message {0} on the gateway", msg.ToString()), exc);
++                this.Log.LogWarning(
++                    (int)ErrorCode.Messaging_Gateway_SerializationError,
++                    "Unexpected error serializing message {Message}: {Exception}",
++                    msg,
++                    exc);
++
+                 msg.ReleaseBodyAndHeaderBuffers();
+                 MessagingStatisticsGroup.OnFailedSentMessage(msg);
+-                MessagingStatisticsGroup.OnDroppedSentMessage(msg);
++
++                var retryCount = msg.RetryCount ?? 0;
++
++                if (msg.Direction == Message.Directions.Request)
++                {
++                    this.gateway.messageCenter.SendRejection(msg, Message.RejectionTypes.Unrecoverable, exc.ToString());
++                }
++                else if (msg.Direction == Message.Directions.Response && retryCount < 1)
++                {
++                    // if we failed sending an original response, turn the response body into an error and reply with it.
++                    // unless we have already tried sending the response multiple times.
++                    msg.Result = Message.ResponseTypes.Error;
++                    msg.BodyObject = Response.ExceptionResponse(exc);
++                    msg.RetryCount = retryCount + 1;
++                    this.gateway.messageCenter.SendMessage(msg);
++                }
++                else
++                {
++                    this.Log.LogWarning(
++                        (int)ErrorCode.Messaging_OutgoingMS_DroppingMessage,
++                        "Gateway {GatewayAddress} is dropping message which failed during serialization: {Message}. Exception = {Exception}",
++                        this.gateway.gatewayAddress,
++                        msg,
++                        exc);
++
++                    MessagingStatisticsGroup.OnDroppedSentMessage(msg);
++                }
+             }
+         }
+     }
+diff --git a/src/Orleans.Runtime/Messaging/SiloMessageSender.cs b/src/Orleans.Runtime/Messaging/SiloMessageSender.cs
+index 0f06f04e077..0aba09bc6dd 100644
+--- a/src/Orleans.Runtime/Messaging/SiloMessageSender.cs
++++ b/src/Orleans.Runtime/Messaging/SiloMessageSender.cs
+@@ -109,24 +109,39 @@ protected override void OnMessageSerializationFailure(Message msg, Exception exc
+             // we only get here if we failed to serialize the msg (or any other catastrophic failure).
+             // Request msg fails to serialize on the sending silo, so we just enqueue a rejection msg.
+             // Response msg fails to serialize on the responding silo, so we try to send an error response back.
+-            Log.Warn(ErrorCode.MessagingUnexpectedSendError, String.Format("Unexpected error sending message {0}", msg.ToString()), exc);
+-            
++            this.Log.LogWarning(
++                (int)ErrorCode.MessagingUnexpectedSendError,
++                "Unexpected error serializing message {Message}: {Exception}",
++                msg,
++                exc);
++
+             msg.ReleaseBodyAndHeaderBuffers();
+             MessagingStatisticsGroup.OnFailedSentMessage(msg);
++
++            var retryCount = msg.RetryCount ?? 0;
++
+             if (msg.Direction == Message.Directions.Request)
+             {
+                 messageCenter.SendRejection(msg, Message.RejectionTypes.Unrecoverable, exc.ToString());
+             }
+-            else if (msg.Direction == Message.Directions.Response && msg.Result != Message.ResponseTypes.Error)
++            else if (msg.Direction == Message.Directions.Response && retryCount < 1)
+             {
+                 // if we failed sending an original response, turn the response body into an error and reply with it.
+-                // unless the response was already an error response (so we don't loop forever).
++                // unless we have already tried sending the response multiple times.
+                 msg.Result = Message.ResponseTypes.Error;
+                 msg.BodyObject = Response.ExceptionResponse(exc);
+-                messageCenter.SendMessage(msg);
++                msg.RetryCount = retryCount + 1;
++                this.messageCenter.SendMessage(msg);
+             }
+             else
+             {
++                this.Log.LogWarning(
++                    (int)ErrorCode.Messaging_OutgoingMS_DroppingMessage,
++                    "Silo {SiloAddress} is dropping message which failed during serialization: {Message}. Exception = {Exception}",
++                    this.messageCenter.MyAddress,
++                    msg,
++                    exc);
++
+                 MessagingStatisticsGroup.OnDroppedSentMessage(msg);
+             }
+         }
+@@ -159,7 +174,8 @@ protected override void FailMessage(Message msg, string reason)
+                 if (Log.IsEnabled(LogLevel.Debug)) Log.Debug(ErrorCode.MessagingSendingRejection, "Silo {siloAddress} is rejecting message: {message}. Reason = {reason}", messageCenter.MyAddress, msg, reason);
+                 // Done retrying, send back an error instead
+                 messageCenter.SendRejection(msg, Message.RejectionTypes.Transient, String.Format("Silo {0} is rejecting message: {1}. Reason = {2}", messageCenter.MyAddress, msg, reason));
+-            }else
++            }
++            else
+             {
+                 Log.Info(ErrorCode.Messaging_OutgoingMS_DroppingMessage, "Silo {siloAddress} is dropping message: {message}. Reason = {reason}", messageCenter.MyAddress, msg, reason);
+                 MessagingStatisticsGroup.OnDroppedSentMessage(msg);
+@@ -170,14 +186,10 @@ private void RetryMessage(Message msg, Exception ex = null)
+         {
+             if (msg == null) return;
+ 
+-            int maxRetries = DEFAULT_MAX_RETRIES;
+-            if (msg.MaxRetries.HasValue)
+-                maxRetries = msg.MaxRetries.Value;
+-            
+-            int retryCount = 0;
+-            if (msg.RetryCount.HasValue)
+-                retryCount = msg.RetryCount.Value;
+-            
++            int maxRetries = msg.MaxRetries ?? DEFAULT_MAX_RETRIES;
++
++            int retryCount = msg.RetryCount ?? 0;
++
+             if (retryCount < maxRetries)
+             {
+                 msg.RetryCount = retryCount + 1;
+diff --git a/test/Grains/TestGrainInterfaces/IExceptionGrain.cs b/test/Grains/TestGrainInterfaces/IExceptionGrain.cs
+index c0dcb70acad..febe0456449 100644
+--- a/test/Grains/TestGrainInterfaces/IExceptionGrain.cs
++++ b/test/Grains/TestGrainInterfaces/IExceptionGrain.cs
+@@ -1,3 +1,8 @@
++using System;
++using Orleans.CodeGeneration;
++using Orleans.Runtime;
++using Orleans.Serialization;
++
+ namespace UnitTests.GrainInterfaces
+ {
+     using System.Threading.Tasks;
+@@ -33,10 +38,76 @@ public interface IExceptionGrain : IGrainWithIntegerKey
+ 
+     public interface IMessageSerializationGrain : IGrainWithIntegerKey
+     {
+-        Task<object> EchoObject(object input);
++        Task Send(UndeserializableType input);
++        Task<UnserializableType> Get();
++
++        Task SendToOtherSilo();
++        Task GetFromOtheSilo();
+ 
+-        Task GetUnserializableObjectChained();
++        Task SendToClient(IMessageSerializationClientObject obj);
++        Task GetFromClient(IMessageSerializationClientObject obj);
+ 
+         Task<string> GetSiloIdentity();
+     }
++
++    public interface IMessageSerializationClientObject : IAddressable
++    {
++        Task Send(UndeserializableType input);
++        Task<UnserializableType> Get();
++    }
++
++    [Serializable]
++    public struct UndeserializableType
++    {
++        public const string FailureMessage = "Can't do it, sorry.";
++
++        public UndeserializableType(int num)
++        {
++            this.Number = num;
++        }
++
++        public int Number { get; }
++
++        [CopierMethod]
++        public static object DeepCopy(object original, ICopyContext context)
++        {
++            var typed = (UndeserializableType) original;
++            return new UndeserializableType(typed.Number);
++        }
++
++        [SerializerMethod]
++        public static void Serialize(object untypedInput, ISerializationContext context, Type expected)
++        {
++            var typed = (UndeserializableType) untypedInput;
++            context.StreamWriter.Write(typed.Number);
++        }
++
++        [DeserializerMethod]
++        public static object Deserialize(Type expected, IDeserializationContext context)
++        {
++            throw new NotSupportedException(FailureMessage);
++        }
++    }
++
++    [Serializable]
++    public class UnserializableType
++    {
++        [CopierMethod]
++        public static object DeepCopy(object original, ICopyContext context)
++        {
++            return original;
++        }
++
++        [SerializerMethod]
++        public static void Serialize(object untypedInput, ISerializationContext context, Type expected)
++        {
++            throw new NotSupportedException(UndeserializableType.FailureMessage);
++        }
++
++        [DeserializerMethod]
++        public static object Deserialize(Type expected, IDeserializationContext context)
++        {
++            return null;
++        }
++    }
+ }
+\ No newline at end of file
+diff --git a/test/Grains/TestGrains/MessageSerializationGrain.cs b/test/Grains/TestGrains/MessageSerializationGrain.cs
+index bbc3c6889a3..f239808725a 100644
+--- a/test/Grains/TestGrains/MessageSerializationGrain.cs
++++ b/test/Grains/TestGrains/MessageSerializationGrain.cs
+@@ -1,19 +1,41 @@
+-﻿namespace UnitTests.Grains
++﻿using Orleans.CodeGeneration;
++
++namespace UnitTests.Grains
+ {
+     using System;
+     using System.Threading.Tasks;
+ 
+     using Orleans;
+-    using Orleans.Runtime;
+     using Orleans.Serialization;
+ 
+     using UnitTests.GrainInterfaces;
+     
+     public class MessageSerializationGrain : Grain, IMessageSerializationGrain
+     {
+-        public Task<object> EchoObject(object input) => Task.FromResult(input);
++        public Task Send(UndeserializableType input) => Task.FromResult(input);
++        public Task<UnserializableType> Get() => Task.FromResult(new UnserializableType());
+ 
+-        public async Task GetUnserializableObjectChained()
++        public async Task SendToOtherSilo()
++        {
++            var otherGrain = await GetGrainOnOtherSilo();
++
++            // Message that grain in a way which should fail.
++            await otherGrain.Send(new UndeserializableType(35));
++        }
++
++        public async Task GetFromOtheSilo()
++        {
++            var otherGrain = await GetGrainOnOtherSilo();
++
++            // Message that grain in a way which should fail.
++            await otherGrain.Get();
++        }
++
++        public Task SendToClient(IMessageSerializationClientObject obj) => obj.Send(new UndeserializableType(35));
++
++        public Task GetFromClient(IMessageSerializationClientObject obj) => obj.Get();
++
++        private async Task<IMessageSerializationGrain> GetGrainOnOtherSilo()
+         {
+             // Find a grain on another silo.
+             IMessageSerializationGrain otherGrain;
+@@ -23,14 +45,13 @@ public async Task GetUnserializableObjectChained()
+             {
+                 otherGrain = this.GrainFactory.GetGrain<IMessageSerializationGrain>(++id);
+                 var otherIdentity = await otherGrain.GetSiloIdentity();
+-                if (!string.Equals(otherIdentity, currentSiloIdentity))
++                if (!String.Equals(otherIdentity, currentSiloIdentity))
+                 {
+                     break;
+                 }
+             }
+ 
+-            // Message that grain in a way which should fail.
+-            await otherGrain.EchoObject(new SimpleType(35));
++            return otherGrain;
+         }
+ 
+         public Task<string> GetSiloIdentity()
+@@ -38,42 +59,4 @@ public Task<string> GetSiloIdentity()
+             return Task.FromResult(this.RuntimeIdentity);
+         }
+     }
+-
+-    [Serializable]
+-    public struct SimpleType
+-    {
+-        public SimpleType(int num)
+-        {
+-            this.Number = num;
+-        }
+-
+-        public int Number { get; }
+-    }
+-
+-    /// <summary>
+-    /// Serializer which can serialize <see cref="SimpleType"/> but cannot deserialize it.
+-    /// </summary>
+-    [Serializable]
+-    public class OneWaySerializer : IExternalSerializer
+-    {
+-        public const string FailureMessage = "Can't do it, sorry.";
+-
+-        public bool IsSupportedType(Type itemType) => itemType == typeof(SimpleType);
+-
+-        public object DeepCopy(object source, ICopyContext context)
+-        {
+-            return source;
+-        }
+-
+-        public void Serialize(object item, ISerializationContext context, Type expectedType)
+-        {
+-            var typed = (SimpleType)item;
+-            context.StreamWriter.Write(typed.Number);
+-        }
+-
+-        public object Deserialize(Type expectedType, IDeserializationContext context)
+-        {
+-            throw new NotSupportedException(FailureMessage);
+-        }
+-    }
+ }
+\ No newline at end of file
+diff --git a/test/Tester/ExceptionPropagationTests.cs b/test/Tester/ExceptionPropagationTests.cs
+index 9efafb52433..f4d4f3bf55b 100644
+--- a/test/Tester/ExceptionPropagationTests.cs
++++ b/test/Tester/ExceptionPropagationTests.cs
+@@ -3,11 +3,7 @@
+ namespace UnitTests.General
+ {
+     using System;
+-    using System.Reflection;
+     using System.Threading.Tasks;
+-    
+-    using Orleans.TestingHost;
+-    
+     using TestExtensions;
+ 
+     using UnitTests.GrainInterfaces;
+@@ -32,15 +28,6 @@ public ExceptionPropagationTests(ITestOutputHelper output, Fixture fixture)
+ 
+         public class Fixture : BaseTestClusterFixture
+         {
+-            protected override void ConfigureTestCluster(TestClusterBuilder builder)
+-            {
+-                builder.ConfigureLegacyConfiguration(legacy =>
+-                {
+-                    legacy.ClientConfiguration.SerializationProviders.Add(typeof(OneWaySerializer).GetTypeInfo());
+-                    legacy.ClusterConfiguration.Globals.SerializationProviders.Add(typeof(OneWaySerializer).GetTypeInfo());
+-                    legacy.ClusterConfiguration.Globals.TypeMapRefreshInterval = TimeSpan.FromMilliseconds(200);
+-                });
+-            }
+         }
+ 
+         [Fact, TestCategory("BVT"), TestCategory("Functional")]
+@@ -206,35 +193,89 @@ public async Task SynchronousAggregateExceptionThrownShouldResultInFaultedTaskWi
+             var secondEx = Assert.IsAssignableFrom<InvalidOperationException>(exception.InnerExceptions[1]);
+             Assert.Equal("Test exception 2", secondEx.Message);
+         }
+-        
++
++        /// <summary>
++        /// Tests that when a grain cannot deserialize a request from a client, an exception is promptly propagated from the grain to the caller.
++        /// </summary>
++        [Fact, TestCategory("BVT"), TestCategory("Messaging"), TestCategory("Serialization")]
++        public async Task ExceptionPropagation_GrainToClient_DeserializationFailure()
++        {
++            var grain = this.fixture.GrainFactory.GetGrain<IMessageSerializationGrain>(GetRandomGrainId());
++            
++            var exception = await Assert.ThrowsAnyAsync<NotSupportedException>(() => grain.Send(new UndeserializableType(2)));
++            Assert.Contains(UndeserializableType.FailureMessage, exception.Message);
++        }
++
++        /// <summary>
++        /// Tests that when a grain cannot serialize a response to a client, an exception is promptly propagated from the grain to the caller.
++        /// </summary>
++        [Fact, TestCategory("BVT"), TestCategory("Messaging"), TestCategory("Serialization")]
++        public async Task ExceptionPropagation_GrainToClient_SerializationFailure()
++        {
++            var grain = this.fixture.GrainFactory.GetGrain<IMessageSerializationGrain>(GetRandomGrainId());
++            
++            var exception = await Assert.ThrowsAnyAsync<NotSupportedException>(() => grain.Get());
++            Assert.Contains(UndeserializableType.FailureMessage, exception.Message);
++        }
++
+         /// <summary>
+-        /// Tests that when the body of a message sent between a client and a grain cannot be deserialized, an exception
+-        /// is immediately propagated back to the caller.
++        /// Tests that when a grain cannot deserialize a request from another silo, an exception is promptly propagated from the grain to the caller.
+         /// </summary>
+-        /// <returns>A <see cref="Task"/> representing the work performed.</returns>
+-        [Fact, TestCategory("BVT"), TestCategory("Functional"), TestCategory("Messaging"), TestCategory("Serialization")]
+-        public async Task ExceptionPropagationMessageBodyDeserializationFailure()
++        [Fact, TestCategory("BVT"), TestCategory("Messaging"), TestCategory("Serialization")]
++        public async Task ExceptionPropagation_GrainToGrain_DeserializationFailure()
+         {
+             var grain = this.fixture.GrainFactory.GetGrain<IMessageSerializationGrain>(GetRandomGrainId());
++            
++            var exception = await Assert.ThrowsAnyAsync<NotSupportedException>(() => grain.SendToOtherSilo());
++            Assert.Contains(UndeserializableType.FailureMessage, exception.Message);
++        }
+ 
+-            // A serializer is used on the client & silo which can serialize but not deserialize the type being used.
+-            var exception = await Assert.ThrowsAnyAsync<NotSupportedException>(() => grain.EchoObject(new SimpleType(2)));
+-            Assert.Contains(OneWaySerializer.FailureMessage, exception.Message);
++        /// <summary>
++        /// Tests that when a grain cannot serialize a response to another silo, an exception is promptly propagated from the grain to the caller.
++        /// </summary>
++        [Fact, TestCategory("BVT"), TestCategory("Messaging"), TestCategory("Serialization")]
++        public async Task ExceptionPropagation_GrainToGrain_SerializationFailure()
++        {
++            var grain = this.fixture.GrainFactory.GetGrain<IMessageSerializationGrain>(GetRandomGrainId());
++            
++            var exception = await Assert.ThrowsAnyAsync<NotSupportedException>(() => grain.GetFromOtheSilo());
++            Assert.Contains(UndeserializableType.FailureMessage, exception.Message);
+         }
+ 
+         /// <summary>
+-        /// Tests that when the body of a message sent between two grains cannot be deserialized, an exception is immediately
+-        /// propagated back to the caller.
++        /// Tests that when a client cannot deserialize a request from a grain, an exception is promptly propagated from the client to the caller.
+         /// </summary>
+-        /// <returns>A <see cref="Task"/> representing the work performed.</returns>
+-        [Fact, TestCategory("BVT"), TestCategory("Functional"), TestCategory("Messaging"), TestCategory("Serialization")]
+-        public async Task ExceptionPropagationGrainToGrainMessageBodyDeserializationFailure()
++        [Fact, TestCategory("BVT"), TestCategory("Messaging"), TestCategory("Serialization")]
++        public async Task ExceptionPropagation_ClientToGrain_DeserializationFailure()
+         {
++            var obj = new MessageSerializationClientObject();
++            var grainFactory = (IInternalGrainFactory)this.fixture.GrainFactory;
++            var objRef = grainFactory.CreateObjectReference<IMessageSerializationClientObject>(obj);
+             var grain = this.fixture.GrainFactory.GetGrain<IMessageSerializationGrain>(GetRandomGrainId());
++            
++            var exception = await Assert.ThrowsAnyAsync<NotSupportedException>(() => grain.SendToClient(objRef));
++            Assert.Contains(UndeserializableType.FailureMessage, exception.Message);
++        }
++        
++        /// <summary>
++        /// Tests that when a client cannot serialize a response to a grain, an exception is promptly propagated from the client to the caller.
++        /// </summary>
++        [Fact, TestCategory("BVT"), TestCategory("Messaging"), TestCategory("Serialization")]
++        public async Task ExceptionPropagation_ClientToGrain_SerializationFailure()
++        {
++            var obj = new MessageSerializationClientObject();
++            var grainFactory = (IInternalGrainFactory)this.fixture.GrainFactory;
++            var objRef = grainFactory.CreateObjectReference<IMessageSerializationClientObject>(obj);
++            var grain = grainFactory.GetGrain<IMessageSerializationGrain>(GetRandomGrainId());
++            
++            var exception = await Assert.ThrowsAnyAsync<NotSupportedException>(() => grain.GetFromClient(objRef));
++            Assert.Contains(UndeserializableType.FailureMessage, exception.Message);
++        }
+ 
+-            // A serializer is used on the client & silo which can serialize but not deserialize the type being used.
+-            var exception = await Assert.ThrowsAnyAsync<NotSupportedException>(() => grain.GetUnserializableObjectChained());
+-            Assert.Contains(OneWaySerializer.FailureMessage, exception.Message);
++        private class MessageSerializationClientObject : IMessageSerializationClientObject
++        {
++            public Task Send(UndeserializableType input) => Task.FromResult(input);
++            public Task<UnserializableType> Get() => Task.FromResult(new UnserializableType());
+         }
+     }
+ }

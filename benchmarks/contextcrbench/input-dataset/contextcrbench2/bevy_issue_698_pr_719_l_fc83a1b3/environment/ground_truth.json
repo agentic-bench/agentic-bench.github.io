@@ -1,0 +1,11 @@
+[
+  {
+    "path": "crates/bevy_ecs/hecs/src/world.rs",
+    "line": 696,
+    "original_line": 696,
+    "review_comment": [
+      "Retrieving the location here and in remove() is redundant work. I'd prefer it if we found a way to only do this once (ex: pass the location into remove_bundle_internal)",
+      "That was not possible, as location needs to be an `&mut` that references `self`, which also needs to be an `&mut` to call `remove_bundle_internal`.\r\n\r\nI was able to remove getting the location from `remove` by retrieving the bundle value in `remove_bundle_internal`. When coming from `remove_one_by_one`, this will not return the expected value as we actually can't get it, that's why there is a parameter `check_presence` set to false when coming from this function..."
+    ]
+  }
+]

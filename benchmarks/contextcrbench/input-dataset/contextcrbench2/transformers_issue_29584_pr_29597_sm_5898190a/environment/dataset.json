@@ -1,0 +1,13 @@
+[
+  {
+    "id": 67481,
+    "full_name": "huggingface/transformers",
+    "lang": "python",
+    "issue_number": 29584,
+    "pr_number": 29597,
+    "diff_hunk": "@@ -706,7 +706,8 @@ def compute_metrics(p: EvalPrediction):\n             model.compile(optimizer=optimizer, jit_compile=training_args.xla, metrics=[\"accuracy\"])\n \n         else:\n-            model.compile(optimizer=None, jit_compile=training_args.xla, metrics=[\"accuracy\"])\n+            # Optimizer doesn't matter as it won't be used anyway\n+            model.compile(optimizer=\"sgd\", jit_compile=training_args.xla, metrics=[\"accuracy\"])\n             training_dataset = None\n \n         if training_args.do_eval:\n",
+    "diff_hunk_content_with_line_number": "[706][706]              model.compile(optimizer=optimizer, jit_compile=training_args.xla, metrics=[\"accuracy\"])\n[707][707]  \n[708][708]          else:\n[709][] -            model.compile(optimizer=None, jit_compile=training_args.xla, metrics=[\"accuracy\"])\n[][709] +            # Optimizer doesn't matter as it won't be used anyway\n[][710] +            model.compile(optimizer=\"sgd\", jit_compile=training_args.xla, metrics=[\"accuracy\"])\n[710][711]              training_dataset = None\n[711][712]  \n[712][713]          if training_args.do_eval:",
+    "checked_commit_id": "5898190abe1af26c8233f61fd33c49bc77a92e18",
+    "pr_size": "sm"
+  }
+]

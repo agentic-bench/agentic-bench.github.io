@@ -1,0 +1,13 @@
+[
+  {
+    "id": 68347,
+    "full_name": "astral-sh/ruff",
+    "lang": "rust",
+    "issue_number": 7066,
+    "pr_number": 7082,
+    "diff_hunk": "@@ -109,3 +127,32 @@ impl Format<PyFormatContext<'_>> for FormatOrElse<'_> {\n         }\n     }\n }\n+\n+/// Returns `true` if the expression is surrounded by brackets (e.g., parenthesized, or the only\n+/// expression in a list, tuple, or set).\n+fn is_expression_bracketed(expr: ExpressionRef, contents: &str) -> bool {\n+    let mut tokenizer = SimpleTokenizer::starts_at(expr.end(), contents)\n+        .skip_trivia()\n+        .skip_while(|token| matches!(token.kind, SimpleTokenKind::Comma));\n+\n+    if matches!(\n+        tokenizer.next(),\n+        Some(SimpleToken {\n+            kind: SimpleTokenKind::RParen | SimpleTokenKind::RBrace | SimpleTokenKind::RBracket,\n+            ..\n+        })\n+    ) {\n+        let mut tokenizer =\n+            SimpleTokenizer::up_to_without_back_comment(expr.start(), contents).skip_trivia();\n+\n+        matches!(\n+            tokenizer.next_back(),\n+            Some(SimpleToken {\n+                kind: SimpleTokenKind::LParen | SimpleTokenKind::LBrace | SimpleTokenKind::LBracket,\n+                ..\n+            })\n+        )\n+    } else {\n+        false\n+    }\n+}\n",
+    "diff_hunk_content_with_line_number": "[109][127]          }\n[110][128]      }\n[111][129]  }\n[][130] +\n[][131] +/// Returns `true` if the expression is surrounded by brackets (e.g., parenthesized, or the only\n[][132] +/// expression in a list, tuple, or set).\n[][133] +fn is_expression_bracketed(expr: ExpressionRef, contents: &str) -> bool {\n[][134] +    let mut tokenizer = SimpleTokenizer::starts_at(expr.end(), contents)\n[][135] +        .skip_trivia()\n[][136] +        .skip_while(|token| matches!(token.kind, SimpleTokenKind::Comma));\n[][137] +\n[][138] +    if matches!(\n[][139] +        tokenizer.next(),\n[][140] +        Some(SimpleToken {\n[][141] +            kind: SimpleTokenKind::RParen | SimpleTokenKind::RBrace | SimpleTokenKind::RBracket,\n[][142] +            ..\n[][143] +        })\n[][144] +    ) {\n[][145] +        let mut tokenizer =\n[][146] +            SimpleTokenizer::up_to_without_back_comment(expr.start(), contents).skip_trivia();\n[][147] +\n[][148] +        matches!(\n[][149] +            tokenizer.next_back(),\n[][150] +            Some(SimpleToken {\n[][151] +                kind: SimpleTokenKind::LParen | SimpleTokenKind::LBrace | SimpleTokenKind::LBracket,\n[][152] +                ..\n[][153] +            })\n[][154] +        )\n[][155] +    } else {\n[][156] +        false\n[][157] +    }\n[][158] +}",
+    "checked_commit_id": "7a6fb9211ab8b4f14c6f1a3514abb14cfc5c9a46",
+    "pr_size": "l"
+  }
+]

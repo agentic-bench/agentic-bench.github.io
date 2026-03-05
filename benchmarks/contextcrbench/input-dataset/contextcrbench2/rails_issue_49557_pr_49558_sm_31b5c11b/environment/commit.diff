@@ -1,0 +1,90 @@
+diff --git a/activerecord/lib/active_record/connection_adapters/abstract/schema_statements.rb b/activerecord/lib/active_record/connection_adapters/abstract/schema_statements.rb
+index e0e6ff85dae93..00a7bac468efe 100644
+--- a/activerecord/lib/active_record/connection_adapters/abstract/schema_statements.rb
++++ b/activerecord/lib/active_record/connection_adapters/abstract/schema_statements.rb
+@@ -1767,16 +1767,20 @@ def check_constraint_for!(table_name, expression: nil, **options)
+ 
+         def validate_index_length!(table_name, new_name, internal = false)
+           if new_name.length > index_name_length
+-            raise ArgumentError, "Index name '#{new_name}' on table '#{table_name}' is too long; the limit is #{index_name_length} characters"
++            raise ArgumentError, "Index name '#{new_name}' on table '#{table_name}' is too long; the limit is #{index_name_length} characters."
+           end
+         end
+ 
+         def validate_table_length!(table_name)
+           if table_name.length > table_name_length
+-            raise ArgumentError, "Table name '#{table_name}' is too long; the limit is #{table_name_length} characters"
++            raise ArgumentError, table_name_too_long_error_message(table_name)
+           end
+         end
+ 
++        def table_name_too_long_error_message(table_name)
++          "Table name '#{table_name}' is too long; the limit is #{table_name_length} characters"
++        end
++
+         def extract_new_default_value(default_or_changes)
+           if default_or_changes.is_a?(Hash) && default_or_changes.has_key?(:from) && default_or_changes.has_key?(:to)
+             default_or_changes[:to]
+diff --git a/activerecord/lib/active_record/connection_adapters/postgresql_adapter.rb b/activerecord/lib/active_record/connection_adapters/postgresql_adapter.rb
+index 1bcdf6fcfea0c..9409205265be6 100644
+--- a/activerecord/lib/active_record/connection_adapters/postgresql_adapter.rb
++++ b/activerecord/lib/active_record/connection_adapters/postgresql_adapter.rb
+@@ -608,6 +608,10 @@ def table_name_length
+         max_identifier_length - "_pkey".length
+       end
+ 
++      def table_name_too_long_error_message(table_name)
++        "Table name '#{table_name}' is too long; PostgreSQL allows a maximum length of #{max_identifier_length} characters, but we also need to allow for the `_pkey` suffix that PostgreSQL adds to table names when creating default indexes, so our effective limit is #{table_name_length} characters."
++      end
++
+       # Set the authorized user for this session
+       def session_auth=(user)
+         clear_cache!
+diff --git a/activerecord/test/cases/migration/rename_table_test.rb b/activerecord/test/cases/migration/rename_table_test.rb
+index 7677b6bdf9672..141c28286d39e 100644
+--- a/activerecord/test/cases/migration/rename_table_test.rb
++++ b/activerecord/test/cases/migration/rename_table_test.rb
+@@ -52,13 +52,18 @@ def test_rename_table
+ 
+       def test_rename_table_raises_for_long_table_names
+         name_limit = connection.table_name_length
++        max_identifier_length = connection.max_identifier_length
+         long_name = "a" * (name_limit + 1)
+         short_name = "a" * name_limit
+ 
+         error = assert_raises(ArgumentError) do
+           connection.rename_table :test_models, long_name
+         end
+-        assert_equal "Table name '#{long_name}' is too long; the limit is #{name_limit} characters", error.message
++        if current_adapter?(:PostgreSQLAdapter)
++          assert_equal "Table name '#{long_name}' is too long; PostgreSQL allows a maximum length of #{max_identifier_length} characters, but we also need to allow for the `_pkey` suffix that PostgreSQL adds to table names when creating default indexes, so our effective limit is #{name_limit} characters.", error.message
++        else
++          assert_equal "Table name '#{long_name}' is too long; the limit is #{name_limit} characters", error.message
++        end
+ 
+         connection.rename_table :test_models, short_name
+         assert connection.table_exists?(short_name)
+diff --git a/activerecord/test/cases/migration_test.rb b/activerecord/test/cases/migration_test.rb
+index 666a5dbd23d9d..1684fd6387a80 100644
+--- a/activerecord/test/cases/migration_test.rb
++++ b/activerecord/test/cases/migration_test.rb
+@@ -200,13 +200,18 @@ def test_create_table_with_if_not_exists_true
+   def test_create_table_raises_for_long_table_names
+     connection = Person.connection
+     name_limit = connection.table_name_length
++    max_identifier_length = connection.max_identifier_length
+     long_name = "a" * (name_limit + 1)
+     short_name = "a" * name_limit
+ 
+     error = assert_raises(ArgumentError) do
+       connection.create_table(long_name)
+     end
+-    assert_equal "Table name '#{long_name}' is too long; the limit is #{name_limit} characters", error.message
++    if current_adapter?(:PostgreSQLAdapter)
++      assert_equal "Table name '#{long_name}' is too long; PostgreSQL allows a maximum length of #{max_identifier_length} characters, but we also need to allow for the `_pkey` suffix that PostgreSQL adds to table names when creating default indexes, so our effective limit is #{name_limit} characters.", error.message
++    else
++      assert_equal "Table name '#{long_name}' is too long; the limit is #{name_limit} characters", error.message
++    end
+ 
+     connection.create_table(short_name)
+     assert connection.table_exists?(short_name)

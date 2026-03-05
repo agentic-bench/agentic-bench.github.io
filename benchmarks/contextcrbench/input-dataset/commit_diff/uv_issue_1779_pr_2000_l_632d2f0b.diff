@@ -1,0 +1,153 @@
+diff --git a/crates/install-wheel-rs/src/lib.rs b/crates/install-wheel-rs/src/lib.rs
+index 4e33ed7139f73..b6e6bd93ab013 100644
+--- a/crates/install-wheel-rs/src/lib.rs
++++ b/crates/install-wheel-rs/src/lib.rs
+@@ -31,7 +31,7 @@ pub struct Layout {
+     pub purelib: PathBuf,
+     /// The `platlib` directory, as returned by `sysconfig.get_paths()`.
+     pub platlib: PathBuf,
+-    /// The `scripts` directory, as returned by `sysconfig.get_paths()`.
++    /// The `include` directory, as returned by `sysconfig.get_paths()`.
+     pub include: PathBuf,
+     /// The `scripts` directory, as returned by `sysconfig.get_paths()`.
+     pub scripts: PathBuf,
+diff --git a/crates/install-wheel-rs/src/wheel.rs b/crates/install-wheel-rs/src/wheel.rs
+index 5d01a70ba6f2d..4e8ae63baf8ff 100644
+--- a/crates/install-wheel-rs/src/wheel.rs
++++ b/crates/install-wheel-rs/src/wheel.rs
+@@ -547,6 +547,12 @@ pub(crate) fn write_file_recorded(
+     content: impl AsRef<[u8]>,
+     record: &mut Vec<RecordEntry>,
+ ) -> Result<(), Error> {
++    debug_assert!(
++        !relative_path.is_absolute(),
++        "Path must be relative: {}",
++        relative_path.display()
++    );
++
+     File::create(site_packages.join(relative_path))?.write_all(content.as_ref())?;
+     let hash = Sha256::new().chain_update(content.as_ref()).finalize();
+     let encoded_hash = format!("sha256={}", BASE64URL_NOPAD.encode(&hash));
+diff --git a/crates/uv-interpreter/src/interpreter.rs b/crates/uv-interpreter/src/interpreter.rs
+index 4bb6695cf5b88..eb2fe2827bfe5 100644
+--- a/crates/uv-interpreter/src/interpreter.rs
++++ b/crates/uv-interpreter/src/interpreter.rs
+@@ -260,6 +260,29 @@ impl Interpreter {
+         })
+     }
+ 
++    /// Returns `true` if the environment is a PEP 405-compliant virtual environment.
++    ///
++    /// See: <https://github.com/pypa/pip/blob/0ad4c94be74cc24874c6feb5bb3c2152c398a18e/src/pip/_internal/utils/virtualenv.py#L14>
++    pub fn is_virtualenv(&self) -> bool {
++        self.prefix != self.base_prefix
++    }
++
++    /// Returns `true` if the environment is externally managed.
++    ///
++    /// See: <https://packaging.python.org/en/latest/specifications/externally-managed-environments/>
++    pub fn externally_managed(&self) -> bool {
++        // Per the spec, a virtual environment is never externally managed.
++        if self.is_virtualenv() {
++            return false;
++        }
++
++        // Per the spec, the existence of the file is the only requirement.
++        self.sysconfig_paths
++            .stdlib
++            .join("EXTERNALLY-MANAGED")
++            .is_file()
++    }
++
+     /// Returns the Python version.
+     #[inline]
+     pub const fn python_version(&self) -> &Version {
+@@ -365,9 +388,7 @@ impl Interpreter {
+             platlib: self.platlib().to_path_buf(),
+             scripts: self.scripts().to_path_buf(),
+             data: self.data().to_path_buf(),
+-            // Detect if this is a PEP 405-compliant virtual environment.
+-            // See: https://github.com/pypa/pip/blob/0ad4c94be74cc24874c6feb5bb3c2152c398a18e/src/pip/_internal/utils/virtualenv.py#L14.
+-            include: if self.prefix == self.base_prefix {
++            include: if self.is_virtualenv() {
+                 // If the interpreter is a venv, then the `include` directory has a different structure.
+                 // See: https://github.com/pypa/pip/blob/0ad4c94be74cc24874c6feb5bb3c2152c398a18e/src/pip/_internal/locations/_sysconfig.py#L172
+                 self.prefix.join("include").join("site").join(format!(
+@@ -600,13 +621,15 @@ mod tests {
+                 "base_prefix": "/home/ferris/.pyenv/versions/3.12.0",
+                 "prefix": "/home/ferris/projects/uv/.venv",
+                 "sys_executable": "/home/ferris/projects/uv/.venv/bin/python",
+-                "sysconfig": {
++                "sysconfig_paths": {
+                     "data": "/home/ferris/.pyenv/versions/3.12.0",
+                     "include": "/home/ferris/.pyenv/versions/3.12.0/include",
++                    "platinclude": "/home/ferris/.pyenv/versions/3.12.0/include",
+                     "platlib": "/home/ferris/.pyenv/versions/3.12.0/lib/python3.12/site-packages",
+                     "purelib": "/home/ferris/.pyenv/versions/3.12.0/lib/python3.12/site-packages",
+                     "scripts": "/home/ferris/.pyenv/versions/3.12.0/bin",
+-                    "stdlib": "/home/ferris/.pyenv/versions/3.12.0/lib/python3.12"
++                    "stdlib": "/home/ferris/.pyenv/versions/3.12.0/lib/python3.12",
++                    "platstdlib": "/home/ferris/.pyenv/versions/3.12.0/lib/python3.12"
+                 }
+             }
+         "##};
+diff --git a/crates/uv/src/commands/pip_install.rs b/crates/uv/src/commands/pip_install.rs
+index 190e150098097..9fd1240a1b854 100644
+--- a/crates/uv/src/commands/pip_install.rs
++++ b/crates/uv/src/commands/pip_install.rs
+@@ -117,6 +117,15 @@ pub(crate) async fn pip_install(
+         venv.python_executable().normalized_display().cyan()
+     );
+ 
++    // If the environment is externally managed, abort.
++    // TODO(charlie): Surface the error from the `EXTERNALLY-MANAGED` file.
++    if venv.interpreter().externally_managed() {
++        return Err(anyhow::anyhow!(
++            "The environment at {} is externally managed",
++            venv.root().normalized_display()
++        ));
++    }
++
+     let _lock = venv.lock()?;
+ 
+     // Determine the set of installed packages.
+diff --git a/crates/uv/src/commands/pip_sync.rs b/crates/uv/src/commands/pip_sync.rs
+index 1af3925b03167..92c6714bd4213 100644
+--- a/crates/uv/src/commands/pip_sync.rs
++++ b/crates/uv/src/commands/pip_sync.rs
+@@ -86,6 +86,15 @@ pub(crate) async fn pip_sync(
+         venv.python_executable().normalized_display().cyan()
+     );
+ 
++    // If the environment is externally managed, abort.
++    // TODO(charlie): Surface the error from the `EXTERNALLY-MANAGED` file.
++    if venv.interpreter().externally_managed() {
++        return Err(anyhow::anyhow!(
++            "The environment at {} is externally managed",
++            venv.root().normalized_display()
++        ));
++    }
++
+     let _lock = venv.lock()?;
+ 
+     // Determine the current environment markers.
+diff --git a/crates/uv/src/commands/pip_uninstall.rs b/crates/uv/src/commands/pip_uninstall.rs
+index d8509de4df08e..dd18a4100e0e0 100644
+--- a/crates/uv/src/commands/pip_uninstall.rs
++++ b/crates/uv/src/commands/pip_uninstall.rs
+@@ -51,6 +51,15 @@ pub(crate) async fn pip_uninstall(
+         venv.python_executable().normalized_display().cyan(),
+     );
+ 
++    // If the environment is externally managed, abort.
++    // TODO(charlie): Surface the error from the `EXTERNALLY-MANAGED` file.
++    if venv.interpreter().externally_managed() {
++        return Err(anyhow::anyhow!(
++            "The environment at {} is externally managed",
++            venv.root().normalized_display()
++        ));
++    }
++
+     let _lock = venv.lock()?;
+ 
+     // Index the current `site-packages` directory.

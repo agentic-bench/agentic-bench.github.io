@@ -1,0 +1,23 @@
+[
+  {
+    "path": "redisson/src/main/java/org/redisson/misc/LogHelper.java",
+    "line": 21,
+    "original_line": null,
+    "review_comment": [
+      "@smigfu  Please add comment with @author tag\n"
+    ]
+  },
+  {
+    "path": "redisson/src/main/java/org/redisson/misc/LogHelper.java",
+    "line": 56,
+    "original_line": null,
+    "review_comment": [
+      "If you are worried about memory shouldn't you be allocating new Object[MAX_COLLECTION_LOG_SIZE] here..?\n",
+      "Thanks for pointing out! Seems I skipped this\n",
+      "I had given this a little though when implementing this. I don't think this is too big of an issue though since the only memory which needs to be allocated is the size of the array (+ the number of pointers within the array). The content is already in memory and is referenced by the collection anyway (as collections don't contain primitives, the array won't either). The array is eligible for GC right afterwards anyway so would be GC'ed in case of OOMs. Of course the created array could already be capped in its size with MAX_COLLECTION_LOG_SIZE + 1 (to get the ellipses printed).\n\nAnother issue is that Maps should be considered as well.\n",
+      "(TBH it was also just convenient to reuse the toString method for arrays which I had implemented first :) but I am fine with adding a more sophisticated approach for the Collections/Maps if you like \ud83d\udc4d  )\n",
+      "Yep MAX_COLLECTION_LOG_SIZE + 1 if there are ellipses or we'd probably end up with an IOOBE. I don't think it makes sense to try and print every data type, just to limit the amount of memory required, creating an object array with a large size will cause memory pressure.\n",
+      "I think Nikita was already faster =) https://github.com/redisson/redisson/commit/9ca3e00f439430965760e07109bd620cee741449\n"
+    ]
+  }
+]

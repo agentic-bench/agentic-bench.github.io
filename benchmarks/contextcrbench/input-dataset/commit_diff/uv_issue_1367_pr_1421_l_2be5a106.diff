@@ -1,0 +1,191 @@
+diff --git a/crates/requirements-txt/src/lib.rs b/crates/requirements-txt/src/lib.rs
+index bce02134ff7a7..f38fa0c126315 100644
+--- a/crates/requirements-txt/src/lib.rs
++++ b/crates/requirements-txt/src/lib.rs
+@@ -303,7 +303,10 @@ impl RequirementsTxt {
+                 file: requirements_txt.as_ref().to_path_buf(),
+                 error: RequirementsTxtParserError::IO(err),
+             })?;
+-        let data = Self::parse_inner(&content, working_dir.as_ref()).map_err(|err| {
++
++        let working_dir = working_dir.as_ref();
++        let requirements_dir = requirements_txt.as_ref().parent().unwrap_or(working_dir);
++        let data = Self::parse_inner(&content, working_dir, requirements_dir).map_err(|err| {
+             RequirementsTxtFileError {
+                 file: requirements_txt.as_ref().to_path_buf(),
+                 error: err,
+@@ -318,13 +321,16 @@ impl RequirementsTxt {
+         Ok(data)
+     }
+ 
+-    /// See module level documentation
++    /// See module level documentation.
+     ///
+-    /// Note that all relative paths are dependent on the current working dir, not on the location
+-    /// of the file
++    /// When parsing, relative paths to requirements (e.g., `-e ../editable/`) are resolved against
++    /// the current working directory. However, relative paths to sub-files (e.g., `-r ../requirements.txt`)
++    /// are resolved against the directory of the containing `requirements.txt` file, to match
++    /// `pip`'s behavior.
+     pub fn parse_inner(
+         content: &str,
+         working_dir: &Path,
++        requirements_dir: &Path,
+     ) -> Result<Self, RequirementsTxtParserError> {
+         let mut s = Scanner::new(content);
+ 
+@@ -336,7 +342,7 @@ impl RequirementsTxt {
+                     start,
+                     end,
+                 } => {
+-                    let sub_file = working_dir.join(filename);
++                    let sub_file = requirements_dir.join(filename);
+                     let sub_requirements = Self::parse(&sub_file, working_dir).map_err(|err| {
+                         RequirementsTxtParserError::Subfile {
+                             source: Box::new(err),
+@@ -352,7 +358,7 @@ impl RequirementsTxt {
+                     start,
+                     end,
+                 } => {
+-                    let sub_file = working_dir.join(filename);
++                    let sub_file = requirements_dir.join(filename);
+                     let sub_constraints = Self::parse(&sub_file, working_dir).map_err(|err| {
+                         RequirementsTxtParserError::Subfile {
+                             source: Box::new(err),
+@@ -980,6 +986,15 @@ mod test {
+         let working_dir = workspace_test_data_dir().join("requirements-txt");
+         let requirements_txt = working_dir.join(path);
+ 
++        // Copy the existing files over to a temporary directory.
++        let temp_dir = tempdir().unwrap();
++        for entry in fs::read_dir(&working_dir).unwrap() {
++            let entry = entry.unwrap();
++            let path = entry.path();
++            let dest = temp_dir.path().join(path.file_name().unwrap());
++            fs::copy(&path, &dest).unwrap();
++        }
++
+         // Replace line endings with the other choice. This works even if you use git with LF
+         // only on windows.
+         let contents = fs::read_to_string(requirements_txt).unwrap();
+@@ -988,9 +1003,6 @@ mod test {
+         } else {
+             contents.replace('\n', "\r\n")
+         };
+-
+-        // Write to a new file.
+-        let temp_dir = tempdir().unwrap();
+         let requirements_txt = temp_dir.path().join(path);
+         fs::write(&requirements_txt, contents).unwrap();
+ 
+@@ -1181,6 +1193,58 @@ mod test {
+         Ok(())
+     }
+ 
++    #[test]
++    fn relative_requirement() -> Result<()> {
++        let temp_dir = assert_fs::TempDir::new()?;
++
++        // Create a requirements file with a relative entry, in a subdirectory.
++        let sub_dir = temp_dir.child("subdir");
++
++        let sibling_txt = sub_dir.child("sibling.txt");
++        sibling_txt.write_str(indoc! {"
++            flask
++        "})?;
++
++        let child_txt = sub_dir.child("child.txt");
++        child_txt.write_str(indoc! {"
++            -r sibling.txt
++        "})?;
++
++        // Create a requirements file that points at `requirements.txt`.
++        let parent_txt = temp_dir.child("parent.txt");
++        parent_txt.write_str(indoc! {"
++            -r subdir/child.txt
++        "})?;
++
++        let requirements = RequirementsTxt::parse(parent_txt.path(), temp_dir.path()).unwrap();
++        insta::assert_debug_snapshot!(requirements, @r###"
++        RequirementsTxt {
++            requirements: [
++                RequirementEntry {
++                    requirement: Requirement {
++                        name: PackageName(
++                            "flask",
++                        ),
++                        extras: [],
++                        version_or_url: None,
++                        marker: None,
++                    },
++                    hashes: [],
++                    editable: false,
++                },
++            ],
++            constraints: [],
++            editables: [],
++            index_url: None,
++            extra_index_urls: [],
++            find_links: [],
++            no_index: false,
++        }
++        "###);
++
++        Ok(())
++    }
++
+     #[test]
+     fn editable_extra() {
+         assert_eq!(
+diff --git a/crates/requirements-txt/test-data/requirements-txt/constraints-a.txt b/crates/requirements-txt/test-data/requirements-txt/constraints-a.txt
+index efe55d4682f33..9a1cc7d71b7a9 100644
+--- a/crates/requirements-txt/test-data/requirements-txt/constraints-a.txt
++++ b/crates/requirements-txt/test-data/requirements-txt/constraints-a.txt
+@@ -1,2 +1,2 @@
+--c constraints-b.txt # We can't actually semantically deal with those yet
++-c constraints-b.txt
+ django-debug-toolbar<2.2
+\ No newline at end of file
+diff --git a/crates/uv/tests/pip_compile.rs b/crates/uv/tests/pip_compile.rs
+index 5871ba6afc32c..e2ef5b3d05b4e 100644
+--- a/crates/uv/tests/pip_compile.rs
++++ b/crates/uv/tests/pip_compile.rs
+@@ -3317,3 +3317,38 @@ fn offline_find_links() -> Result<()> {
+ 
+     Ok(())
+ }
++
++/// Resolve nested `-r` requirements files with relative paths.
++#[test]
++fn compile_relative_subfile() -> Result<()> {
++    let context = TestContext::new("3.12");
++    let requirements_in = context.temp_dir.child("requirements.in");
++    requirements_in.write_str("-r subdir/requirements.in")?;
++
++    let subdir = context.temp_dir.child("subdir");
++    let requirements_in = subdir.child("requirements.in");
++    requirements_in.write_str("-r requirements-dev.in")?;
++
++    let requirements_dev_in = subdir.child("requirements-dev.in");
++    requirements_dev_in.write_str("anyio")?;
++
++    uv_snapshot!(context
++        .compile()
++        .arg("requirements.in"), @r###"
++    success: true
++    exit_code: 0
++    ----- stdout -----
++    # This file was autogenerated by uv v[VERSION] via the following command:
++    #    uv pip compile --cache-dir [CACHE_DIR] --exclude-newer 2023-11-18T12:00:00Z requirements.in
++    anyio==4.0.0
++    idna==3.4
++        # via anyio
++    sniffio==1.3.0
++        # via anyio
++
++    ----- stderr -----
++    Resolved 3 packages in [TIME]
++    "###);
++
++    Ok(())
++}

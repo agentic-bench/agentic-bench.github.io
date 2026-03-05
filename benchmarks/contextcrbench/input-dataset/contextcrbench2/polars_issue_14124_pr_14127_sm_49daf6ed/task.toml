@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "polars_issue_14124_pr_14127_sm_49daf6ed"
+contextcrbench2_full_name = "pola-rs/polars"
+contextcrbench2_lang = "rust"
+contextcrbench2_issue_number = "14124"
+contextcrbench2_issue_title = "Casting from `Date` to `Time` should raise"
+contextcrbench2_pr_number = "14127"
+contextcrbench2_pr_title = "fix: Forbid casting from `Date` to `Time` and vice versa"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "49daf6ed933f6971f06a75dbcedecc2902041e6b"
+contextcrbench2_commit_id = "49daf6ed933f6971f06a75dbcedecc2902041e6b"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2024-01-31T11:15:22Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

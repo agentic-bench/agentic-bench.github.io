@@ -1,0 +1,11 @@
+[
+  {
+    "path": "plugins/guests/openwrt/guest.rb",
+    "line": 5,
+    "original_line": 7,
+    "review_comment": [
+      "for some older versions of openwrt, for example ntrepid8/openwrt-15.05-x86, guest detection fails since they don't have `/etc/os-release`. [OpenWrt docs](https://openwrt.org/docs/guide-user/installation/after.installation#what_version_of_openwrt_do_i_have_installed) suggests checking the version using a `cat /etc/banner` . This also seems to not work on older versions, but `uname -a` might be a good fallback. Or, maybe older versions of openwrt don't matter too much?",
+      "Whoa! \ud83d\ude47 Thanks for that info. Some of the other guest plugins check a few different files to get the version, so I can do something similar here."
+    ]
+  }
+]

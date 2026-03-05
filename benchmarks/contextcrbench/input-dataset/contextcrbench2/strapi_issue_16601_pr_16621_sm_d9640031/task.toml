@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "strapi_issue_16601_pr_16621_sm_d9640031"
+contextcrbench2_full_name = "strapi/strapi"
+contextcrbench2_lang = "typescript"
+contextcrbench2_issue_number = "16601"
+contextcrbench2_issue_title = "Cloudinary upload provider cannot upload files larger than 100 MB"
+contextcrbench2_pr_number = "16621"
+contextcrbench2_pr_title = "Use upload_chunked_stream instead if upload_stream"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "d9640031df1aa59fa30732434146c359dcc39c11"
+contextcrbench2_commit_id = "d9640031df1aa59fa30732434146c359dcc39c11"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2023-05-05T06:05:17Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

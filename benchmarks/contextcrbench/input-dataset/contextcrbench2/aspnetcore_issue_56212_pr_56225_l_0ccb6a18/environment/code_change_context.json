@@ -1,0 +1,6 @@
+{
+  "issue_title": "Properties with the `[Required]` attribute should be required in the generated OpenAPI document",
+  "issue_body": "### Is there an existing issue for this?\n\n- [X] I have searched the existing issues\n\n### Describe the bug\n\nA property of a class or record that has the `[Required]` attribute is currently not a required property of the schema produced by the .NET 9 OpenAPI document generation feature.\n\n### Expected Behavior\n\nA property with the `[Required]` attribute should be a required property of the OpenAPI schema.\n\n### Steps To Reproduce\n\nNot minimal, but there is a recreate in the \"Schemas\" section of my [aspnet-openapi-examples](https://github.com/mikekistler/aspnet-openapi-examples) project.\n\n### Exceptions (if any)\n\n_No response_\n\n### .NET Version\n\n9.0-preview4\n\n### Anything else?\n\n_No response_",
+  "pr_title": "Add support for processing RequiredAttribute on OpenApi schemas",
+  "pr_body": "Closes https://github.com/dotnet/aspnetcore/issues/56212."
+}

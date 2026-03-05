@@ -1,0 +1,20 @@
+[
+  {
+    "path": "src/propslib/DelegationConfig.cpp",
+    "line": 328,
+    "original_line": 328,
+    "review_comment": [
+      "Technically we can `GetSystemDirectory` (for which wil has a wrapper) -- might be (delta) \"easier\"",
+      "That sounds like making one more call and concatenate.... I think I'll just leave it this way especially since I stole this from another part of our codebase already (and subbed the exe name)"
+    ]
+  },
+  {
+    "path": "src/propslib/DelegationConfig.cpp",
+    "line": 318,
+    "original_line": 318,
+    "review_comment": [
+      "thanks i hate it",
+      "YEP."
+    ]
+  }
+]

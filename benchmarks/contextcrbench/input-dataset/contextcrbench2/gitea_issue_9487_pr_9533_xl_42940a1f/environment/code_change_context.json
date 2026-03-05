@@ -1,0 +1,6 @@
+{
+  "issue_title": "Use github.com/yuin/goldmark as markdown parser",
+  "issue_body": "As mentioned on https://github.com/go-gitea/gitea/issues/2222#issuecomment-568751429 by @zeripath ",
+  "pr_title": "Change markdown rendering from blackfriday to goldmark ",
+  "pr_body": "Markdown rendering and stripping moved from blackfriday to goldmark.\r\n\r\nThere are multiple subtle changes required to the standard goldmark extensions to keep\r\ncurrent rendering and defaults. This raises the possibility that we should extend these to do rendering for ourselves. In particular we can go further with goldmark linkify extension and have this make running the link processor unnecessary.\r\n\r\nNeed to think about how to go about allowing extensions - at present it seems that these would be hard to do without recompilation.\r\n\r\n~~Fixes #9182~~ Fixes #9487\r\nFixes #4916 (closed but was not fixed before)\r\nShould probably fix #4027\r\n"
+}

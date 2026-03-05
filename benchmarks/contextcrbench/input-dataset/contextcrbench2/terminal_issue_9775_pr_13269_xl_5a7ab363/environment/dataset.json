@@ -1,0 +1,24 @@
+[
+  {
+    "id": 46579,
+    "full_name": "microsoft/terminal",
+    "lang": "cpp",
+    "issue_number": 9775,
+    "pr_number": 13269,
+    "diff_hunk": "@@ -48,6 +50,25 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation\n         return _Name;\r\n     }\r\n \r\n+    bool ColorSchemeViewModel::IsDefaultScheme()\r\n+    {\r\n+        return _Name == _settings.ProfileDefaults().DefaultAppearance().ColorSchemeName();\r\n+    }\r\n+\r\n+    void ColorSchemeViewModel::RefreshIsDefault()\r\n+    {\r\n+        _NotifyChanges(L\"IsDefaultScheme\");\r\n+    }\r\n+\r\n+    bool ColorSchemeViewModel::RequestRename(winrt::hstring newName)\r\n+    {\r\n+        if (const auto parentPageVM{ _parentPageVM.get() })\r\n+        {\r\n+            return parentPageVM.RequestRenameCurrentScheme(newName);\r\n+        }\r\n+        return false;\r\n+    }\r\n+\r\n     void ColorSchemeViewModel::Name(winrt::hstring newName)\r\n     {\r\n         _scheme.Name(newName);\r\n",
+    "diff_hunk_content_with_line_number": "[48][50]          return _Name;\n[49][51]      }\n[50][52]  \n[][53] +    bool ColorSchemeViewModel::IsDefaultScheme()\n[][54] +    {\n[][55] +        return _Name == _settings.ProfileDefaults().DefaultAppearance().ColorSchemeName();\n[][56] +    }\n[][57] +\n[][58] +    void ColorSchemeViewModel::RefreshIsDefault()\n[][59] +    {\n[][60] +        _NotifyChanges(L\"IsDefaultScheme\");\n[][61] +    }\n[][62] +\n[][63] +    bool ColorSchemeViewModel::RequestRename(winrt::hstring newName)\n[][64] +    {\n[][65] +        if (const auto parentPageVM{ _parentPageVM.get() })\n[][66] +        {\n[][67] +            return parentPageVM.RequestRenameCurrentScheme(newName);\n[][68] +        }\n[][69] +        return false;\n[][70] +    }\n[][71] +\n[51][72]      void ColorSchemeViewModel::Name(winrt::hstring newName)\n[52][73]      {\n[53][74]          _scheme.Name(newName);",
+    "checked_commit_id": "5a7ab363ace3fe5f68566a77a4381437c5ae8943",
+    "pr_size": "xl"
+  },
+  {
+    "id": 46581,
+    "full_name": "microsoft/terminal",
+    "lang": "cpp",
+    "issue_number": 9775,
+    "pr_number": 13269,
+    "diff_hunk": "@@ -48,6 +50,25 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation\n         return _Name;\r\n     }\r\n \r\n+    bool ColorSchemeViewModel::IsDefaultScheme()\r\n+    {\r\n+        return _Name == _settings.ProfileDefaults().DefaultAppearance().ColorSchemeName();\r\n+    }\r\n+\r\n+    void ColorSchemeViewModel::RefreshIsDefault()\r\n+    {\r\n+        _NotifyChanges(L\"IsDefaultScheme\");\r\n+    }\r\n+\r\n+    bool ColorSchemeViewModel::RequestRename(winrt::hstring newName)\r\n+    {\r\n+        if (const auto parentPageVM{ _parentPageVM.get() })\r\n+        {\r\n+            return parentPageVM.RequestRenameCurrentScheme(newName);\r\n+        }\r\n+        return false;\r\n+    }\r\n+\r\n     void ColorSchemeViewModel::Name(winrt::hstring newName)\r\n     {\r\n         _scheme.Name(newName);\r\n",
+    "diff_hunk_content_with_line_number": "[48][50]          return _Name;\n[49][51]      }\n[50][52]  \n[][53] +    bool ColorSchemeViewModel::IsDefaultScheme()\n[][54] +    {\n[][55] +        return _Name == _settings.ProfileDefaults().DefaultAppearance().ColorSchemeName();\n[][56] +    }\n[][57] +\n[][58] +    void ColorSchemeViewModel::RefreshIsDefault()\n[][59] +    {\n[][60] +        _NotifyChanges(L\"IsDefaultScheme\");\n[][61] +    }\n[][62] +\n[][63] +    bool ColorSchemeViewModel::RequestRename(winrt::hstring newName)\n[][64] +    {\n[][65] +        if (const auto parentPageVM{ _parentPageVM.get() })\n[][66] +        {\n[][67] +            return parentPageVM.RequestRenameCurrentScheme(newName);\n[][68] +        }\n[][69] +        return false;\n[][70] +    }\n[][71] +\n[51][72]      void ColorSchemeViewModel::Name(winrt::hstring newName)\n[52][73]      {\n[53][74]          _scheme.Name(newName);",
+    "checked_commit_id": "5a7ab363ace3fe5f68566a77a4381437c5ae8943",
+    "pr_size": "xl"
+  }
+]

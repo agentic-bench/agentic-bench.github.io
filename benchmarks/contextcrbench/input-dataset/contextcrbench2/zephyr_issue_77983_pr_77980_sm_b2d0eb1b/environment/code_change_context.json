@@ -1,0 +1,6 @@
+{
+  "issue_title": "Multiple ICE40 instances on the same SPI master",
+  "issue_body": "**Describe the bug**\r\nWhen multiple ICE40 instances on the same SPI master are enabled the build will fail, as there will be multiple instances of the same pinctrl-config object within fpga_ice40.c.\r\n\r\n**To Reproduce**\r\n1. CONFIG_PINCTRL=y\r\n2. enable two instances of `lattice,ice40-fpga` on the same master.\r\n3. west build -> BOOM \r\n\r\n**Expected behavior**\r\nIt should be possible to use two ICE40 with PINCTRL on the same SPI master.\r\n",
+  "pr_title": "Enable multiple ICE40 on the same bus",
+  "pr_body": "At the moment the build fails if multiple ICE40 are configured on the same SPI master with CONFIG_PINCTRL=y due to duplicate instantiation of the parent pinctrl-config.\r\n\r\nThis PR introduces a new SPI API which allows reapplying the default pin state, which in turn removes the necessity to have the parent pinctrl-config in the ICE40 driver.\r\n\r\nSo far I came up with only one alternative: Macrobatics in the ICE40 driver which loops over all SPI masters and creates one pinctrl-config instance for each SPI master with at least one ICE40 instance on it. This didn't seem to be a really good option to me.\r\n\r\nFixes #77983."
+}

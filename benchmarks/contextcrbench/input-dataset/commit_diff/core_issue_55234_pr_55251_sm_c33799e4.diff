@@ -1,0 +1,78 @@
+diff --git a/homeassistant/components/sensor/recorder.py b/homeassistant/components/sensor/recorder.py
+index 2115cca2892fdf..bcb2113600712f 100644
+--- a/homeassistant/components/sensor/recorder.py
++++ b/homeassistant/components/sensor/recorder.py
+@@ -108,6 +108,7 @@
+ }
+ 
+ # Keep track of entities for which a warning about decreasing value has been logged
++SEEN_DIP = "sensor_seen_total_increasing_dip"
+ WARN_DIP = "sensor_warn_total_increasing_dip"
+ # Keep track of entities for which a warning about unsupported unit has been logged
+ WARN_UNSUPPORTED_UNIT = "sensor_warn_unsupported_unit"
+@@ -233,7 +234,17 @@ def _normalize_states(
+ 
+ 
+ def warn_dip(hass: HomeAssistant, entity_id: str) -> None:
+-    """Log a warning once if a sensor with state_class_total has a decreasing value."""
++    """Log a warning once if a sensor with state_class_total has a decreasing value.
++
++    The log will be suppressed until two dips have been seen to prevent warning due to
++    rounding issues with databases storing the state as a single precision float, which
++    was fixed in recorder DB version 20.
++    """
++    if SEEN_DIP not in hass.data:
++        hass.data[SEEN_DIP] = set()
++    if entity_id not in hass.data[SEEN_DIP]:
++        hass.data[SEEN_DIP].add(entity_id)
++        return
+     if WARN_DIP not in hass.data:
+         hass.data[WARN_DIP] = set()
+     if entity_id not in hass.data[WARN_DIP]:
+diff --git a/tests/components/sensor/test_recorder.py b/tests/components/sensor/test_recorder.py
+index 0234a8c0613aa6..c7f356e49ee929 100644
+--- a/tests/components/sensor/test_recorder.py
++++ b/tests/components/sensor/test_recorder.py
+@@ -371,7 +371,7 @@ def test_compile_hourly_sum_statistics_total_increasing_small_dip(
+         "state_class": "total_increasing",
+         "unit_of_measurement": unit,
+     }
+-    seq = [10, 15, 20, 19, 30, 40, 50, 60, 70]
++    seq = [10, 15, 20, 19, 30, 40, 39, 60, 70]
+ 
+     four, eight, states = record_meter_states(
+         hass, zero, "sensor.test1", attributes, seq
+@@ -385,8 +385,20 @@ def test_compile_hourly_sum_statistics_total_increasing_small_dip(
+     wait_recording_done(hass)
+     recorder.do_adhoc_statistics(period="hourly", start=zero + timedelta(hours=1))
+     wait_recording_done(hass)
++    assert (
++        "Entity sensor.test1 has state class total_increasing, but its state is not "
++        "strictly increasing. Please create a bug report at https://github.com/"
++        "home-assistant/core/issues?q=is%3Aopen+is%3Aissue+label%3A%22integration%3A"
++        "+recorder%22"
++    ) not in caplog.text
+     recorder.do_adhoc_statistics(period="hourly", start=zero + timedelta(hours=2))
+     wait_recording_done(hass)
++    assert (
++        "Entity sensor.test1 has state class total_increasing, but its state is not "
++        "strictly increasing. Please create a bug report at https://github.com/"
++        "home-assistant/core/issues?q=is%3Aopen+is%3Aissue+label%3A%22integration%3A"
++        "+recorder%22"
++    ) in caplog.text
+     statistic_ids = list_statistic_ids(hass)
+     assert statistic_ids == [
+         {"statistic_id": "sensor.test1", "unit_of_measurement": native_unit}
+@@ -427,12 +439,6 @@ def test_compile_hourly_sum_statistics_total_increasing_small_dip(
+         ]
+     }
+     assert "Error while processing event StatisticsTask" not in caplog.text
+-    assert (
+-        "Entity sensor.test1 has state class total_increasing, but its state is not "
+-        "strictly increasing. Please create a bug report at https://github.com/"
+-        "home-assistant/core/issues?q=is%3Aopen+is%3Aissue+label%3A%22integration%3A"
+-        "+recorder%22"
+-    ) in caplog.text
+ 
+ 
+ def test_compile_hourly_energy_statistics_unsupported(hass_recorder, caplog):

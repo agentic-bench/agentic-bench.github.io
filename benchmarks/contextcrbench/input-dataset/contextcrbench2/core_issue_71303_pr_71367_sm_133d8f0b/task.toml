@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "core_issue_71303_pr_71367_sm_133d8f0b"
+contextcrbench2_full_name = "home-assistant/core"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "71303"
+contextcrbench2_issue_title = "SABnzbd sensors not linked to the integration"
+contextcrbench2_pr_number = "71367"
+contextcrbench2_pr_title = "Add unique ids to sensors"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "133d8f0b975a33a2572e4f92577a8b2f739142a2"
+contextcrbench2_commit_id = "133d8f0b975a33a2572e4f92577a8b2f739142a2"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2022-05-06T04:08:14Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "bazel_issue_13231_pr_15807_l_43f2f604"
+contextcrbench2_full_name = "bazelbuild/bazel"
+contextcrbench2_lang = "java"
+contextcrbench2_issue_number = "13231"
+contextcrbench2_issue_title = "Not possible to override string flag in the config section of bazelrc file from command line"
+contextcrbench2_pr_number = "15807"
+contextcrbench2_pr_title = "Preserve relative order of explicit and expanded Starlark flags"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "43f2f604a499b2e6eacf7025b087fb06ebf2c62e"
+contextcrbench2_commit_id = "9121230faf5224204d2b05d66599d84357db5dad"
+contextcrbench2_created_at = "2022-08-11T20:56:28Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

@@ -1,0 +1,6 @@
+{
+  "issue_title": "CheckSprites does not take tileset images into account",
+  "issue_body": "Invalidating\r\n\r\n```\r\n\tTemplate@375:\r\n\t\tId: 375\r\n\t\tImages: image.png\r\n```\r\n\r\ndoes not raise an error.",
+  "pr_title": "Overhaul and improve sequence linting",
+  "pr_body": "This PR started with the goal of adding linter support for reference attributes on dictionaries before scope-creeping into a general rework of the `[SequenceReference]` code. This should make the sequence linter more accurate, and a lot easier to understand.\r\n\r\nFixes #6975.\r\nFixes #12753.\r\nFixes #16095.\r\nFixes #17596.\r\nFixes #18516.\r\nSupersedes #7817.\r\nSupersedes #17597."
+}

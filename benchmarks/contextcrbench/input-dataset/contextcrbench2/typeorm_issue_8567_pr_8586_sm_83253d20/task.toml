@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "typeorm_issue_8567_pr_8586_sm_83253d20"
+contextcrbench2_full_name = "typeorm/typeorm"
+contextcrbench2_lang = "typescript"
+contextcrbench2_issue_number = "8567"
+contextcrbench2_issue_title = "The test issue-863 fails sometimes"
+contextcrbench2_pr_number = "8586"
+contextcrbench2_pr_title = "test: prevent the creation of a dangling connection by test issue-8522"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "83253d20a6c3227706c367363e4beaf2fcd28498"
+contextcrbench2_commit_id = "83253d20a6c3227706c367363e4beaf2fcd28498"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2022-01-30T14:07:37Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

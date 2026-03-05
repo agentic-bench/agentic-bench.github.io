@@ -1,0 +1,10 @@
+[
+  {
+    "path": "activerecord/test/cases/associations_test.rb",
+    "line": 381,
+    "original_line": 381,
+    "review_comment": [
+      "Before patch:\r\n\r\n<img width=\"1529\" alt=\"Screenshot 2024-02-22 at 11 59 06\u202fPM\" src=\"https://github.com/rails/rails/assets/54629302/2beb5d11-e91a-43ba-85a9-df00cd16f4f0\">"
+    ]
+  }
+]

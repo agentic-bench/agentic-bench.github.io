@@ -1,0 +1,95 @@
+diff --git a/.cargo/config.toml b/.cargo/config.toml
+index f7d8e616f8622..7f5236d2617a1 100644
+--- a/.cargo/config.toml
++++ b/.cargo/config.toml
+@@ -6,5 +6,5 @@ benchmark = "bench -p ruff_benchmark --bench linter --bench formatter --"
+ # that shared/dynamic library.
+ #
+ # See: https://github.com/astral-sh/ruff/issues/11503
+-[target.'cfg(all(target_env="msvc", target_os = "windows"))']
++[target.'cfg(all(target_env = "msvc", target_os = "windows"))']
+ rustflags = ["-C", "target-feature=+crt-static"]
+diff --git a/crates/ruff_server/src/edit/notebook.rs b/crates/ruff_server/src/edit/notebook.rs
+index d489d51265be3..7b93e00ad2095 100644
+--- a/crates/ruff_server/src/edit/notebook.rs
++++ b/crates/ruff_server/src/edit/notebook.rs
+@@ -169,7 +169,7 @@ impl NotebookDocument {
+     }
+ 
+     /// Returns a list of cell URIs in the order they appear in the array.
+-    pub(crate) fn urls(&self) -> impl Iterator<Item = &lsp_types::Url> {
++    pub(crate) fn cell_urls(&self) -> impl Iterator<Item = &lsp_types::Url> {
+         self.cells.iter().map(|cell| &cell.url)
+     }
+ 
+diff --git a/crates/ruff_server/src/fix.rs b/crates/ruff_server/src/fix.rs
+index 03dcc2980c52d..1e40418f341ca 100644
+--- a/crates/ruff_server/src/fix.rs
++++ b/crates/ruff_server/src/fix.rs
+@@ -111,7 +111,7 @@ pub(crate) fn fix_all(
+             .iter()
+             .map(cell_source)
+             .zip(modified_notebook.cells().iter().map(cell_source))
+-            .zip(notebook.urls())
++            .zip(notebook.cell_urls())
+         {
+             let source_index = LineIndex::from_source_text(&source);
+             let modified_index = LineIndex::from_source_text(&modified);
+diff --git a/crates/ruff_server/src/lint.rs b/crates/ruff_server/src/lint.rs
+index 294ded142e4ed..0c22bca009a5e 100644
+--- a/crates/ruff_server/src/lint.rs
++++ b/crates/ruff_server/src/lint.rs
+@@ -141,7 +141,7 @@ pub(crate) fn check(query: &DocumentQuery, encoding: PositionEncoding) -> Diagno
+     // Populates all relevant URLs with an empty diagnostic list.
+     // This ensures that documents without diagnostics still get updated.
+     if let Some(notebook) = query.as_notebook() {
+-        for url in notebook.urls() {
++        for url in notebook.cell_urls() {
+             diagnostics.entry(url.clone()).or_default();
+         }
+     } else {
+diff --git a/crates/ruff_server/src/server/api/requests/format.rs b/crates/ruff_server/src/server/api/requests/format.rs
+index b8d4d27c1f853..0fc2d32586eac 100644
+--- a/crates/ruff_server/src/server/api/requests/format.rs
++++ b/crates/ruff_server/src/server/api/requests/format.rs
+@@ -36,7 +36,7 @@ pub(super) fn format_full_document(snapshot: &DocumentSnapshot) -> Result<Fixes>
+     match snapshot.query() {
+         DocumentQuery::Notebook { notebook, .. } => {
+             for (url, text_document) in notebook
+-                .urls()
++                .cell_urls()
+                 .map(|url| (url.clone(), notebook.cell_document_by_uri(url).unwrap()))
+             {
+                 if let Some(changes) =
+diff --git a/crates/ruff_server/src/session/index.rs b/crates/ruff_server/src/session/index.rs
+index 6890153ea82d1..5ee802561f23f 100644
+--- a/crates/ruff_server/src/session/index.rs
++++ b/crates/ruff_server/src/session/index.rs
+@@ -328,7 +328,7 @@ impl Index {
+     }
+ 
+     pub(super) fn open_notebook_document(&mut self, notebook_url: Url, document: NotebookDocument) {
+-        for cell_url in document.urls() {
++        for cell_url in document.cell_urls() {
+             self.notebook_cells
+                 .insert(cell_url.clone(), notebook_url.clone());
+         }
+@@ -347,16 +347,10 @@ impl Index {
+             anyhow::bail!("Tried to close unavailable document `{key}`");
+         };
+ 
+-        let Some(controller) = self.documents.remove(&url) else {
++        if self.documents.remove(&url).is_none() {
+             anyhow::bail!("tried to close document that didn't exist at {}", url)
+         };
+-        if let Some(notebook) = controller.as_notebook() {
+-            for url in notebook.urls() {
+-                self.notebook_cells.remove(url).ok_or_else(|| {
+-                    anyhow!("tried to de-register notebook cell with URL {url} that didn't exist")
+-                })?;
+-            }
+-        }
++        // notebook cells are closed via textDocument/didClose - we don't close them here.
+         Ok(())
+     }
+ 

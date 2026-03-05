@@ -1,0 +1,5221 @@
+diff --git a/CODEOWNERS b/CODEOWNERS
+index c087599baa4475..c17751e85f5af4 100644
+--- a/CODEOWNERS
++++ b/CODEOWNERS
+@@ -439,6 +439,8 @@ build.json @home-assistant/supervisor
+ /tests/components/guardian/ @bachya
+ /homeassistant/components/habitica/ @ASMfreaK @leikoilja
+ /tests/components/habitica/ @ASMfreaK @leikoilja
++/homeassistant/components/hafas/ @kilimnik
++/tests/components/hafas/ @kilimnik
+ /homeassistant/components/hardkernel/ @home-assistant/core
+ /tests/components/hardkernel/ @home-assistant/core
+ /homeassistant/components/hardware/ @home-assistant/core
+diff --git a/homeassistant/components/hafas/__init__.py b/homeassistant/components/hafas/__init__.py
+new file mode 100644
+index 00000000000000..0097d3accb251b
+--- /dev/null
++++ b/homeassistant/components/hafas/__init__.py
+@@ -0,0 +1,40 @@
++"""The HaFAS integration."""
++from __future__ import annotations
++
++from pyhafas import HafasClient
++from pyhafas.profile import DBProfile, VSNProfile
++
++from homeassistant.config_entries import ConfigEntry
++from homeassistant.const import Platform
++from homeassistant.core import HomeAssistant
++
++from .config_flow import Profile
++from .const import CONF_PROFILE, DOMAIN
++
++PLATFORMS: list[Platform] = [Platform.SENSOR]
++
++
++async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
++    """Set up HaFAS from a config entry."""
++
++    hass.data.setdefault(DOMAIN, {})
++
++    client: HafasClient = None
++    if entry.data[CONF_PROFILE] == Profile.DB:
++        client = HafasClient(DBProfile())
++    elif entry.data[CONF_PROFILE] == Profile.VSN:
++        client = HafasClient(VSNProfile())
++
++    hass.data[DOMAIN][entry.entry_id] = client
++
++    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
++
++    return True
++
++
++async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
++    """Unload a config entry."""
++    if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
++        hass.data[DOMAIN].pop(entry.entry_id)
++
++    return unload_ok
+diff --git a/homeassistant/components/hafas/config_flow.py b/homeassistant/components/hafas/config_flow.py
+new file mode 100644
+index 00000000000000..2bdb985f17cc34
+--- /dev/null
++++ b/homeassistant/components/hafas/config_flow.py
+@@ -0,0 +1,130 @@
++"""Config flow for HaFAS integration."""
++from __future__ import annotations
++
++import logging
++from typing import Any
++
++from pyhafas import HafasClient
++from pyhafas.profile import DBProfile, VSNProfile
++from pyhafas.types.fptf import Station
++import voluptuous as vol
++
++from homeassistant import config_entries
++from homeassistant.backports.enum import StrEnum
++from homeassistant.const import CONF_OFFSET
++from homeassistant.core import HomeAssistant
++from homeassistant.data_entry_flow import FlowResult
++from homeassistant.helpers import selector
++
++from .const import CONF_DESTINATION, CONF_ONLY_DIRECT, CONF_PROFILE, CONF_START, DOMAIN
++
++_LOGGER = logging.getLogger(__name__)
++
++
++class Profile(StrEnum):
++    """Enum of HaFAS profile type."""
++
++    DB = "DB"
++    VSN = "VSN"
++
++
++PROFILE_OPTIONS = [
++    selector.SelectOptionDict(value=Profile.DB, label="Deutsche Bahn"),
++    selector.SelectOptionDict(
++        value=Profile.VSN, label="Verkehrsverbund Süd-Niedersachsen"
++    ),
++]
++
++DEFAULT_OFFSET = {"seconds": 0}
++
++STEP_USER_DATA_SCHEMA = vol.Schema(
++    {
++        vol.Required(CONF_PROFILE): selector.SelectSelector(
++            selector.SelectSelectorConfig(
++                options=PROFILE_OPTIONS,
++                multiple=False,
++                mode=selector.SelectSelectorMode.DROPDOWN,
++            ),
++        ),
++        vol.Required(CONF_START): str,
++        vol.Required(CONF_DESTINATION): str,
++        vol.Required(CONF_OFFSET, default=DEFAULT_OFFSET): selector.DurationSelector(),
++        vol.Required(CONF_ONLY_DIRECT, default=False): bool,
++    }
++)
++
++
++def validate_station_name(client: HafasClient, station_name: str) -> Station:
++    """Validate station based on user input."""
++
++    stations = client.locations(station_name)
++    if len(stations) == 0:
++        return None
++
++    return stations[0]
++
++
++async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str, Any]:
++    """Validate the user input allows us to connect.
++
++    Data has the keys from STEP_USER_DATA_SCHEMA with values provided by the user.
++    """
++    client: HafasClient = None
++    if data[CONF_PROFILE] == Profile.DB:
++        client = HafasClient(DBProfile())
++    elif data[CONF_PROFILE] == Profile.VSN:
++        client = HafasClient(VSNProfile())
++
++    start_station = await hass.async_add_executor_job(
++        validate_station_name, client, data[CONF_START]
++    )
++    if start_station is None:
++        raise ValueError(f'No station found with name "{data[CONF_START]}".')
++
++    destination_station = await hass.async_add_executor_job(
++        validate_station_name, client, data[CONF_DESTINATION]
++    )
++    if destination_station is None:
++        raise ValueError(f'No station found with name "{data[CONF_DESTINATION]}".')
++
++    # Return info that you want to store in the config entry.
++    return {
++        "title": f"{start_station.name} to {destination_station.name}",
++        CONF_PROFILE: data[CONF_PROFILE],
++        CONF_START: start_station.name,
++        CONF_DESTINATION: destination_station.name,
++        CONF_OFFSET: data[CONF_OFFSET],
++        CONF_ONLY_DIRECT: data[CONF_ONLY_DIRECT],
++    }
++
++
++class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
++    """Handle a config flow for HaFAS."""
++
++    VERSION = 1
++
++    async def async_step_user(
++        self, user_input: dict[str, Any] | None = None
++    ) -> FlowResult:
++        """Handle the initial step."""
++        if user_input is None:
++            return self.async_show_form(
++                step_id="user", data_schema=STEP_USER_DATA_SCHEMA
++            )
++
++        errors = {}
++
++        try:
++            info = await validate_input(self.hass, user_input)
++        except ValueError as ex:  # pylint: disable=broad-except
++            _LOGGER.exception("Unexpected exception: %s", ex)
++            errors["base"] = "invalid_station"
++        except Exception:  # pylint: disable=broad-except
++            _LOGGER.exception("Unexpected exception")
++            errors["base"] = "unknown"
++        else:
++            return self.async_create_entry(title=info["title"], data=user_input)
++
++        return self.async_show_form(
++            step_id="user", data_schema=STEP_USER_DATA_SCHEMA, errors=errors
++        )
+diff --git a/homeassistant/components/hafas/const.py b/homeassistant/components/hafas/const.py
+new file mode 100644
+index 00000000000000..f8d27b4508a3d4
+--- /dev/null
++++ b/homeassistant/components/hafas/const.py
+@@ -0,0 +1,8 @@
++"""Constants for the HaFAS integration."""
++
++DOMAIN = "hafas"
++
++CONF_PROFILE = "profile"
++CONF_DESTINATION = "destination"
++CONF_START = "start"
++CONF_ONLY_DIRECT = "only_direct"
+diff --git a/homeassistant/components/hafas/manifest.json b/homeassistant/components/hafas/manifest.json
+new file mode 100644
+index 00000000000000..a2bb1cb09dc8ce
+--- /dev/null
++++ b/homeassistant/components/hafas/manifest.json
+@@ -0,0 +1,13 @@
++{
++  "domain": "hafas",
++  "name": "HaFAS",
++  "config_flow": true,
++  "documentation": "https://www.home-assistant.io/integrations/hafas",
++  "requirements": ["pyhafas==0.3.0"],
++  "ssdp": [],
++  "zeroconf": [],
++  "homekit": {},
++  "dependencies": [],
++  "codeowners": ["@kilimnik"],
++  "iot_class": "cloud_polling"
++}
+diff --git a/homeassistant/components/hafas/sensor.py b/homeassistant/components/hafas/sensor.py
+new file mode 100644
+index 00000000000000..6e24eaba4e1d66
+--- /dev/null
++++ b/homeassistant/components/hafas/sensor.py
+@@ -0,0 +1,186 @@
++"""Sensor for HaFAS."""
++
++from __future__ import annotations
++
++from datetime import timedelta
++import functools
++from typing import Any
++
++from pyhafas import HafasClient
++from pyhafas.types.fptf import Journey, Station
++
++from homeassistant.components.sensor import SensorEntity
++from homeassistant.config_entries import ConfigEntry
++from homeassistant.const import CONF_OFFSET
++from homeassistant.core import HomeAssistant
++from homeassistant.helpers.entity_platform import AddEntitiesCallback
++import homeassistant.util.dt as dt_util
++
++from .const import CONF_DESTINATION, CONF_ONLY_DIRECT, CONF_START, DOMAIN
++
++ICON = "mdi:train"
++SCAN_INTERVAL = timedelta(minutes=2)
++
++
++async def async_setup_entry(
++    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
++) -> None:
++    """Set up HaFAS sensor entities based on a config entry."""
++    client: HafasClient = hass.data[DOMAIN][entry.entry_id]
++
++    # Already verified to have at least one entry in config_flow.py
++    start_station = (
++        await hass.async_add_executor_job(client.locations, entry.data[CONF_START])
++    )[0]
++    destination_station = (
++        await hass.async_add_executor_job(
++            client.locations, entry.data[CONF_DESTINATION]
++        )
++    )[0]
++
++    offset = timedelta(**entry.data[CONF_OFFSET])
++
++    async_add_entities(
++        [
++            HaFAS(
++                hass,
++                client,
++                start_station,
++                destination_station,
++                offset,
++                entry.data[CONF_ONLY_DIRECT],
++                entry.title,
++            )
++        ],
++        True,
++    )
++
++
++class HaFAS(SensorEntity):
++    """Implementation of a HaFAS sensor."""
++
++    def __init__(
++        self,
++        hass: HomeAssistant,
++        client: HafasClient,
++        start_station: Station,
++        destination_station: Station,
++        offset: timedelta,
++        only_direct: bool,
++        title: str,
++    ) -> None:
++        """Initialize the sensor."""
++        self.hass = hass
++        self.client = client
++        self.origin = start_station
++        self.destination = destination_station
++        self.offset = offset
++        self.only_direct = only_direct
++        self._name = title
++
++        self.journeys: list[Journey] = []
++
++    @property
++    def name(self) -> str:
++        """Return the name of the sensor."""
++        return self._name
++
++    @property
++    def icon(self) -> str:
++        """Return the icon for the frontend."""
++        return ICON
++
++    @property
++    def native_value(self) -> str:
++        """Return the departure time of the next train."""
++        if (
++            len(self.journeys) == 0
++            or self.journeys[0].legs is None
++            or len(self.journeys[0].legs) == 0
++        ):
++            return "No connection possible"
++
++        first_leg = self.journeys[0].legs[0]
++
++        value = first_leg.departure.strftime("%H:%M")
++        if (
++            first_leg.departureDelay is not None
++            and first_leg.departureDelay != timedelta()
++        ):
++            delay = int(first_leg.departureDelay.total_seconds() // 60)
++
++            value += f" + {delay}"
++
++        return value
++
++    @property
++    def extra_state_attributes(self) -> dict[str, Any]:
++        """Return the state attributes."""
++        if (
++            len(self.journeys) == 0
++            or self.journeys[0].legs is None
++            or len(self.journeys[0].legs) == 0
++        ):
++            return {}
++
++        journey = self.journeys[0]
++        first_leg = journey.legs[0]
++        last_leg = journey.legs[-1]
++        products = ", ".join([x.name for x in journey.legs if x.name is not None])[:-2]
++        duration = timedelta() if journey.duration is None else journey.duration
++        delay = (
++            timedelta()
++            if first_leg.departureDelay is None
++            else first_leg.departureDelay
++        )
++        delay_arrival = (
++            timedelta() if last_leg.arrivalDelay is None else last_leg.arrivalDelay
++        )
++
++        connections = {
++            "departure": first_leg.departure,
++            "arrival": last_leg.arrival,
++            "transfers": len(journey.legs) - 1,
++            "time": str(duration),
++            "products": products,
++            "ontime": delay == timedelta(),
++            "delay": str(delay),
++            "canceled": first_leg.cancelled,
++            "delay_arrival": str(delay_arrival),
++        }
++
++        next_connection = "No connection possible"
++        if (
++            len(self.journeys) > 1
++            and self.journeys[1].legs is not None
++            and len(self.journeys[1].legs) > 0
++        ):
++            next_connection = self.journeys[1].legs[0].departure
++
++        connections["next"] = next_connection
++
++        next_on_connection = "No connection possible"
++        if (
++            len(self.journeys) > 2
++            and self.journeys[2].legs is not None
++            and len(self.journeys[2].legs) > 0
++        ):
++            next_on_connection = self.journeys[2].legs[0].departure
++
++        connections["next_on"] = next_on_connection
++
++        return connections
++
++    async def async_update(self) -> None:
++        """Update the journeys using pyhafas."""
++
++        self.journeys = await self.hass.async_add_executor_job(
++            functools.partial(
++                self.client.journeys,
++                origin=self.origin,
++                destination=self.destination,
++                date=dt_util.as_local(dt_util.utcnow() + self.offset),
++                max_changes=0 if self.only_direct else -1,
++                max_journeys=3,
++            )
++        )
+diff --git a/homeassistant/components/hafas/strings.json b/homeassistant/components/hafas/strings.json
+new file mode 100644
+index 00000000000000..43c6bd8bb56acf
+--- /dev/null
++++ b/homeassistant/components/hafas/strings.json
+@@ -0,0 +1,15 @@
++{
++  "config": {
++    "step": {
++      "user": {
++        "data": {
++          "profile": "Profile",
++          "start": "Start",
++          "destination": "Destination",
++          "offset": "Offset",
++          "only_direct": "Only direct connections?"
++        }
++      }
++    }
++  }
++}
+diff --git a/homeassistant/components/hafas/translations/en.json b/homeassistant/components/hafas/translations/en.json
+new file mode 100644
+index 00000000000000..8792e8e74b95bf
+--- /dev/null
++++ b/homeassistant/components/hafas/translations/en.json
+@@ -0,0 +1,15 @@
++{
++    "config": {
++        "step": {
++            "user": {
++                "data": {
++                    "profile": "Profile",
++                    "start": "Start",
++                    "destination": "Destination",
++                    "offset": "Offset",
++                    "only_direct": "Only direct connections?"
++                }
++            }
++        }
++    }
++}
+\ No newline at end of file
+diff --git a/homeassistant/generated/config_flows.py b/homeassistant/generated/config_flows.py
+index 208a7e02efc8a9..4b83b82f0a3fc1 100644
+--- a/homeassistant/generated/config_flows.py
++++ b/homeassistant/generated/config_flows.py
+@@ -148,6 +148,7 @@
+         "growatt_server",
+         "guardian",
+         "habitica",
++        "hafas",
+         "hangouts",
+         "harmony",
+         "heos",
+diff --git a/requirements_all.txt b/requirements_all.txt
+index 6a12a38fdc5a4f..899856861db109 100644
+--- a/requirements_all.txt
++++ b/requirements_all.txt
+@@ -1586,6 +1586,9 @@ pygtfs==0.1.6
+ # homeassistant.components.hvv_departures
+ pygti==0.9.3
+ 
++# homeassistant.components.hafas
++pyhafas==0.3.0
++
+ # homeassistant.components.version
+ pyhaversion==22.8.0
+ 
+diff --git a/requirements_test_all.txt b/requirements_test_all.txt
+index d60c9146079d31..d8ddfe9de71394 100644
+--- a/requirements_test_all.txt
++++ b/requirements_test_all.txt
+@@ -1105,6 +1105,9 @@ pyfttt==0.3
+ # homeassistant.components.hvv_departures
+ pygti==0.9.3
+ 
++# homeassistant.components.hafas
++pyhafas==0.3.0
++
+ # homeassistant.components.version
+ pyhaversion==22.8.0
+ 
+diff --git a/tests/components/hafas/__init__.py b/tests/components/hafas/__init__.py
+new file mode 100644
+index 00000000000000..32b5ad1b5485e1
+--- /dev/null
++++ b/tests/components/hafas/__init__.py
+@@ -0,0 +1 @@
++"""Tests for the HaFAS integration."""
+diff --git a/tests/components/hafas/common.py b/tests/components/hafas/common.py
+new file mode 100644
+index 00000000000000..c4e840a4ac0eba
+--- /dev/null
++++ b/tests/components/hafas/common.py
+@@ -0,0 +1,47 @@
++"""Common methods used across tests for HaFAS."""
++from unittest.mock import patch
++
++from homeassistant.components.hafas.const import (
++    CONF_DESTINATION,
++    CONF_ONLY_DIRECT,
++    CONF_PROFILE,
++    CONF_START,
++    DOMAIN,
++)
++from homeassistant.const import CONF_OFFSET
++from homeassistant.core import HomeAssistant
++from homeassistant.setup import async_setup_component
++import homeassistant.util.dt as dt_util
++
++from .const import (
++    TEST_OFFSET,
++    TEST_ONLY_DIRECT,
++    TEST_PROFILE,
++    TEST_STATION1,
++    TEST_STATION2,
++    TEST_TIME,
++)
++
++from tests.common import MockConfigEntry
++
++
++async def setup_platform(hass: HomeAssistant, platform: str) -> MockConfigEntry:
++    """Set up the Abode platform."""
++    mock_entry = MockConfigEntry(
++        domain=DOMAIN,
++        data={
++            CONF_PROFILE: TEST_PROFILE,
++            CONF_START: TEST_STATION1,
++            CONF_DESTINATION: TEST_STATION2,
++            CONF_OFFSET: TEST_OFFSET,
++            CONF_ONLY_DIRECT: TEST_ONLY_DIRECT,
++        },
++    )
++    mock_entry.add_to_hass(hass)
++
++    dt_util.set_default_time_zone(dt_util.get_time_zone("UTC"))
++    with patch("homeassistant.core.dt_util.utcnow", return_value=TEST_TIME):
++        assert await async_setup_component(hass, DOMAIN, {})
++    await hass.async_block_till_done()
++
++    return mock_entry
+diff --git a/tests/components/hafas/conftest.py b/tests/components/hafas/conftest.py
+new file mode 100644
+index 00000000000000..db295f34492939
+--- /dev/null
++++ b/tests/components/hafas/conftest.py
+@@ -0,0 +1,75 @@
++"""Configuration for HaFAS tests."""
++from datetime import timedelta
++import json
++
++from pyhafas.profile import DBProfile
++from pyhafas.profile.base.mappings.error_codes import BaseErrorCodesMapping
++from pyhafas.types.hafas_response import HafasResponse
++import pytest
++from requests import Response
++
++import homeassistant.util.dt as dt_util
++
++from .const import (
++    TEST_OFFSET,
++    TEST_ONLY_DIRECT,
++    TEST_STATION1,
++    TEST_STATION2,
++    TEST_TIME,
++)
++
++from tests.common import load_fixture
++
++
++@pytest.fixture(autouse=True)
++def requests_mock_fixture(requests_mock) -> None:
++    """Fixture to provide a requests mocker."""
++    profile = DBProfile()
++
++    # Mocks the location response for DB HaFAS Station1.
++    body = profile.format_location_request(TEST_STATION1)
++    data = {"svcReqL": [body]}
++    data.update(profile.requestBody)
++    data = json.dumps(data)
++    url = profile.url_formatter(data)
++    requests_mock.post(url, text=load_fixture("station1.json", "hafas"))
++
++    # Mocks the location response for DB HaFAS Station2.
++    body = profile.format_location_request(TEST_STATION2)
++    data = {"svcReqL": [body]}
++    data.update(profile.requestBody)
++    data = json.dumps(data)
++    url = profile.url_formatter(data)
++    requests_mock.post(url, text=load_fixture("station2.json", "hafas"))
++
++    # Mocks the journey response for DB HaFAS between Station1 and Station2.
++    station1_res = Response()
++    station1_res._content = load_fixture("station1.json", "hafas").encode()
++    station1 = profile.parse_location_request(
++        HafasResponse(station1_res, BaseErrorCodesMapping)
++    )[0]
++
++    station2_res = Response()
++    station2_res._content = load_fixture("station2.json", "hafas").encode()
++    station2 = profile.parse_location_request(
++        HafasResponse(station2_res, BaseErrorCodesMapping)
++    )[0]
++
++    date = profile.transform_datetime_parameter_timezone(
++        dt_util.as_local(TEST_TIME + timedelta(**TEST_OFFSET))
++    )
++    body = profile.format_journeys_request(
++        station1,
++        station2,
++        [],
++        date,
++        0,
++        0 if TEST_ONLY_DIRECT else -1,
++        {},
++        3,
++    )
++    data = {"svcReqL": [body]}
++    data.update(profile.requestBody)
++    data = json.dumps(data)
++    url = profile.url_formatter(data)
++    requests_mock.post(url, text=load_fixture("journey.json", "hafas"))
+diff --git a/tests/components/hafas/const.py b/tests/components/hafas/const.py
+new file mode 100644
+index 00000000000000..1dcad91a56efb5
+--- /dev/null
++++ b/tests/components/hafas/const.py
+@@ -0,0 +1,13 @@
++"""Constants for the HaFAS integration tests."""
++
++from datetime import datetime
++
++from homeassistant.components.hafas.config_flow import Profile
++from homeassistant.util.dt import UTC
++
++TEST_STATION1 = "Berlin Hbf"
++TEST_STATION2 = "Leipzig Hbf"
++TEST_PROFILE = Profile.DB
++TEST_OFFSET = {"seconds": 0}
++TEST_ONLY_DIRECT = False
++TEST_TIME = datetime(2022, 10, 1, 12, 0, 0, tzinfo=UTC)
+diff --git a/tests/components/hafas/fixtures/journey.json b/tests/components/hafas/fixtures/journey.json
+new file mode 100644
+index 00000000000000..d842b835ae8a06
+--- /dev/null
++++ b/tests/components/hafas/fixtures/journey.json
+@@ -0,0 +1,1416 @@
++{
++  "ver": "1.16",
++  "ext": "DB.R19.04.a",
++  "lang": "deu",
++  "id": "r76g6kexkggcp48g",
++  "cInfo": { "code": "OK" },
++  "svcResL": [
++    {
++      "meth": "TripSearch",
++      "err": "OK",
++      "res": {
++        "common": {
++          "locL": [
++            {
++              "lid": "A=1@O=Berlin Hbf (tief)@X=13369549@Y=52525589@U=80@L=8098160@",
++              "type": "S",
++              "name": "Berlin Hbf (tief)",
++              "icoX": 0,
++              "extId": "8098160",
++              "state": "F",
++              "crd": {
++                "x": 13368892,
++                "y": 52525850,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 447,
++              "entry": true,
++              "mMastLocX": 1
++            },
++            {
++              "lid": "A=1@O=Berlin Hbf@X=13369549@Y=52525589@U=80@L=8011160@",
++              "type": "S",
++              "name": "Berlin Hbf",
++              "icoX": 0,
++              "extId": "8011160",
++              "state": "F",
++              "crd": {
++                "x": 13369629,
++                "y": 52524924,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 447
++            },
++            {
++              "lid": "A=1@O=Leipzig Hbf@X=12382066@Y=51345467@U=80@L=8010205@",
++              "type": "S",
++              "name": "Leipzig Hbf",
++              "icoX": 0,
++              "extId": "8010205",
++              "state": "F",
++              "crd": {
++                "x": 12381167,
++                "y": 51345081,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 319
++            },
++            {
++              "lid": "A=1@O=Berlin Südkreuz@X=13365315@Y=52475043@U=80@L=8011113@",
++              "type": "S",
++              "name": "Berlin Südkreuz",
++              "icoX": 0,
++              "extId": "8011113",
++              "state": "F",
++              "crd": {
++                "x": 13365863,
++                "y": 52476230,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 63
++            },
++            {
++              "lid": "A=1@O=Lutherstadt Wittenberg Hbf@X=12662286@Y=51867813@U=80@L=8010222@",
++              "type": "S",
++              "name": "Lutherstadt Wittenberg Hbf",
++              "icoX": 0,
++              "extId": "8010222",
++              "state": "F",
++              "crd": {
++                "x": 12661999,
++                "y": 51867579,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 571
++            },
++            {
++              "lid": "A=1@O=Bitterfeld@X=12316849@Y=51622857@U=80@L=8010050@",
++              "type": "S",
++              "name": "Bitterfeld",
++              "icoX": 0,
++              "extId": "8010050",
++              "state": "F",
++              "crd": {
++                "x": 12316966,
++                "y": 51622911,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 571
++            },
++            {
++              "lid": "A=1@O=Leipzig Hbf (tief)@X=12380429@Y=51345692@U=80@L=8098205@",
++              "type": "S",
++              "name": "Leipzig Hbf (tief)",
++              "icoX": 6,
++              "extId": "8098205",
++              "state": "F",
++              "crd": {
++                "x": 12379836,
++                "y": 51345216,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 319,
++              "entry": true,
++              "mMastLocX": 2
++            },
++            {
++              "lid": "A=1@O=Petersroda@X=12285351@Y=51569955@U=80@L=8012629@",
++              "type": "S",
++              "name": "Petersroda",
++              "icoX": 8,
++              "extId": "8012629",
++              "state": "F",
++              "crd": {
++                "x": 12285369,
++                "y": 51570045,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 24
++            },
++            {
++              "lid": "A=1@O=Delitzsch unt Bf@X=12345219@Y=51525225@U=80@L=8010076@",
++              "type": "S",
++              "name": "Delitzsch unt Bf",
++              "icoX": 8,
++              "extId": "8010076",
++              "state": "F",
++              "crd": {
++                "x": 12345713,
++                "y": 51524497,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 568
++            },
++            {
++              "lid": "A=1@O=Zschortau@X=12361336@Y=51483686@U=80@L=8013428@",
++              "type": "S",
++              "name": "Zschortau",
++              "icoX": 8,
++              "extId": "8013428",
++              "state": "F",
++              "crd": {
++                "x": 12361498,
++                "y": 51483290,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 24
++            },
++            {
++              "lid": "A=1@O=Rackwitz(Leipzig)@X=12375126@Y=51440322@U=80@L=8012697@",
++              "type": "S",
++              "name": "Rackwitz(Leipzig)",
++              "icoX": 8,
++              "extId": "8012697",
++              "state": "F",
++              "crd": {
++                "x": 12375099,
++                "y": 51440286,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 568
++            },
++            {
++              "lid": "A=1@O=Leipzig Messe@X=12389275@Y=51396149@U=80@L=8012478@",
++              "type": "S",
++              "name": "Leipzig Messe",
++              "icoX": 8,
++              "extId": "8012478",
++              "state": "F",
++              "crd": {
++                "x": 12389383,
++                "y": 51396167,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 824
++            },
++            {
++              "lid": "A=1@O=Leipzig Essener Straße@X=12396988@Y=51376354@U=80@L=8012200@",
++              "type": "S",
++              "name": "Leipzig Essener Straße",
++              "icoX": 8,
++              "extId": "8012200",
++              "state": "F",
++              "crd": {
++                "x": 12396988,
++                "y": 51376354,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 56
++            },
++            {
++              "lid": "A=1@O=Leipzig Nord@X=12401060@Y=51364165@U=80@L=8012196@",
++              "type": "S",
++              "name": "Leipzig Nord",
++              "icoX": 8,
++              "extId": "8012196",
++              "state": "F",
++              "crd": {
++                "x": 12401410,
++                "y": 51365612,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 56
++            }
++          ],
++          "prodL": [
++            {
++              "name": "ICE 509",
++              "number": "509",
++              "icoX": 0,
++              "cls": 1,
++              "oprX": 0,
++              "prodCtx": {
++                "name": "ICE  509",
++                "num": "509",
++                "matchId": "28",
++                "catOut": "ICE",
++                "catOutS": "ICE",
++                "catOutL": "Intercity-Express",
++                "catIn": "ICE",
++                "catCode": "0",
++                "admin": "80____"
++              }
++            },
++            {
++              "name": "ICE 691",
++              "number": "691",
++              "icoX": 0,
++              "cls": 1,
++              "oprX": 0,
++              "prodCtx": {
++                "name": "ICE  691",
++                "num": "691",
++                "matchId": "11",
++                "catOut": "ICE",
++                "catOutS": "ICE",
++                "catOutL": "Intercity-Express",
++                "catIn": "ICE",
++                "catCode": "0",
++                "admin": "80____"
++              }
++            },
++            {
++              "name": "ICE 707",
++              "number": "707",
++              "icoX": 0,
++              "cls": 1,
++              "oprX": 0,
++              "prodCtx": {
++                "name": "ICE  707",
++                "num": "707",
++                "matchId": "18",
++                "catOut": "ICE",
++                "catOutS": "ICE",
++                "catOutL": "Intercity-Express",
++                "catIn": "ICE",
++                "catCode": "0",
++                "admin": "80____"
++              }
++            },
++            {
++              "name": "S 2",
++              "nameS": "2",
++              "number": "2",
++              "icoX": 6,
++              "cls": 16,
++              "oprX": 1,
++              "prodCtx": {
++                "name": "S      2",
++                "num": "37247",
++                "line": "2",
++                "matchId": "2",
++                "catOut": "S",
++                "catOutS": "s",
++                "catOutL": "S-Bahn",
++                "catIn": "s",
++                "catCode": "4",
++                "admin": "8004A9"
++              }
++            },
++            {
++              "name": "S 2",
++              "nameS": "2",
++              "number": "2",
++              "icoX": 6,
++              "cls": 16,
++              "oprX": 1,
++              "prodCtx": {
++                "name": "S      2",
++                "num": "37247",
++                "line": "2",
++                "lineId": "4_8004A9_2",
++                "matchId": "2",
++                "catOut": "S",
++                "catOutS": "s",
++                "catOutL": "S-Bahn",
++                "catIn": "s",
++                "catCode": "4",
++                "admin": "8004A9"
++              }
++            }
++          ],
++          "polyL": [
++            {
++              "delta": true,
++              "dim": 3,
++              "type": "WGS84",
++              "crdEncYX": "q}q_IqbrpAvDsC??BRbSwL~NcGbL}B|WqJnG}@rIO?iBhB@BfBdMrA`SrIjTfF~DRfLy@~LEAv@??~Dp@`Rr@??`OXlJtBn`Add@|@xAlDkBh@pDDWxG~Bt_@rJLgBgAjI`b@hSdL|GLsAtFlApDPdVeBxHTdKpCdOrI??~N~LfLvMzI`MnWfc@N[py@ruAs@~AvG`Iw@`Cv@aChErGbIlP`HpK~NzQ`K|J??dRzNlMnHhH`E`HtCFe@bLbEnWxJRyA??beB|i@??~e@bObi@`NbpCxz@????j_@dL????xhBjj@jLrCAX@Yhd@~IBY??ba@lHAXvkBz[????vHlAbW~DzOn@biEiCfJJjGl@fGtAjL~ErKbIzOjQ??z_CtoCtMtLnF~D`f@vX??z`@`U~NvGzThGtOvBlUr@df@wBzOJjsH~[hMvAxHdBlMfEtNvH`NhKdMrM~GbJjG`Ktm@nhA??~d@xz@nIdNp_BztBhU~X??dSpWbPbX??raEx{IlOtW`QxTjMfM~MfKjIdF|N|GxIxCjmCls@nLhEzKdHfRrQnLhOzO`W??fV|`@~EjI??fXpc@`wAx_CvNbYdF`MpEzMtDvNvH|_@rD~Z~Bd\\\\??xOvlC??j[vlFbq@~}G??rf@z_FnBfP~EfZ??lCdMfPtp@??tgBdiHlHnUpIdTvJrR~K|Q??tKhObHlIniCbzC??tL|NtGpJfKtQrFhLfFzL|H~T`EfN~DtP??lE~U|B~O|C`YtBnYxJbxCtBjg@jAtg@~@xPpA|KfAjGdCvJjBfFxDxHdJxLxYzZ??dLbMvRlX`FjF`D`CrIvDje@vL~FnClFdE~GxI|DtHjVbp@pGrO??hHhPtGxKbDdDdCxAjGxA??qDxHnsEhxHvy@`vA??hxFfnJ??byDrpG??f|E~dI??|HrMpCbDdNhYxH`UtFbWrChTnArPn@lUXrg@v@jUbAdLvAxKlBfKhCvJzC~IlFlLhGfKtEfGbFdFbIxF|FlCnKjD??rXhIrIpDvKvHtJjKjEzGnH~OjE|MjRxp@pGxP|DtHrItMtLtNhFzEzKzG`GxBfGvAlv@fM|k@fH@m@r@JGtAf]jDzLlBzIfCrIxDfInFrMhLbW`Vf[p\\\\tHbHlNvIpTdIpI`E`I~FrJdKjC~C??nOhQvH|GzK~GlLlEzLrB~L^~Lw@|HaB??nM_FhNmJ~LyMdKkP??dJiT`EgNbD_OdCwOzLscA|EqWhCsJ|C_JfFuL~DoH|IcM|JyJfo@kc@pSkMbbAoh@??|HcEhOcI??np@e]??BA@?lHyBhGeAzk@{B|LwA`hBqf@??ht@cSlvE{_A??``@eHhJUdZZdKg@bJoA~IsB|mB_m@ff@uO~RiGGw@BA????|VmHFfACWlOoE??BA@?hf@{NEi@Dh@vj@iPjR_H~DoA?@?Arh@oO@LdDAxCr@|OhKlc@fj@~IxJDO?DjFtF`G`Ibe@rg@DO",
++              "crdEncZ": "?????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????",
++              "crdEncS": "NNNNMNMNLNNNNNNNLLNNNLNNNNNNNNNKNNNLNNKNMNNNNMNMNNNNNNNLLNMNNMNKNNNNNNNNMMNNNNNNLNNNNNNNNNNNNNNKNKNNNNNNKNNNMNMNNMNNLNMNMNKNNNLNLNNNNNNNNMNLNLMNNNMNNNNNNNLNLNNMNNNNNNNNLNNKNNNMNLNNKNNNLNKNLNKNNKNMNLMNLNKNKNMNNMNKNMNLNMNNNNMNKNNNNNNNNNNNNNLNNNNMNMMNKNKNLNKNLNKNNLNNNMNKNNKNLNNKNMNNNNKNLNLNLKNNKNMNNNLNMNMNMNNNNNNNNLNLNNKNKNMNNMNNNNNNNNNKNMNNNNNNNLNKNLNNNNNNNNNNNNNNNNNLNNNNNNLNNLNNNKKNN",
++              "crdEncF": "?????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????",
++              "ppLocRefL": [
++                { "ppIdx": 0, "locX": 0 },
++                { "ppIdx": 26, "locX": 3 },
++                { "ppIdx": 207, "locX": 4 },
++                { "ppIdx": 384, "locX": 2 }
++              ]
++            },
++            {
++              "delta": true,
++              "dim": 3,
++              "type": "WGS84",
++              "crdEncYX": "q}q_IqbrpAvDsC??BRbSwL~NcGbL}B|WqJnG}@rIO?iBhB@BfBdMrA`SrIjTfF~DRfLy@~LEAv@??~Dp@`Rr@??`OXlJtBn`Add@|@xAlDkBh@pDDWxG~Bt_@rJLgBgAjI`b@hSdL|GLsAtFlApDPdVeBxHTdKpCdOrI??~N~LfLvMzI`MnWfc@N[py@ruAs@~AvG`Iw@`Cv@aChErGbIlP`HpK~NzQ`K|J??dRzNlMnHhH`E`HtCFe@bLbEnWxJRyA??beB|i@??~e@bObi@`NbpCxz@????j_@dL????xhBjj@jLrCAX@Yhd@~IBY??ba@lHAXvkBz[????vHlAbW~DzOn@biEiCfJJjGl@fGtAjL~ErKbIzOjQ??z_CtoCtMtLnF~D`f@vX??z`@`U~NvGzThGtOvBlUr@df@wBzOJjsH~[hMvAxHdBlMfEtNvH`NhKdMrM~GbJjG`Ktm@nhA??~d@xz@nIdNp_BztBhU~X??dSpWbPbX??raEx{IlOtW`QxTjMfM~MfKjIdF|N|GxIxCjmCls@nLhEzKdHfRrQnLhOzO`W??fV|`@~EjI??fXpc@`wAx_CvNbYdF`MpEzMtDvNvH|_@rD~Z~Bd\\\\??xOvlC??j[vlFbq@~}G??rf@z_FnBfP~EfZ??lCdMfPtp@??tgBdiHlHnUpIdTvJrR~K|Q??tKhObHlIniCbzC??tL|NtGpJfKtQrFhLfFzL|H~T`EfN~DtP??lE~U|B~O|C`YtBnYxJbxCtBjg@jAtg@~@xPpA|KfAjGdCvJjBfFxDxHdJxLxYzZnaeBbxu@",
++              "crdEncZ": "?????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????",
++              "crdEncS": "NNNNMNMNLNNNNNNNLLNNNLNNNNNNNNNKNNNLNNKNMNNNNMNMNNNNNNNLLNMNNMNKNNNNNNNNMMNNNNNNLNNNNNNNNNNNNNNKNKNNNNNNKNNNMNMNNMNNLNMNMNKNNNLNLNNNNNNNNMNLNLMNNNMNNNNNNNLNLNNMNNNNNNNNLNNKNNNMNLNNKNNNLNKNLNKNNKNMNLMNLNKNKNMNN",
++              "crdEncF": "?????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????",
++              "ppLocRefL": [
++                { "ppIdx": 0, "locX": 0 },
++                { "ppIdx": 26, "locX": 3 },
++                { "ppIdx": 207, "locX": 4 },
++                { "ppIdx": 208, "locX": 2 }
++              ]
++            },
++            {
++              "delta": true,
++              "dim": 3,
++              "type": "WGS84",
++              "crdEncYX": "q}q_IqbrpAvDsC??BRbSwL~NcGbL}B|WqJnG}@rIO?iBhB@BfBdMrA`SrIjTfF~DRfLy@~LEAv@??~Dp@`Rr@??`OXlJtBn`Add@|@xAlDkBh@pDDWxG~Bt_@rJLgBgAjI`b@hSdL|GLsAtFlApDPdVeBxHTdKpCdOrI??~N~LfLvMzI`MnWfc@N[py@ruAs@~AvG`Iw@`Cv@aChErGbIlP`HpK~NzQ`K|J??dRzNlMnHhH`E`HtCFe@bLbEnWxJRyA??beB|i@??~e@bObi@`NbpCxz@????j_@dL????xhBjj@jLrCAX@Yhd@~IBY??ba@lHAXvkBz[????vHlAbW~DzOn@biEiCfJJjGl@fGtAjL~ErKbIzOjQ??z_CtoCtMtLnF~D`f@vX??z`@`U~NvGzThGtOvBlUr@df@wBzOJjsH~[hMvAxHdBlMfEtNvH`NhKdMrM~GbJjG`Ktm@nhA??~d@xz@nIdNp_BztBhU~X??dSpWbPbX??raEx{IlOtW`QxTjMfM~MfKjIdF|N|GxIxCjmCls@nLhEzKdHfRrQnLhOzO`W??fV|`@~EjI??fXpc@`wAx_CvNbYdF`MpEzMtDvNvH|_@rD~Z~Bd\\\\??xOvlC??j[vlFbq@~}G??rf@z_FnBfP~EfZ??lCdMfPtp@??tgBdiHlHnUpIdTvJrR~K|Q??tKhObHlIniCbzC??tL|NtGpJfKtQrFhLfFzL|H~T`EfN~DtP??lE~U|B~O|C`YtBnYxJbxCtBjg@jAtg@~@xPpA|KfAjGdCvJjBfFxDxHdJxLxYzZ??dLbMvRlX`FjF`D`CrIvDje@vL~FnClFdE~GxI|DtHjVbp@pGrO??hHhPtGxKbDdDdCxAjGxA??qDxHnsEhxHvy@`vA??hxFfnJ??byDrpG??f|E~dI??|HrMpCbDdNhYxH`UtFbWrChTnArPn@lUXrg@v@jUbAdLvAxKlBfKhCvJzC~IlFlLhGfKtEfGbFdFbIxF|FlCnKjD??rXhIrIpDvKvHtJjKjEzGnH~OjE|MjRxp@pGxP|DtHrItMtLtNhFzEzKzG`GxBfGvAlv@fM|k@fH@m@r@JAh@",
++              "crdEncZ": "??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????",
++              "crdEncS": "NNNNMNMNLNNNNNNNLLNNNLNNNNNNNNNKNNNLNNKNMNNNNMNMNNNNNNNLLNMNNMNKNNNNNNNNMMNNNNNNLNNNNNNNNNNNNNNKNKNNNNNNKNNNMNMNNMNNLNMNMNKNNNLNLNNNNNNNNMNLNLMNNNMNNNNNNNLNLNNMNNNNNNNNLNNKNNNMNLNNKNNNLNKNLNKNNKNMNLMNLNKNKNMNNMNKNMNLNMNNNNMNKNNNNNNNNNNNNNLNNNNMNMMNKNKNLNKNLNKNNLNNNMNKNNKNLNNKNMNNNN",
++              "crdEncF": "??????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????????",
++              "ppLocRefL": [
++                { "ppIdx": 0, "locX": 0 },
++                { "ppIdx": 26, "locX": 3 },
++                { "ppIdx": 281, "locX": 5 }
++              ]
++            },
++            {
++              "delta": true,
++              "dim": 3,
++              "type": "WGS84",
++              "crdEncYX": "erazHatdjAEj@f]jDzLlBzIfCrIxDfInFrMhLbW`Vf[p\\\\tHbHlNvIpTdIpI`E`I~FrJdKjC~C??nOhQvH|GzK~GlLlEzLrB~L^~Lw@|HaB??nM_FhNmJ~LyMdKkP??dJiT`EgNbD_OdCwOzLscA|EqWhCsJ|C_JfFuL~DoH|IcM|JyJfo@kc@pSkMbbAoh@??|HcEhOcI??np@e]??BA@?lHyBhGeAzk@{B|LwA`hBqf@??ht@cSlvE{_A??``@eHhJUdZZdKg@bJoA~IsB|mB_m@ff@uO~RiGnzBmp@dbAsZ??dDAxCr@|OhKlc@fj@~IxJDO?DjFtF`G`Ibe@rg@y@lC@?`@jB",
++              "crdEncZ": "?????????????????????????????????????????????????????????????????????????????????????????",
++              "crdEncS": "NNKNLNLNLKNNKNMNNNLNMNMNMNNNNNNNNLNLNNKNKNMNNMNNNNNNNNNKNMNNNNNNNLNKNLNNNNNNLNNLNNNKKNNNN",
++              "crdEncF": "?????????????????????????????????????????????????????????????????????????????????????????",
++              "ppLocRefL": [
++                { "ppIdx": 0, "locX": 5 },
++                { "ppIdx": 25, "locX": 7 },
++                { "ppIdx": 46, "locX": 8 },
++                { "ppIdx": 59, "locX": 9 },
++                { "ppIdx": 62, "locX": 10 },
++                { "ppIdx": 72, "locX": 11 },
++                { "ppIdx": 73, "locX": 12 },
++                { "ppIdx": 74, "locX": 13 },
++                { "ppIdx": 88, "locX": 6 }
++              ]
++            }
++          ],
++          "layerL": [
++            { "id": "standard", "name": "standard", "index": 0, "annoCnt": 0 }
++          ],
++          "crdSysL": [
++            { "id": "standard", "index": 0, "type": "WGS84", "dim": 3 }
++          ],
++          "opL": [
++            { "name": "DB Fernverkehr AG", "icoX": 1 },
++            { "name": "DB Regio AG Südost", "icoX": 7 }
++          ],
++          "remL": [
++            {
++              "type": "A",
++              "code": "CK",
++              "prio": 200,
++              "icoX": 2,
++              "txtN": "Sicher & kontaktlos ohne Ticketkontrolle reisen mit Komfort Check-in"
++            },
++            {
++              "type": "A",
++              "code": "PF",
++              "prio": 200,
++              "icoX": 2,
++              "txtN": "Maskenpflicht nach gesetzl. Regelung; wir empfehlen eine FFP2-Maske"
++            },
++            {
++              "type": "A",
++              "code": "FR",
++              "prio": 260,
++              "icoX": 3,
++              "txtN": "Fahrradmitnahme reservierungspflichtig"
++            },
++            {
++              "type": "A",
++              "code": "FB",
++              "prio": 260,
++              "icoX": 4,
++              "txtN": "Fahrradmitnahme begrenzt möglich"
++            },
++            {
++              "type": "A",
++              "code": "BR",
++              "prio": 450,
++              "icoX": 5,
++              "txtN": "Bordrestaurant"
++            },
++            {
++              "type": "A",
++              "code": "EH",
++              "prio": 560,
++              "icoX": 2,
++              "txtN": "Fahrzeuggebundene Einstiegshilfe vorhanden"
++            },
++            {
++              "type": "A",
++              "code": "LS",
++              "prio": 605,
++              "icoX": 2,
++              "txtN": "Laptop-Steckdosen"
++            },
++            {
++              "type": "A",
++              "code": "WV",
++              "prio": 710,
++              "icoX": 2,
++              "txtN": "WLAN verfügbar"
++            },
++            {
++              "type": "M",
++              "code": "",
++              "icoX": 9,
++              "txtS": "S 2: Leipzig Messe->Leipzig Hbf (tief): Information.",
++              "txtN": "Erfahrungsgemäß hat dieser Zug eine mittlere bis hohe Auslastung.",
++              "sIdx": 1
++            },
++            {
++              "type": "M",
++              "code": "",
++              "icoX": 9,
++              "txtS": "S 2: Bitterfeld->Leipzig Messe: Information.",
++              "txtN": "Erfahrungsgemäß hat dieser Zug noch genug freie Plätze.",
++              "sIdx": 1
++            },
++            {
++              "type": "C",
++              "code": "",
++              "icoX": 9,
++              "txtN": "Es liegen aktuelle Informationen vor."
++            }
++          ],
++          "icoL": [
++            { "res": "ICE" },
++            { "res": "D", "txt": "DB Fernverkehr AG" },
++            { "res": "attr_info" },
++            { "res": "attr_bike_r" },
++            { "res": "attr_bike" },
++            { "res": "attr_resto" },
++            { "res": "S" },
++            { "res": "RE", "txt": "DB Regio AG Südost" },
++            { "res": "Bus" },
++            { "res": "HimInfo" }
++          ],
++          "tcocL": [
++            { "c": "FIRST", "r": 3 },
++            { "c": "SECOND", "r": 3 },
++            { "c": "FIRST", "r": 3 },
++            { "c": "SECOND", "r": 3 },
++            { "c": "FIRST", "r": 3 },
++            { "c": "SECOND", "r": 3 },
++            { "c": "FIRST", "r": 3 },
++            { "c": "SECOND", "r": 3 },
++            { "c": "FIRST", "r": 3 },
++            { "c": "SECOND", "r": 3 },
++            { "c": "FIRST", "r": 3 },
++            { "c": "SECOND", "r": 3 },
++            { "c": "FIRST", "r": 2 },
++            { "c": "SECOND", "r": 3 },
++            { "c": "FIRST", "r": 3 },
++            { "c": "SECOND", "r": 3 },
++            { "c": "FIRST", "r": 2 },
++            { "c": "SECOND", "r": 2 },
++            { "c": "FIRST", "r": 2 },
++            { "c": "SECOND", "r": 2 },
++            { "c": "FIRST", "r": 2 },
++            { "c": "SECOND", "r": 2 }
++          ]
++        },
++        "outConL": [
++          {
++            "cid": "C-0",
++            "date": "20221001",
++            "dur": "011200",
++            "chg": 0,
++            "sDays": {
++              "sDaysR": "fährt täglich ",
++              "sDaysB": "FFFFFFFFFFFFFFFFFFFFFFDFFFFFFFF1FFFFFFFFFF800000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFFF0"
++            },
++            "dep": {
++              "locX": 0,
++              "idx": 4,
++              "dProdX": 0,
++              "dPlatfS": "1",
++              "dInR": true,
++              "dTimeS": "123000",
++              "dTZOffset": 120,
++              "type": "N"
++            },
++            "arr": {
++              "locX": 2,
++              "idx": 7,
++              "aProdX": 0,
++              "aPlatfS": "14",
++              "aOutR": true,
++              "aTimeS": "134200",
++              "aTZOffset": 120,
++              "type": "N"
++            },
++            "secL": [
++              {
++                "type": "JNY",
++                "icoX": 0,
++                "dep": {
++                  "locX": 0,
++                  "idx": 4,
++                  "dProdX": 0,
++                  "dPlatfS": "1",
++                  "dInR": true,
++                  "dTimeS": "123000",
++                  "dTZOffset": 120,
++                  "type": "N"
++                },
++                "arr": {
++                  "locX": 2,
++                  "idx": 7,
++                  "aProdX": 0,
++                  "aPlatfS": "14",
++                  "aOutR": true,
++                  "aTimeS": "134200",
++                  "aTZOffset": 120,
++                  "type": "N"
++                },
++                "jny": {
++                  "jid": "1|193196|0|80|1102022",
++                  "prodX": 0,
++                  "dirTxt": "München Hbf",
++                  "dirFlg": "1",
++                  "status": "P",
++                  "isRchbl": true,
++                  "stopL": [
++                    {
++                      "locX": 0,
++                      "idx": 4,
++                      "dProdX": 0,
++                      "dPlatfS": "1",
++                      "dInR": true,
++                      "dTimeS": "123000",
++                      "dDirTxt": "München Hbf",
++                      "dDirFlg": "1",
++                      "dTZOffset": 120,
++                      "type": "N"
++                    },
++                    {
++                      "locX": 3,
++                      "idx": 5,
++                      "aProdX": 0,
++                      "aPlatfS": "3",
++                      "aOutR": true,
++                      "aTimeS": "123500",
++                      "aTZOffset": 120,
++                      "dProdX": 0,
++                      "dPlatfS": "3",
++                      "dInR": true,
++                      "dTimeS": "123700",
++                      "dTrnCmpSX": { "tcocX": [2, 3] },
++                      "dTZOffset": 120,
++                      "type": "N"
++                    },
++                    {
++                      "locX": 4,
++                      "idx": 6,
++                      "aProdX": 0,
++                      "aPlatfS": "2",
++                      "aOutR": true,
++                      "aTimeS": "131000",
++                      "aTZOffset": 120,
++                      "dProdX": 0,
++                      "dPlatfS": "2",
++                      "dInR": true,
++                      "dTimeS": "131100",
++                      "dTrnCmpSX": { "tcocX": [4, 5] },
++                      "dTZOffset": 120,
++                      "type": "N"
++                    },
++                    {
++                      "locX": 2,
++                      "idx": 7,
++                      "aProdX": 0,
++                      "aPlatfS": "14",
++                      "aOutR": true,
++                      "aTimeS": "134200",
++                      "aTZOffset": 120,
++                      "type": "N"
++                    }
++                  ],
++                  "polyG": { "polyXL": [0], "layerX": 0, "crdSysX": 0 },
++                  "ctxRecon": "T$A=1@O=Berlin Hbf (tief)@L=8098160@a=128@$A=1@O=Leipzig Hbf@L=8010205@a=128@$202210011230$202210011342$ICE  509$$1$$$$$$",
++                  "msgL": [
++                    {
++                      "type": "REM",
++                      "remX": 0,
++                      "fLocX": 0,
++                      "tLocX": 2,
++                      "fIdx": 4,
++                      "tIdx": 7,
++                      "tagL": ["RES_JNY_DTL"]
++                    },
++                    {
++                      "type": "REM",
++                      "remX": 1,
++                      "fLocX": 0,
++                      "tLocX": 2,
++                      "fIdx": 4,
++                      "tIdx": 7,
++                      "tagL": ["RES_JNY_DTL"]
++                    },
++                    {
++                      "type": "REM",
++                      "remX": 2,
++                      "fLocX": 0,
++                      "tLocX": 2,
++                      "fIdx": 4,
++                      "tIdx": 7,
++                      "tagL": ["RES_JNY_DTL_L"]
++                    },
++                    {
++                      "type": "REM",
++                      "remX": 3,
++                      "fLocX": 0,
++                      "tLocX": 2,
++                      "fIdx": 4,
++                      "tIdx": 7,
++                      "tagL": ["RES_JNY_DTL_L"]
++                    },
++                    {
++                      "type": "REM",
++                      "remX": 4,
++                      "fLocX": 0,
++                      "tLocX": 2,
++                      "fIdx": 4,
++                      "tIdx": 7,
++                      "tagL": ["RES_JNY_DTL_L"]
++                    },
++                    {
++                      "type": "REM",
++                      "remX": 5,
++                      "fLocX": 0,
++                      "tLocX": 2,
++                      "fIdx": 4,
++                      "tIdx": 7,
++                      "tagL": ["RES_JNY_DTL"]
++                    }
++                  ],
++                  "subscr": "F",
++                  "dTrnCmpSX": { "tcocX": [6, 7] }
++                },
++                "resState": "N",
++                "resRecommendation": "N"
++              }
++            ],
++            "ctxRecon": "T$A=1@O=Berlin Hbf (tief)@L=8098160@a=128@$A=1@O=Leipzig Hbf@L=8010205@a=128@$202210011230$202210011342$ICE  509$$1$$$$$$",
++            "trfRes": {
++              "statusCode": "NA",
++              "fareSetL": [
++                {
++                  "fareL": [
++                    {
++                      "desc": "Preisauskunft nicht möglich",
++                      "prc": -1,
++                      "isFromPrice": false,
++                      "isPartPrice": false,
++                      "isBookable": false,
++                      "isUpsell": false
++                    }
++                  ]
++                }
++              ]
++            },
++            "conSubscr": "F",
++            "resState": "N",
++            "resRecommendation": "N",
++            "recState": "U",
++            "sotRating": 0,
++            "isSotCon": false,
++            "showARSLink": false,
++            "sotCtxt": {
++              "cnLocX": 0,
++              "calcDate": "20220920",
++              "jid": "1|193196|0|80|-1",
++              "locMode": "FROM_START",
++              "pLocX": 0,
++              "reqMode": "UNKNOWN",
++              "sectX": 0,
++              "calcTime": "084414"
++            },
++            "cksum": "05ec04ea_3",
++            "dTrnCmpSX": { "tcocX": [0, 1] }
++          },
++          {
++            "cid": "C-1",
++            "date": "20221001",
++            "dur": "011400",
++            "chg": 0,
++            "sDays": {
++              "sDaysR": "fährt täglich ",
++              "sDaysB": "FFFFFFFFFFFFFFFFFFFFFFCFFFFC1FF03FFFFFFFFF80000000000000000003FE00FFFFFFFFFFFFFFFFFFFFFFFFF0"
++            },
++            "dep": {
++              "locX": 0,
++              "idx": 1,
++              "dProdX": 1,
++              "dPlatfS": "2",
++              "dInR": true,
++              "dTimeS": "132800",
++              "dTZOffset": 120,
++              "type": "N"
++            },
++            "arr": {
++              "locX": 2,
++              "idx": 4,
++              "aProdX": 1,
++              "aPlatfS": "10",
++              "aOutR": true,
++              "aTimeS": "144200",
++              "aTZOffset": 120,
++              "type": "N"
++            },
++            "secL": [
++              {
++                "type": "JNY",
++                "icoX": 0,
++                "dep": {
++                  "locX": 0,
++                  "idx": 1,
++                  "dProdX": 1,
++                  "dPlatfS": "2",
++                  "dInR": true,
++                  "dTimeS": "132800",
++                  "dTZOffset": 120,
++                  "type": "N"
++                },
++                "arr": {
++                  "locX": 2,
++                  "idx": 4,
++                  "aProdX": 1,
++                  "aPlatfS": "10",
++                  "aOutR": true,
++                  "aTimeS": "144200",
++                  "aTZOffset": 120,
++                  "type": "N"
++                },
++                "jny": {
++                  "jid": "1|197253|0|80|1102022",
++                  "prodX": 1,
++                  "dirTxt": "Ulm Hbf",
++                  "dirFlg": "1",
++                  "status": "P",
++                  "isRchbl": true,
++                  "stopL": [
++                    {
++                      "locX": 0,
++                      "idx": 1,
++                      "dProdX": 1,
++                      "dPlatfS": "2",
++                      "dInR": true,
++                      "dTimeS": "132800",
++                      "dDirTxt": "Ulm Hbf",
++                      "dDirFlg": "1",
++                      "dTZOffset": 120,
++                      "type": "N"
++                    },
++                    {
++                      "locX": 3,
++                      "idx": 2,
++                      "aProdX": 1,
++                      "aOutS": false,
++                      "aOutR": false,
++                      "aTZOffset": 120,
++                      "dProdX": 1,
++                      "dPlatfS": "4",
++                      "dInR": true,
++                      "dTimeS": "133500",
++                      "dTrnCmpSX": { "tcocX": [10, 11] },
++                      "dTZOffset": 120,
++                      "type": "N"
++                    },
++                    {
++                      "locX": 4,
++                      "idx": 3,
++                      "aProdX": 1,
++                      "aPlatfS": "2",
++                      "aOutR": true,
++                      "aTimeS": "140900",
++                      "aTZOffset": 120,
++                      "dProdX": 1,
++                      "dPlatfS": "2",
++                      "dInR": true,
++                      "dTimeS": "141000",
++                      "dTrnCmpSX": { "tcocX": [12, 13] },
++                      "dTZOffset": 120,
++                      "type": "N"
++                    },
++                    {
++                      "locX": 2,
++                      "idx": 4,
++                      "aProdX": 1,
++                      "aPlatfS": "10",
++                      "aOutR": true,
++                      "aTimeS": "144200",
++                      "aTZOffset": 120,
++                      "type": "N"
++                    }
++                  ],
++                  "polyG": { "polyXL": [1], "layerX": 0, "crdSysX": 0 },
++                  "ctxRecon": "T$A=1@O=Berlin Hbf (tief)@L=8098160@a=128@$A=1@O=Leipzig Hbf@L=8010205@a=128@$202210011328$202210011442$ICE  691$$1$$$$$$",
++                  "msgL": [
++                    {
++                      "type": "REM",
++                      "remX": 0,
++                      "fLocX": 0,
++                      "tLocX": 2,
++                      "fIdx": 1,
++                      "tIdx": 4,
++                      "tagL": ["RES_JNY_DTL"]
++                    },
++                    {
++                      "type": "REM",
++                      "remX": 1,
++                      "fLocX": 0,
++                      "tLocX": 2,
++                      "fIdx": 1,
++                      "tIdx": 4,
++                      "tagL": ["RES_JNY_DTL"]
++                    },
++                    {
++                      "type": "REM",
++                      "remX": 2,
++                      "fLocX": 0,
++                      "tLocX": 2,
++                      "fIdx": 1,
++                      "tIdx": 4,
++                      "tagL": ["RES_JNY_DTL_L"]
++                    },
++                    {
++                      "type": "REM",
++                      "remX": 3,
++                      "fLocX": 0,
++                      "tLocX": 2,
++                      "fIdx": 1,
++                      "tIdx": 4,
++                      "tagL": ["RES_JNY_DTL_L"]
++                    },
++                    {
++                      "type": "REM",
++                      "remX": 4,
++                      "fLocX": 0,
++                      "tLocX": 2,
++                      "fIdx": 1,
++                      "tIdx": 4,
++                      "tagL": ["RES_JNY_DTL_L"]
++                    },
++                    {
++                      "type": "REM",
++                      "remX": 5,
++                      "fLocX": 0,
++                      "tLocX": 2,
++                      "fIdx": 1,
++                      "tIdx": 4,
++                      "tagL": ["RES_JNY_DTL"]
++                    }
++                  ],
++                  "subscr": "F",
++                  "dTrnCmpSX": { "tcocX": [14, 15] }
++                },
++                "resState": "N",
++                "resRecommendation": "N"
++              }
++            ],
++            "ctxRecon": "T$A=1@O=Berlin Hbf (tief)@L=8098160@a=128@$A=1@O=Leipzig Hbf@L=8010205@a=128@$202210011328$202210011442$ICE  691$$1$$$$$$",
++            "trfRes": {
++              "statusCode": "NA",
++              "fareSetL": [
++                {
++                  "fareL": [
++                    {
++                      "desc": "Preisauskunft nicht möglich",
++                      "prc": -1,
++                      "isFromPrice": false,
++                      "isPartPrice": false,
++                      "isBookable": false,
++                      "isUpsell": false
++                    }
++                  ]
++                }
++              ]
++            },
++            "conSubscr": "F",
++            "resState": "N",
++            "resRecommendation": "N",
++            "recState": "U",
++            "sotRating": 0,
++            "isSotCon": false,
++            "showARSLink": false,
++            "sotCtxt": {
++              "cnLocX": 0,
++              "calcDate": "20220920",
++              "jid": "1|197253|0|80|-1",
++              "locMode": "FROM_START",
++              "pLocX": 0,
++              "reqMode": "UNKNOWN",
++              "sectX": 0,
++              "calcTime": "084414"
++            },
++            "cksum": "26566802_3",
++            "dTrnCmpSX": { "tcocX": [8, 9] }
++          },
++          {
++            "cid": "C-2",
++            "date": "20221001",
++            "dur": "013600",
++            "chg": 1,
++            "sDays": {
++              "sDaysR": "fährt täglich, nicht 29., 30. Okt ",
++              "sDaysB": "00000000000000000000000000000001FFFFFFFFFFFCFFFFFFFFFFFFFFFFF3FF1FFFFFFFFFFFFFFF9FFFFFFFFFF0"
++            },
++            "dep": {
++              "locX": 0,
++              "idx": 4,
++              "dProdX": 2,
++              "dPlatfS": "1",
++              "dInR": true,
++              "dTimeS": "133700",
++              "dTZOffset": 120,
++              "type": "N"
++            },
++            "arr": {
++              "locX": 6,
++              "idx": 15,
++              "aProdX": 3,
++              "aPlatfS": "1",
++              "aOutR": true,
++              "aTimeS": "151300",
++              "aTZOffset": 120,
++              "type": "N"
++            },
++            "secL": [
++              {
++                "type": "JNY",
++                "icoX": 0,
++                "dep": {
++                  "locX": 0,
++                  "idx": 4,
++                  "dProdX": 2,
++                  "dPlatfS": "1",
++                  "dInR": true,
++                  "dTimeS": "133700",
++                  "dTZOffset": 120,
++                  "type": "N"
++                },
++                "arr": {
++                  "locX": 5,
++                  "idx": 6,
++                  "aProdX": 2,
++                  "aPlatfS": "3",
++                  "aOutR": true,
++                  "aTimeS": "143200",
++                  "aTZOffset": 120,
++                  "type": "N"
++                },
++                "jny": {
++                  "jid": "1|197763|0|80|1102022",
++                  "prodX": 2,
++                  "dirTxt": "München Hbf",
++                  "dirFlg": "1",
++                  "status": "P",
++                  "isRchbl": true,
++                  "stopL": [
++                    {
++                      "locX": 0,
++                      "idx": 4,
++                      "dProdX": 2,
++                      "dPlatfS": "1",
++                      "dInR": true,
++                      "dTimeS": "133700",
++                      "dDirTxt": "München Hbf",
++                      "dDirFlg": "1",
++                      "dTZOffset": 120,
++                      "type": "N"
++                    },
++                    {
++                      "locX": 3,
++                      "idx": 5,
++                      "aProdX": 2,
++                      "aPlatfS": "3",
++                      "aOutR": true,
++                      "aTimeS": "134200",
++                      "aTZOffset": 120,
++                      "dProdX": 2,
++                      "dPlatfS": "3",
++                      "dInR": true,
++                      "dTimeS": "134400",
++                      "dTrnCmpSX": { "tcocX": [18, 19] },
++                      "dTZOffset": 120,
++                      "type": "N"
++                    },
++                    {
++                      "locX": 5,
++                      "idx": 6,
++                      "aProdX": 2,
++                      "aPlatfS": "3",
++                      "aOutR": true,
++                      "aTimeS": "143200",
++                      "aTZOffset": 120,
++                      "type": "N"
++                    }
++                  ],
++                  "polyG": { "polyXL": [2], "layerX": 0, "crdSysX": 0 },
++                  "ctxRecon": "T$A=1@O=Berlin Hbf (tief)@L=8098160@a=128@$A=1@O=Bitterfeld@L=8010050@a=128@$202210011337$202210011432$ICE  707$$1$$$$$$",
++                  "msgL": [
++                    {
++                      "type": "REM",
++                      "remX": 0,
++                      "fLocX": 0,
++                      "tLocX": 5,
++                      "fIdx": 4,
++                      "tIdx": 6,
++                      "tagL": ["RES_JNY_DTL"]
++                    },
++                    {
++                      "type": "REM",
++                      "remX": 1,
++                      "fLocX": 0,
++                      "tLocX": 5,
++                      "fIdx": 4,
++                      "tIdx": 6,
++                      "tagL": ["RES_JNY_DTL"]
++                    },
++                    {
++                      "type": "REM",
++                      "remX": 4,
++                      "fLocX": 0,
++                      "tLocX": 5,
++                      "fIdx": 4,
++                      "tIdx": 6,
++                      "tagL": ["RES_JNY_DTL_L"]
++                    }
++                  ],
++                  "subscr": "F",
++                  "chgDurR": 13,
++                  "dTrnCmpSX": { "tcocX": [20, 21] }
++                },
++                "minChg": "000500",
++                "resState": "N",
++                "resRecommendation": "N"
++              },
++              {
++                "type": "JNY",
++                "icoX": 6,
++                "dep": {
++                  "locX": 5,
++                  "idx": 7,
++                  "dProdX": 3,
++                  "dPlatfS": "3",
++                  "dInR": true,
++                  "dTimeS": "144500",
++                  "dProgType": "PROGNOSED",
++                  "dTZOffset": 120,
++                  "type": "N"
++                },
++                "arr": {
++                  "locX": 6,
++                  "idx": 15,
++                  "aProdX": 3,
++                  "aPlatfS": "1",
++                  "aOutR": true,
++                  "aTimeS": "151300",
++                  "aTZOffset": 120,
++                  "type": "N"
++                },
++                "jny": {
++                  "jid": "1|231466|3|80|1102022",
++                  "prodX": 4,
++                  "dirTxt": "Leipzig-Stötteritz",
++                  "dirFlg": "2",
++                  "status": "P",
++                  "isRchbl": true,
++                  "stopL": [
++                    {
++                      "locX": 5,
++                      "idx": 7,
++                      "dProdX": 4,
++                      "dPlatfS": "3",
++                      "dInR": true,
++                      "dTimeS": "144500",
++                      "dProgType": "PROGNOSED",
++                      "dDirTxt": "Leipzig-Stötteritz",
++                      "dDirFlg": "2",
++                      "dTZOffset": 120,
++                      "type": "N"
++                    },
++                    {
++                      "locX": 7,
++                      "idx": 8,
++                      "aProdX": 4,
++                      "aPlatfS": "1",
++                      "aOutR": true,
++                      "aTimeS": "144900",
++                      "aTZOffset": 120,
++                      "dProdX": 4,
++                      "dPlatfS": "1",
++                      "dInR": true,
++                      "dTimeS": "144900",
++                      "dTZOffset": 120,
++                      "type": "N"
++                    },
++                    {
++                      "locX": 8,
++                      "idx": 9,
++                      "aProdX": 4,
++                      "aPlatfS": "1",
++                      "aOutR": true,
++                      "aTimeS": "145300",
++                      "aTZOffset": 120,
++                      "dProdX": 4,
++                      "dPlatfS": "1",
++                      "dInR": true,
++                      "dTimeS": "145400",
++                      "dTZOffset": 120,
++                      "type": "N"
++                    },
++                    {
++                      "locX": 9,
++                      "idx": 10,
++                      "aProdX": 4,
++                      "aPlatfS": "1",
++                      "aOutR": true,
++                      "aTimeS": "145700",
++                      "aTZOffset": 120,
++                      "dProdX": 4,
++                      "dPlatfS": "1",
++                      "dInR": true,
++                      "dTimeS": "145800",
++                      "dTZOffset": 120,
++                      "type": "N"
++                    },
++                    {
++                      "locX": 10,
++                      "idx": 11,
++                      "aProdX": 4,
++                      "aPlatfS": "2",
++                      "aOutR": true,
++                      "aTimeS": "150100",
++                      "aTZOffset": 120,
++                      "dProdX": 4,
++                      "dPlatfS": "2",
++                      "dInR": true,
++                      "dTimeS": "150100",
++                      "dTZOffset": 120,
++                      "type": "N"
++                    },
++                    {
++                      "locX": 11,
++                      "idx": 12,
++                      "aProdX": 4,
++                      "aPlatfS": "1",
++                      "aOutR": true,
++                      "aTimeS": "150500",
++                      "aTZOffset": 120,
++                      "dProdX": 4,
++                      "dPlatfS": "1",
++                      "dInR": true,
++                      "dTimeS": "150500",
++                      "dTZOffset": 120,
++                      "type": "N"
++                    },
++                    {
++                      "locX": 12,
++                      "idx": 13,
++                      "aProdX": 4,
++                      "aPlatfS": "1",
++                      "aOutR": true,
++                      "aTimeS": "150700",
++                      "aTZOffset": 120,
++                      "dProdX": 4,
++                      "dPlatfS": "1",
++                      "dInR": true,
++                      "dTimeS": "150800",
++                      "dTZOffset": 120,
++                      "type": "N"
++                    },
++                    {
++                      "locX": 13,
++                      "idx": 14,
++                      "aProdX": 4,
++                      "aPlatfS": "1",
++                      "aOutR": true,
++                      "aTimeS": "150900",
++                      "aTZOffset": 120,
++                      "dProdX": 4,
++                      "dPlatfS": "1",
++                      "dInR": true,
++                      "dTimeS": "151000",
++                      "dTZOffset": 120,
++                      "type": "N"
++                    },
++                    {
++                      "locX": 6,
++                      "idx": 15,
++                      "aProdX": 4,
++                      "aPlatfS": "1",
++                      "aOutR": true,
++                      "aTimeS": "151300",
++                      "aTZOffset": 120,
++                      "type": "N"
++                    }
++                  ],
++                  "polyG": { "polyXL": [3], "layerX": 0, "crdSysX": 0 },
++                  "freq": { "minC": 60, "maxC": 60, "numC": 3 },
++                  "ctxRecon": "T$A=1@O=Bitterfeld@L=8010050@a=128@$A=1@O=Leipzig Hbf (tief)@L=8098205@a=128@$202210011445$202210011513$S      2$$1$$$$$$",
++                  "msgL": [
++                    {
++                      "type": "REM",
++                      "remX": 1,
++                      "fLocX": 5,
++                      "tLocX": 6,
++                      "fIdx": 7,
++                      "tIdx": 15,
++                      "tagL": ["RES_JNY_DTL"]
++                    },
++                    {
++                      "type": "REM",
++                      "remX": 3,
++                      "fLocX": 5,
++                      "tLocX": 6,
++                      "fIdx": 7,
++                      "tIdx": 15,
++                      "tagL": ["RES_JNY_DTL_L"]
++                    },
++                    {
++                      "type": "REM",
++                      "remX": 5,
++                      "fLocX": 5,
++                      "tLocX": 6,
++                      "fIdx": 7,
++                      "tIdx": 15,
++                      "tagL": ["RES_JNY_DTL"]
++                    },
++                    {
++                      "type": "REM",
++                      "remX": 6,
++                      "fLocX": 5,
++                      "tLocX": 6,
++                      "fIdx": 7,
++                      "tIdx": 15,
++                      "tagL": ["RES_JNY_DTL"]
++                    },
++                    {
++                      "type": "REM",
++                      "remX": 7,
++                      "fLocX": 5,
++                      "tLocX": 6,
++                      "fIdx": 7,
++                      "tIdx": 15,
++                      "tagL": ["RES_JNY_DTL"]
++                    },
++                    {
++                      "type": "REM",
++                      "remX": 8,
++                      "prio": 240,
++                      "fIdx": -1,
++                      "tIdx": -1,
++                      "tagL": ["RES_CON_FTR_H3"]
++                    },
++                    {
++                      "type": "REM",
++                      "remX": 9,
++                      "prio": 240,
++                      "fIdx": -1,
++                      "tIdx": -1,
++                      "tagL": ["RES_CON_FTR_H3"]
++                    }
++                  ],
++                  "subscr": "F"
++                },
++                "resState": "N",
++                "resRecommendation": "N"
++              }
++            ],
++            "ctxRecon": "T$A=1@O=Berlin Hbf (tief)@L=8098160@a=128@$A=1@O=Bitterfeld@L=8010050@a=128@$202210011337$202210011432$ICE  707$$1$$$$$$§T$A=1@O=Bitterfeld@L=8010050@a=128@$A=1@O=Leipzig Hbf (tief)@L=8098205@a=128@$202210011445$202210011513$S      2$$1$$$$$$",
++            "freq": { "minC": 60 },
++            "trfRes": {
++              "statusCode": "NA",
++              "fareSetL": [
++                {
++                  "fareL": [
++                    {
++                      "desc": "Preisauskunft nicht möglich",
++                      "prc": -1,
++                      "isFromPrice": false,
++                      "isPartPrice": false,
++                      "isBookable": false,
++                      "isUpsell": false
++                    }
++                  ]
++                }
++              ]
++            },
++            "msgL": [
++              {
++                "type": "REM",
++                "remX": 10,
++                "prio": 200,
++                "fIdx": -1,
++                "tIdx": -1,
++                "tagL": ["SUM_CON_FTR_H3"]
++              }
++            ],
++            "conSubscr": "F",
++            "resState": "N",
++            "resRecommendation": "N",
++            "recState": "U",
++            "sotRating": 0,
++            "isSotCon": false,
++            "showARSLink": false,
++            "sotCtxt": {
++              "cnLocX": 0,
++              "calcDate": "20220920",
++              "jid": "1|197763|0|80|-1",
++              "locMode": "FROM_START",
++              "pLocX": 0,
++              "reqMode": "UNKNOWN",
++              "sectX": 0,
++              "calcTime": "084414"
++            },
++            "cksum": "5f9f9fbd_3",
++            "dTrnCmpSX": { "tcocX": [16, 17] }
++          }
++        ],
++        "outCtxScrB": "2|OB|MT#14#425550#425550#425622#425622#0#0#325#425516#1#0#1050#0#0#-2147483648#1#2|PDH#652e7c5908d3d2e831a85c07f32c040e|RD#1102022|RT#115600|US#0",
++        "outCtxScrF": "2|OF|MT#14#425617#425617#425713#425713#0#0#485#425609#3#0#26#0#0#-2147483648#1#2|PDH#652e7c5908d3d2e831a85c07f32c040e|RD#1102022|RT#115600|US#0",
++        "fpB": "20211212",
++        "fpE": "20221210",
++        "bfATS": -1,
++        "bfIOSTS": -1,
++        "planrtTS": "1663656208"
++      }
++    }
++  ]
++}
+diff --git a/tests/components/hafas/fixtures/station1.json b/tests/components/hafas/fixtures/station1.json
+new file mode 100644
+index 00000000000000..4fd371a85e9453
+--- /dev/null
++++ b/tests/components/hafas/fixtures/station1.json
+@@ -0,0 +1,1931 @@
++{
++  "ver": "1.16",
++  "ext": "DB.R19.04.a",
++  "lang": "deu",
++  "id": "7zm2siuwmgxcx48x",
++  "cInfo": { "code": "OK" },
++  "svcResL": [
++    {
++      "meth": "LocMatch",
++      "err": "OK",
++      "res": {
++        "common": {
++          "locL": [],
++          "prodL": [
++            { "name": "ICE", "icoX": 0, "cls": 1 },
++            { "name": "RJ", "icoX": 1, "cls": 1 },
++            { "name": "EC", "icoX": 2, "cls": 2 },
++            { "name": "IC", "icoX": 3, "cls": 2 },
++            { "name": "NJ", "icoX": 4, "cls": 2 },
++            { "name": "BUS", "icoX": 5, "cls": 4 },
++            { "name": "Bus", "icoX": 6, "cls": 4 },
++            { "name": "D", "icoX": 7, "cls": 4 },
++            { "name": "EN", "icoX": 8, "cls": 4 },
++            { "name": "FLX", "icoX": 9, "cls": 4 },
++            { "name": "UEX", "icoX": 9, "cls": 4 },
++            {
++              "name": "Bus RE1",
++              "nameS": "RE1",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_BB_____RE1!!1498363!!5840671" }
++            },
++            {
++              "name": "Bus RE3",
++              "nameS": "RE3",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_BB_____RE3!!1486688!!5837713" }
++            },
++            {
++              "name": "Bus RE5",
++              "nameS": "RE5",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_BW_____RE5!!1487358!!5842925" }
++            },
++            {
++              "name": "Bus SEV",
++              "nameS": "SEV",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_080001_SEV!!1498363!!5840671" }
++            },
++            {
++              "name": "Bus RB14",
++              "nameS": "RB14",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_BB_____RB14" }
++            },
++            { "name": "FEX", "icoX": 10, "cls": 8 },
++            { "name": "HBX", "icoX": 11, "cls": 8 },
++            { "name": "RB", "icoX": 11, "cls": 8 },
++            { "name": "RB", "icoX": 12, "cls": 8 },
++            { "name": "RE", "icoX": 11, "cls": 8 },
++            { "name": "RE", "icoX": 13, "cls": 8 },
++            {
++              "name": "S 3",
++              "nameS": "3",
++              "icoX": 14,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_08_____3" }
++            },
++            {
++              "name": "S 5",
++              "nameS": "5",
++              "icoX": 14,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_08_____5" }
++            },
++            {
++              "name": "S 7",
++              "nameS": "7",
++              "icoX": 14,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_08_____7" }
++            },
++            {
++              "name": "S 9",
++              "nameS": "9",
++              "icoX": 14,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_08_____9" }
++            },
++            {
++              "name": "S 47",
++              "nameS": "47",
++              "icoX": 14,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_08_____47" }
++            },
++            {
++              "name": "Bus N5",
++              "nameS": "N5",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N5" }
++            },
++            {
++              "name": "Bus 120",
++              "nameS": "120",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_120" }
++            },
++            {
++              "name": "Bus 123",
++              "nameS": "123",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_123" }
++            },
++            {
++              "name": "Bus 142",
++              "nameS": "142",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_142" }
++            },
++            {
++              "name": "Bus 147",
++              "nameS": "147",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_147" }
++            },
++            {
++              "name": "Bus 245",
++              "nameS": "245",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_245" }
++            },
++            {
++              "name": "Bus M10",
++              "nameS": "M10",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_M10!!1487269!!5843277" }
++            },
++            {
++              "name": "Bus M41",
++              "nameS": "M41",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_M41" }
++            },
++            {
++              "name": "Bus M85",
++              "nameS": "M85",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_M85" }
++            },
++            {
++              "name": "Bus N20",
++              "nameS": "N20",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N20" }
++            },
++            {
++              "name": "Bus N40",
++              "nameS": "N40",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N40" }
++            },
++            {
++              "name": "U 5",
++              "nameS": "5",
++              "icoX": 15,
++              "cls": 128,
++              "prodCtx": { "lineId": "7_vbbBVU_5" }
++            },
++            {
++              "name": "STR M5",
++              "nameS": "M5",
++              "icoX": 16,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_vbbBVT_M5" }
++            },
++            {
++              "name": "STR M8",
++              "nameS": "M8",
++              "icoX": 16,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_vbbBVT_M8" }
++            },
++            {
++              "name": "STR M10",
++              "nameS": "M10",
++              "icoX": 16,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_vbbBVT_M10" }
++            },
++            {
++              "name": "Bus RE3",
++              "nameS": "RE3",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_BB_____RE3!!1489398!!5845780" }
++            },
++            {
++              "name": "Bus SEV",
++              "nameS": "SEV",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_NB_____SEV!!1501432!!5841461" }
++            },
++            { "name": "IRE", "icoX": 17, "cls": 8 },
++            {
++              "name": "LT SEV",
++              "nameS": "SEV",
++              "icoX": 18,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_NB_____SEV!!1501432!!5841461" }
++            },
++            {
++              "name": "S 1",
++              "nameS": "1",
++              "icoX": 14,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_08_____1" }
++            },
++            {
++              "name": "S 2",
++              "nameS": "2",
++              "icoX": 14,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_08_____2" }
++            },
++            {
++              "name": "S 25",
++              "nameS": "25",
++              "icoX": 14,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_08_____25" }
++            },
++            {
++              "name": "S 26",
++              "nameS": "26",
++              "icoX": 14,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_08_____26" }
++            },
++            {
++              "name": "S 41",
++              "nameS": "41",
++              "icoX": 14,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_08_____41" }
++            },
++            {
++              "name": "S 42",
++              "nameS": "42",
++              "icoX": 14,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_08_____42" }
++            },
++            {
++              "name": "S 45",
++              "nameS": "45",
++              "icoX": 14,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_08_____45" }
++            },
++            {
++              "name": "S 46",
++              "nameS": "46",
++              "icoX": 14,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_08_____46" }
++            },
++            {
++              "name": "Bus N8",
++              "nameS": "N8",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N8" }
++            },
++            {
++              "name": "Bus 247",
++              "nameS": "247",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_247" }
++            },
++            {
++              "name": "U 8",
++              "nameS": "8",
++              "icoX": 15,
++              "cls": 128,
++              "prodCtx": { "lineId": "7_vbbBVU_8" }
++            },
++            {
++              "name": "Bus RE6",
++              "nameS": "RE6",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_BB_____RE6" }
++            },
++            {
++              "name": "Bus SEV",
++              "nameS": "SEV",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_OWBus__SEV!!1468082!!5844188" }
++            },
++            {
++              "name": "Bus RB10",
++              "nameS": "RB10",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_BB_____RB10" }
++            },
++            {
++              "name": "Bus N7",
++              "nameS": "N7",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N7" }
++            },
++            {
++              "name": "Bus 130",
++              "nameS": "130",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_130" }
++            },
++            {
++              "name": "Bus 134",
++              "nameS": "134",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_134" }
++            },
++            {
++              "name": "Bus 135",
++              "nameS": "135",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_135" }
++            },
++            {
++              "name": "Bus 136",
++              "nameS": "136",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_136" }
++            },
++            {
++              "name": "Bus 137",
++              "nameS": "137",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_137" }
++            },
++            {
++              "name": "Bus 237",
++              "nameS": "237",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_237" }
++            },
++            {
++              "name": "Bus 337",
++              "nameS": "337",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_337" }
++            },
++            {
++              "name": "Bus 638",
++              "nameS": "638",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbVIB_638" }
++            },
++            {
++              "name": "Bus 671",
++              "nameS": "671",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbHVG_671" }
++            },
++            {
++              "name": "Bus M32",
++              "nameS": "M32",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_M32" }
++            },
++            {
++              "name": "Bus M36",
++              "nameS": "M36",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_M36" }
++            },
++            {
++              "name": "Bus M37",
++              "nameS": "M37",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_M37" }
++            },
++            {
++              "name": "Bus M45",
++              "nameS": "M45",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_M45" }
++            },
++            {
++              "name": "Bus N30",
++              "nameS": "N30",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N30" }
++            },
++            {
++              "name": "Bus N34",
++              "nameS": "N34",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N34" }
++            },
++            {
++              "name": "Bus X33",
++              "nameS": "X33",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_X33" }
++            },
++            {
++              "name": "Bus X37",
++              "nameS": "X37",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_X37" }
++            },
++            {
++              "name": "U 7",
++              "nameS": "7",
++              "icoX": 15,
++              "cls": 128,
++              "prodCtx": { "lineId": "7_vbbBVU_7" }
++            },
++            {
++              "name": "Bus RE5",
++              "nameS": "RE5",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_BW_____RE5!!1486817!!5837557" }
++            },
++            {
++              "name": "Bus SEV",
++              "nameS": "SEV",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_OWBus__SEV!!1486817!!5837557" }
++            },
++            {
++              "name": "Bus 106",
++              "nameS": "106",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_106" }
++            },
++            {
++              "name": "Bus 184",
++              "nameS": "184",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_184" }
++            },
++            {
++              "name": "Bus 187",
++              "nameS": "187",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_187" }
++            },
++            {
++              "name": "Bus 204",
++              "nameS": "204",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_204" }
++            },
++            {
++              "name": "Bus 248",
++              "nameS": "248",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_248" }
++            },
++            {
++              "name": "Bus M46",
++              "nameS": "M46",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_M46" }
++            },
++            {
++              "name": "Bus N42",
++              "nameS": "N42",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N42" }
++            },
++            {
++              "name": "S 75",
++              "nameS": "75",
++              "icoX": 14,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_08_____75" }
++            },
++            {
++              "name": "Bus 140",
++              "nameS": "140",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_140" }
++            },
++            {
++              "name": "Bus 165",
++              "nameS": "165",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_165" }
++            },
++            {
++              "name": "Bus 240",
++              "nameS": "240",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_240" }
++            },
++            {
++              "name": "Bus 265",
++              "nameS": "265",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_265" }
++            },
++            {
++              "name": "Bus 300",
++              "nameS": "300",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_300" }
++            },
++            {
++              "name": "Bus 347",
++              "nameS": "347",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_347" }
++            },
++            {
++              "name": "Bus 108",
++              "nameS": "108",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_108" }
++            },
++            {
++              "name": "Bus 256",
++              "nameS": "256",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_256" }
++            },
++            {
++              "name": "Bus 296",
++              "nameS": "296",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_296" }
++            },
++            {
++              "name": "Bus N50",
++              "nameS": "N50",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N50" }
++            },
++            {
++              "name": "Bus N94",
++              "nameS": "N94",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N94" }
++            },
++            {
++              "name": "STR 21",
++              "nameS": "21",
++              "icoX": 16,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_vbbBVT_21" }
++            },
++            {
++              "name": "STR 37",
++              "nameS": "37",
++              "icoX": 16,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_vbbBVT_37" }
++            },
++            {
++              "name": "STR M13",
++              "nameS": "M13",
++              "icoX": 16,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_vbbBVT_M13" }
++            },
++            {
++              "name": "Bus SEV",
++              "nameS": "SEV",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_OWBus__SEV!!1498363!!5840671" }
++            },
++            {
++              "name": "S 8",
++              "nameS": "8",
++              "icoX": 14,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_08_____8" }
++            },
++            {
++              "name": "S 85",
++              "nameS": "85",
++              "icoX": 14,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_08_____85" }
++            },
++            {
++              "name": "Bus 194",
++              "nameS": "194",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_194" }
++            },
++            {
++              "name": "Bus M43",
++              "nameS": "M43",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_M43" }
++            },
++            {
++              "name": "Bus M2",
++              "nameS": "M2",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_M2" }
++            },
++            {
++              "name": "Bus M5",
++              "nameS": "M5",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_M5" }
++            },
++            {
++              "name": "Bus N2",
++              "nameS": "N2",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N2" }
++            },
++            {
++              "name": "Bus 100",
++              "nameS": "100",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_100" }
++            },
++            {
++              "name": "Bus 200",
++              "nameS": "200",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_200" }
++            },
++            {
++              "name": "Bus N60",
++              "nameS": "N60",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N60" }
++            },
++            {
++              "name": "Bus N65",
++              "nameS": "N65",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N65" }
++            },
++            {
++              "name": "U 2",
++              "nameS": "2",
++              "icoX": 15,
++              "cls": 128,
++              "prodCtx": { "lineId": "7_vbbBVU_2" }
++            },
++            {
++              "name": "STR M1",
++              "nameS": "M1",
++              "icoX": 16,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_vbbBVT_M1" }
++            },
++            {
++              "name": "STR M2",
++              "nameS": "M2",
++              "icoX": 16,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_vbbBVT_M2" }
++            },
++            {
++              "name": "STR M4",
++              "nameS": "M4",
++              "icoX": 16,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_vbbBVT_M4" }
++            },
++            {
++              "name": "STR M6",
++              "nameS": "M6",
++              "icoX": 16,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_vbbBVT_M6" }
++            },
++            {
++              "name": "Bus N1",
++              "nameS": "N1",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N1" }
++            },
++            {
++              "name": "Bus N9",
++              "nameS": "N9",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N9" }
++            },
++            {
++              "name": "Bus U9",
++              "nameS": "U9",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_U9" }
++            },
++            {
++              "name": "Bus 109",
++              "nameS": "109",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_109" }
++            },
++            {
++              "name": "Bus 110",
++              "nameS": "110",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_110" }
++            },
++            {
++              "name": "Bus 249",
++              "nameS": "249",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_249" }
++            },
++            {
++              "name": "Bus A05",
++              "nameS": "A05",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_rbrSEV_A05" }
++            },
++            {
++              "name": "Bus M19",
++              "nameS": "M19",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_M19" }
++            },
++            {
++              "name": "Bus M29",
++              "nameS": "M29",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_M29" }
++            },
++            {
++              "name": "Bus M49",
++              "nameS": "M49",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_M49" }
++            },
++            {
++              "name": "Bus N10",
++              "nameS": "N10",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N10" }
++            },
++            {
++              "name": "Bus N26",
++              "nameS": "N26",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N26" }
++            },
++            {
++              "name": "Bus N7X",
++              "nameS": "N7X",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N7X" }
++            },
++            {
++              "name": "Bus X10",
++              "nameS": "X10",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_X10" }
++            },
++            {
++              "name": "Bus X34",
++              "nameS": "X34",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_X34" }
++            },
++            {
++              "name": "U 3",
++              "nameS": "3",
++              "icoX": 15,
++              "cls": 128,
++              "prodCtx": { "lineId": "7_vbbBVU_3" }
++            },
++            {
++              "name": "U 9",
++              "nameS": "9",
++              "icoX": 15,
++              "cls": 128,
++              "prodCtx": { "lineId": "7_vbbBVU_9" }
++            },
++            {
++              "name": "U 12",
++              "nameS": "12",
++              "icoX": 15,
++              "cls": 128,
++              "prodCtx": { "lineId": "7_vbbBVU_12" }
++            },
++            {
++              "name": "Bus 309",
++              "nameS": "309",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_309" }
++            },
++            {
++              "name": "Bus 310",
++              "nameS": "310",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_310" }
++            },
++            {
++              "name": "Bus X49",
++              "nameS": "X49",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_X49" }
++            },
++            {
++              "name": "Bus M1",
++              "nameS": "M1",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_M1" }
++            },
++            {
++              "name": "Bus N6",
++              "nameS": "N6",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N6" }
++            },
++            {
++              "name": "U 6",
++              "nameS": "6",
++              "icoX": 15,
++              "cls": 128,
++              "prodCtx": { "lineId": "7_vbbBVU_6" }
++            },
++            {
++              "name": "STR 12",
++              "nameS": "12",
++              "icoX": 16,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_vbbBVT_12" }
++            },
++            {
++              "name": "Bus M48",
++              "nameS": "M48",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_M48" }
++            },
++            {
++              "name": "Bus SEV",
++              "nameS": "SEV",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_080001_SEV!!1466149!!5831542" }
++            },
++            {
++              "name": "Bus 114",
++              "nameS": "114",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_114" }
++            },
++            {
++              "name": "Bus 118",
++              "nameS": "118",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_118" }
++            },
++            {
++              "name": "Bus 218",
++              "nameS": "218",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_218" }
++            },
++            {
++              "name": "Bus 316",
++              "nameS": "316",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_316" }
++            },
++            {
++              "name": "Bus 318",
++              "nameS": "318",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_318" }
++            },
++            {
++              "name": "Bus 620",
++              "nameS": "620",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbRPM_620" }
++            },
++            {
++              "name": "Bus N16",
++              "nameS": "N16",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbVIB_N16" }
++            },
++            {
++              "name": "Bus N18",
++              "nameS": "N18",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N18" }
++            },
++            {
++              "name": "Fäh F10",
++              "nameS": "F10",
++              "icoX": 19,
++              "cls": 64,
++              "prodCtx": { "lineId": "6_vbbBVF_F10" }
++            },
++            {
++              "name": "Bus M21",
++              "nameS": "M21",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_M21" }
++            },
++            {
++              "name": "Bus M27",
++              "nameS": "M27",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_M27" }
++            },
++            {
++              "name": "Bus X21",
++              "nameS": "X21",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_X21" }
++            },
++            {
++              "name": "Bus RB24",
++              "nameS": "RB24",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_BB_____RB24!!1503182!!5847676" }
++            },
++            {
++              "name": "Bus RE24",
++              "nameS": "RE24",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_BB_____RE24!!1503182!!5847676" }
++            },
++            {
++              "name": "Bus 154",
++              "nameS": "154",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_154" }
++            },
++            {
++              "name": "Bus 197",
++              "nameS": "197",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_197" }
++            },
++            {
++              "name": "Bus 893",
++              "nameS": "893",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBBG_893" }
++            },
++            {
++              "name": "Bus N56",
++              "nameS": "N56",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N56" }
++            },
++            {
++              "name": "Bus X54",
++              "nameS": "X54",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_X54" }
++            },
++            {
++              "name": "STR M17",
++              "nameS": "M17",
++              "icoX": 16,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_vbbBVT_M17" }
++            },
++            {
++              "name": "Bus 163",
++              "nameS": "163",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_163" }
++            },
++            {
++              "name": "Bus 263",
++              "nameS": "263",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbRVS_263" }
++            },
++            {
++              "name": "Bus 363",
++              "nameS": "363",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_rbrOST_363" }
++            },
++            {
++              "name": "Bus N62",
++              "nameS": "N62",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N62" }
++            },
++            {
++              "name": "Bus N68",
++              "nameS": "N68",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N68" }
++            },
++            {
++              "name": "STR 68",
++              "nameS": "68",
++              "icoX": 16,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_vbbBVT_68" }
++            },
++            {
++              "name": "Bus SEV",
++              "nameS": "SEV",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_080001_SEV!!1514156!!5841686" }
++            },
++            {
++              "name": "Bus 62",
++              "nameS": "62",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_62" }
++            },
++            {
++              "name": "Bus 195",
++              "nameS": "195",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_195" }
++            },
++            {
++              "name": "Bus 395",
++              "nameS": "395",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_395" }
++            },
++            {
++              "name": "Bus 398",
++              "nameS": "398",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_398" }
++            },
++            {
++              "name": "Bus N90",
++              "nameS": "N90",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N90" }
++            },
++            {
++              "name": "Bus N95",
++              "nameS": "N95",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N95" }
++            },
++            {
++              "name": "STR 62",
++              "nameS": "62",
++              "icoX": 16,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_vbbBVT_62" }
++            },
++            {
++              "name": "STR 63",
++              "nameS": "63",
++              "icoX": 16,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_vbbBVT_63" }
++            },
++            {
++              "name": "Bus 282",
++              "nameS": "282",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_282" }
++            },
++            {
++              "name": "Bus N84",
++              "nameS": "N84",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N84" }
++            },
++            {
++              "name": "Bus 166",
++              "nameS": "166",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_166" }
++            },
++            {
++              "name": "Bus 377",
++              "nameS": "377",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_377" }
++            },
++            {
++              "name": "Bus N77",
++              "nameS": "N77",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_N77" }
++            },
++            {
++              "name": "Bus 170",
++              "nameS": "170",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_170" }
++            },
++            {
++              "name": "Bus 246",
++              "nameS": "246",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_246" }
++            },
++            {
++              "name": "Bus M76",
++              "nameS": "M76",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_M76" }
++            },
++            {
++              "name": "Bus X76",
++              "nameS": "X76",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_X76" }
++            },
++            {
++              "name": "Bus 275",
++              "nameS": "275",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_275" }
++            },
++            {
++              "name": "Bus X83",
++              "nameS": "X83",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_X83" }
++            },
++            {
++              "name": "Bus RE5",
++              "nameS": "RE5",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_BB_____RE5!!1486688!!5837713" }
++            },
++            {
++              "name": "Bus RE7",
++              "nameS": "RE7",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_BB_____RE7!!1503403!!5825271" }
++            },
++            {
++              "name": "Bus RB22",
++              "nameS": "RB22",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_BB_____RB22!!1503403!!5825271" }
++            },
++            {
++              "name": "Bus RB24",
++              "nameS": "RB24",
++              "icoX": 6,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_BB_____RB24!!1503403!!5825271" }
++            },
++            {
++              "name": "Bus X7",
++              "nameS": "X7",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_X7" }
++            },
++            {
++              "name": "Bus 734",
++              "nameS": "734",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbRVS_734" }
++            },
++            {
++              "name": "Bus 735",
++              "nameS": "735",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbRVS_735" }
++            },
++            {
++              "name": "Bus 736",
++              "nameS": "736",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbRVS_736" }
++            },
++            {
++              "name": "Bus 743",
++              "nameS": "743",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbRVS_743" }
++            },
++            {
++              "name": "Bus N36",
++              "nameS": "N36",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbRVS_N36" }
++            },
++            {
++              "name": "Bus X71",
++              "nameS": "X71",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_vbbBVB_X71" }
++            },
++            {
++              "name": "Bus BER1",
++              "nameS": "BER1",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_rbrSBE_BER1" }
++            },
++            {
++              "name": "Bus BER2",
++              "nameS": "BER2",
++              "icoX": 6,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_rbr004_BER2" }
++            }
++          ],
++          "polyL": [],
++          "layerL": [
++            { "id": "standard", "name": "standard", "index": 0, "annoCnt": 0 }
++          ],
++          "crdSysL": [
++            { "id": "standard", "index": 0, "type": "WGS84", "dim": 3 }
++          ],
++          "opL": [],
++          "remL": [],
++          "icoL": [
++            { "res": "ICE" },
++            { "res": "RJ" },
++            { "res": "EC" },
++            { "res": "IC" },
++            { "res": "NJ" },
++            { "res": "BUS" },
++            { "res": "Bus" },
++            { "res": "D" },
++            { "res": "EN" },
++            { "res": "DPF" },
++            { "res": "FEX" },
++            { "res": "DPN" },
++            { "res": "RB" },
++            { "res": "RE" },
++            { "res": "S" },
++            { "res": "U" },
++            { "res": "STR" },
++            { "res": "IRE" },
++            { "res": "LT" },
++            { "res": "Fähre" }
++          ]
++        },
++        "match": {
++          "field": "S",
++          "state": "L",
++          "locL": [
++            {
++              "lid": "A=1@O=Berlin Hbf@X=13369549@Y=52525589@U=80@L=8011160@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin Hbf",
++              "icoX": 0,
++              "extId": "8011160",
++              "state": "F",
++              "crd": {
++                "x": 13369629,
++                "y": 52524924,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 447,
++              "pRefL": [
++                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
++                18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
++                34, 35, 36, 37, 38, 39, 40, 41
++              ],
++              "wt": 32767
++            },
++            {
++              "lid": "A=1@O=BERLIN@X=13386988@Y=52520501@U=80@L=8096003@B=1@p=1663183251@",
++              "type": "S",
++              "name": "BERLIN",
++              "icoX": 0,
++              "extId": "8096003",
++              "state": "F",
++              "crd": {
++                "x": 13386988,
++                "y": 52520501,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "meta": true,
++              "pCls": 447,
++              "pRefL": [
++                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 42, 13, 43, 15, 16, 17,
++                44, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
++                33, 34, 35, 36, 37, 45, 38, 39, 40, 41
++              ],
++              "wt": 32767
++            },
++            {
++              "lid": "A=1@O=Berlin Gesundbrunnen@X=13388516@Y=52548961@U=80@L=8011102@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin Gesundbrunnen",
++              "icoX": 0,
++              "extId": "8011102",
++              "state": "F",
++              "crd": {
++                "x": 13391060,
++                "y": 52548656,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 191,
++              "pRefL": [
++                0, 1, 2, 3, 4, 7, 8, 9, 42, 13, 14, 16, 17, 18, 19, 20, 21, 46,
++                47, 48, 49, 50, 51, 52, 53, 26, 54, 55, 56
++              ],
++              "wt": 29985
++            },
++            {
++              "lid": "A=1@O=Berlin-Spandau@X=13196902@Y=52534650@U=80@L=8010404@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin-Spandau",
++              "icoX": 0,
++              "extId": "8010404",
++              "state": "F",
++              "crd": {
++                "x": 13200947,
++                "y": 52533787,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 191,
++              "pRefL": [
++                0, 2, 3, 9, 11, 57, 58, 59, 15, 19, 20, 21, 22, 25, 60, 61, 62,
++                63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78
++              ],
++              "wt": 29991
++            },
++            {
++              "lid": "A=1@O=Berlin Südkreuz@X=13365315@Y=52475043@U=80@L=8011113@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin Südkreuz",
++              "icoX": 0,
++              "extId": "8011113",
++              "state": "F",
++              "crd": {
++                "x": 13365863,
++                "y": 52476230,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 63,
++              "pRefL": [
++                0, 1, 2, 3, 4, 9, 12, 79, 80, 16, 19, 20, 21, 47, 25, 48, 49,
++                50, 51, 52, 53, 26, 81, 82, 83, 84, 85, 86, 87
++              ],
++              "wt": 29715
++            },
++            {
++              "lid": "A=1@O=Berlin Ostbahnhof@X=13434684@Y=52510487@U=80@L=8010255@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin Ostbahnhof",
++              "icoX": 0,
++              "extId": "8010255",
++              "state": "F",
++              "crd": {
++                "x": 13434900,
++                "y": 52510424,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 63,
++              "pRefL": [
++                0, 1, 2, 3, 4, 8, 9, 11, 14, 16, 17, 18, 19, 20, 21, 22, 23, 24,
++                25, 26, 88, 89, 30, 31, 90, 91, 92, 93, 94, 37
++              ],
++              "wt": 29454
++            },
++            {
++              "lid": "A=1@O=Berlin-Lichtenberg@X=13496692@Y=52510137@U=80@L=8010036@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin-Lichtenberg",
++              "icoX": 1,
++              "extId": "8010036",
++              "state": "F",
++              "crd": {
++                "x": 13496494,
++                "y": 52509840,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 447,
++              "pRefL": [
++                1, 2, 3, 4, 8, 9, 11, 43, 16, 17, 44, 18, 19, 20, 21, 22, 23,
++                24, 25, 88, 95, 91, 96, 97, 98, 99, 45, 38, 100, 101, 102
++              ],
++              "wt": 9941
++            },
++            {
++              "lid": "A=1@O=Berlin Ostkreuz@X=13469104@Y=52503035@U=80@L=8011162@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin Ostkreuz",
++              "icoX": 0,
++              "extId": "8011162",
++              "state": "F",
++              "crd": {
++                "x": 13470497,
++                "y": 52504689,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 63,
++              "pRefL": [
++                0, 1, 2, 3, 9, 11, 103, 16, 44, 18, 19, 20, 21, 47, 22, 23, 24,
++                104, 25, 50, 51, 53, 26, 88, 105, 106, 94, 107, 99
++              ],
++              "wt": 9168
++            },
++            {
++              "lid": "A=1@O=Berlin Alexanderplatz@X=13410962@Y=52521481@U=80@L=8011155@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin Alexanderplatz",
++              "icoX": 6,
++              "extId": "8011155",
++              "state": "F",
++              "crd": {
++                "x": 13411088,
++                "y": 52521526,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 440,
++              "pRefL": [
++                11, 14, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 108, 109,
++                110, 27, 54, 111, 112, 85, 93, 37, 87, 113, 114, 115, 38, 56,
++                116, 117, 118, 39, 119, 40, 41
++              ],
++              "wt": 8963
++            },
++            {
++              "lid": "A=1@O=Berlin Zoologischer Garten@X=13331992@Y=52507278@U=80@L=8010406@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin Zoologischer Garten",
++              "icoX": 0,
++              "extId": "8010406",
++              "state": "F",
++              "crd": {
++                "x": 13332414,
++                "y": 52507242,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 191,
++              "pRefL": [
++                0, 2, 3, 9, 10, 11, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
++                25, 52, 26, 120, 110, 121, 122, 111, 123, 124, 112, 84, 32, 125,
++                126, 127, 128, 73, 86, 129, 130, 131, 132, 133, 134, 115, 135,
++                136, 137
++              ],
++              "wt": 8904
++            },
++            {
++              "lid": "A=1@O=Berlin-Charlottenburg@X=13302327@Y=52504213@U=80@L=8010403@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin-Charlottenburg",
++              "icoX": 1,
++              "extId": "8010403",
++              "state": "F",
++              "crd": {
++                "x": 13302049,
++                "y": 52504195,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 191,
++              "pRefL": [
++                1, 2, 4, 8, 9, 10, 11, 14, 15, 16, 18, 19, 20, 21, 22, 23, 24,
++                25, 50, 51, 52, 53, 26, 60, 123, 124, 138, 139, 127, 128, 140
++              ],
++              "wt": 8634
++            },
++            {
++              "lid": "A=1@O=Berlin Friedrichstraße@X=13387203@Y=52520376@U=80@L=8011306@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin Friedrichstraße",
++              "icoX": 7,
++              "extId": "8011306",
++              "state": "F",
++              "crd": {
++                "x": 13386925,
++                "y": 52520331,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 444,
++              "pRefL": [
++                7, 9, 11, 14, 16, 17, 18, 19, 20, 21, 46, 47, 22, 23, 24, 25,
++                48, 49, 26, 141, 142, 31, 143, 144, 116
++              ],
++              "wt": 8419
++            },
++            {
++              "lid": "A=1@O=Berlin Potsdamer Platz@X=13375985@Y=52509382@U=80@L=8011118@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin Potsdamer Platz",
++              "icoX": 6,
++              "extId": "8011118",
++              "state": "F",
++              "crd": {
++                "x": 13375904,
++                "y": 52509436,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 184,
++              "pRefL": [
++                12, 14, 19, 20, 21, 46, 47, 48, 49, 110, 112, 93, 34, 145, 35,
++                115
++              ],
++              "wt": 8393
++            },
++            {
++              "lid": "A=1@O=Berlin Wannsee@X=13179526@Y=52420973@U=80@L=8010405@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin Wannsee",
++              "icoX": 0,
++              "extId": "8010405",
++              "state": "F",
++              "crd": {
++                "x": 13179696,
++                "y": 52420955,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 123,
++              "pRefL": [
++                0, 3, 11, 146, 17, 18, 19, 21, 46, 47, 24, 147, 148, 149, 150,
++                151, 152, 153, 154, 155
++              ],
++              "wt": 8350
++            },
++            {
++              "lid": "A=1@O=Berlin Jungfernheide@X=13299433@Y=52530273@U=80@L=8011167@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin Jungfernheide",
++              "icoX": 6,
++              "extId": "8011167",
++              "state": "F",
++              "crd": {
++                "x": 13299451,
++                "y": 52530291,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 184,
++              "pRefL": [
++                14, 19, 20, 21, 50, 51, 52, 53, 26, 60, 123, 156, 157, 158, 78
++              ],
++              "wt": 8138
++            },
++            {
++              "lid": "A=1@O=Berlin-Hohenschönhausen@X=13512423@Y=52566005@U=80@L=8011901@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin-Hohenschönhausen",
++              "icoX": 6,
++              "extId": "8011901",
++              "state": "F",
++              "crd": {
++                "x": 13512522,
++                "y": 52565906,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 312,
++              "pRefL": [
++                43, 159, 160, 18, 19, 21, 23, 88, 161, 162, 96, 163, 164, 165,
++                118, 166
++              ],
++              "wt": 8104
++            },
++            {
++              "lid": "A=1@O=Berlin-Grünau@X=13573496@Y=52413026@U=80@L=8089063@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin-Grünau",
++              "icoX": 6,
++              "extId": "8089063",
++              "state": "F",
++              "crd": {
++                "x": 13573289,
++                "y": 52413152,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 312,
++              "pRefL": [
++                14, 104, 25, 50, 51, 52, 53, 26, 105, 167, 168, 169, 170, 171,
++                172
++              ],
++              "wt": 7977
++            },
++            {
++              "lid": "A=1@O=Berlin-Mahlsdorf@X=13611421@Y=52512105@U=80@L=8011343@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin-Mahlsdorf",
++              "icoX": 6,
++              "extId": "8011343",
++              "state": "F",
++              "crd": {
++                "x": 13611421,
++                "y": 52512105,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 312,
++              "pRefL": [
++                173, 18, 23, 174, 175, 162, 176, 177, 178, 179, 45, 180, 181
++              ],
++              "wt": 7977
++            },
++            {
++              "lid": "A=1@O=Berlin Attilastr.@X=13360955@Y=52447680@U=80@L=8089003@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin Attilastr.",
++              "icoX": 6,
++              "extId": "8089003",
++              "state": "F",
++              "crd": {
++                "x": 13361171,
++                "y": 52447203,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 56,
++              "pRefL": [14, 47, 49, 82, 182, 183],
++              "wt": 7862
++            },
++            {
++              "lid": "A=1@O=Berlin Plänterwald@X=13473122@Y=52478540@U=80@L=8089030@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin Plänterwald",
++              "icoX": 6,
++              "extId": "8089030",
++              "state": "F",
++              "crd": {
++                "x": 13473374,
++                "y": 52478477,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 56,
++              "pRefL": [
++                14, 104, 25, 50, 51, 52, 53, 26, 105, 90, 184, 185, 113, 114,
++                186
++              ],
++              "wt": 7862
++            },
++            {
++              "lid": "A=1@O=Berlin Priesterweg@X=13356280@Y=52459914@U=80@L=8089034@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin Priesterweg",
++              "icoX": 6,
++              "extId": "8089034",
++              "state": "F",
++              "crd": {
++                "x": 13356586,
++                "y": 52460795,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 56,
++              "pRefL": [14, 47, 48, 49, 187, 188, 189, 190],
++              "wt": 7862
++            },
++            {
++              "lid": "A=1@O=Berlin Schichauweg@X=13389307@Y=52398841@U=80@L=8089038@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin Schichauweg",
++              "icoX": 6,
++              "extId": "8089038",
++              "state": "F",
++              "crd": {
++                "x": 13389244,
++                "y": 52398832,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 56,
++              "pRefL": [14, 47, 191, 192],
++              "wt": 7862
++            },
++            {
++              "lid": "A=1@O=Berlin Südende@X=13353898@Y=52448453@U=80@L=8089115@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin Südende",
++              "icoX": 6,
++              "extId": "8089115",
++              "state": "F",
++              "crd": {
++                "x": 13354285,
++                "y": 52448830,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 56,
++              "pRefL": [14, 47, 48, 49, 182],
++              "wt": 7862
++            },
++            {
++              "lid": "A=1@O=Berlin Treptower Park@X=13461445@Y=52493561@U=80@L=8089043@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Berlin Treptower Park",
++              "icoX": 6,
++              "extId": "8089043",
++              "state": "F",
++              "crd": {
++                "x": 13461364,
++                "y": 52493345,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 56,
++              "pRefL": [
++                14, 104, 25, 50, 51, 52, 53, 26, 105, 90, 184, 106, 92, 107,
++                113, 114, 99
++              ],
++              "wt": 7862
++            },
++            {
++              "lid": "A=1@O=BER Berlin Brandenburg Airport@X=13511947@Y=52364808@U=80@L=8011201@B=1@p=1663183251@",
++              "type": "S",
++              "name": "BER Berlin Brandenburg Airport",
++              "icoX": 3,
++              "extId": "8011201",
++              "state": "F",
++              "crd": {
++                "x": 13511947,
++                "y": 52364808,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 58,
++              "pRefL": [
++                3, 193, 194, 103, 195, 196, 16, 19, 21, 25, 52, 60, 197, 168,
++                198, 199, 200, 201, 202, 113, 132, 203, 204, 205
++              ],
++              "wt": 8805
++            }
++          ]
++        }
++      }
++    }
++  ]
++}
+diff --git a/tests/components/hafas/fixtures/station2.json b/tests/components/hafas/fixtures/station2.json
+new file mode 100644
+index 00000000000000..8c3743ecc90e26
+--- /dev/null
++++ b/tests/components/hafas/fixtures/station2.json
+@@ -0,0 +1,1096 @@
++{
++  "ver": "1.16",
++  "ext": "DB.R19.04.a",
++  "lang": "deu",
++  "id": "s7gacieikkq5ym8g",
++  "cInfo": { "code": "OK" },
++  "svcResL": [
++    {
++      "meth": "LocMatch",
++      "err": "OK",
++      "res": {
++        "common": {
++          "locL": [],
++          "prodL": [
++            { "name": "ICE", "icoX": 0, "cls": 1 },
++            { "name": "IC", "icoX": 1, "cls": 2 },
++            { "name": "Bus", "icoX": 2, "cls": 4 },
++            { "name": "FLX", "icoX": 3, "cls": 4 },
++            {
++              "name": "Bus S1",
++              "nameS": "S1",
++              "icoX": 2,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_SD_____S1!!1377466!!5711695" }
++            },
++            {
++              "name": "Bus S2",
++              "nameS": "S2",
++              "icoX": 2,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_SD_____S2!!1377466!!5711695" }
++            },
++            {
++              "name": "Bus S3",
++              "nameS": "S3",
++              "icoX": 2,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_SD_____S3!!1377466!!5711695" }
++            },
++            {
++              "name": "Bus S4",
++              "nameS": "S4",
++              "icoX": 2,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_SD_____S4" }
++            },
++            {
++              "name": "Bus S5",
++              "nameS": "S5",
++              "icoX": 2,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_SD_____S5" }
++            },
++            {
++              "name": "Bus S6",
++              "nameS": "S6",
++              "icoX": 2,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_SD_____S6" }
++            },
++            {
++              "name": "Bus 110",
++              "nameS": "110",
++              "icoX": 2,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_CX_____110" }
++            },
++            {
++              "name": "Bus RE6",
++              "nameS": "RE6",
++              "icoX": 2,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_CX_____RE6" }
++            },
++            {
++              "name": "Bus S5X",
++              "nameS": "S5X",
++              "icoX": 2,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_SD_____S5X" }
++            },
++            {
++              "name": "Bus SEV",
++              "nameS": "SEV",
++              "icoX": 2,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_B7_____SEV!!1377436!!5711898" }
++            },
++            {
++              "name": "Bus RB20",
++              "nameS": "RB20",
++              "icoX": 2,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_AM_____RB20" }
++            },
++            {
++              "name": "Bus RE10",
++              "nameS": "RE10",
++              "icoX": 2,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_BB_____RE10!!1377466!!5711695" }
++            },
++            {
++              "name": "Bus RE13",
++              "nameS": "RE13",
++              "icoX": 2,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_SD_____RE13!!1377466!!5711695" }
++            },
++            {
++              "name": "Bus RE50",
++              "nameS": "RE50",
++              "icoX": 2,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_SD_____RE50!!1377466!!5711695" }
++            },
++            {
++              "name": "BusRB110",
++              "nameS": "RB110",
++              "icoX": 2,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_CX_____RB110" }
++            },
++            { "name": "RB", "icoX": 4, "cls": 8 },
++            { "name": "RB", "icoX": 5, "cls": 8 },
++            { "name": "RE", "icoX": 4, "cls": 8 },
++            { "name": "RE", "icoX": 6, "cls": 8 },
++            {
++              "name": "S 1",
++              "nameS": "1",
++              "icoX": 7,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_800486_1" }
++            },
++            {
++              "name": "S 2",
++              "nameS": "2",
++              "icoX": 7,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_8004A9_2" }
++            },
++            {
++              "name": "S 3",
++              "nameS": "3",
++              "icoX": 7,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_800486_3" }
++            },
++            {
++              "name": "S 4",
++              "nameS": "4",
++              "icoX": 7,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_800486_4" }
++            },
++            {
++              "name": "S 5",
++              "nameS": "5",
++              "icoX": 7,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_800486_5" }
++            },
++            {
++              "name": "S 6",
++              "nameS": "6",
++              "icoX": 7,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_800486_6" }
++            },
++            {
++              "name": "S 5X",
++              "nameS": "5X",
++              "icoX": 7,
++              "cls": 16,
++              "prodCtx": { "lineId": "4_800486_5X" }
++            },
++            {
++              "name": "Bus 72",
++              "nameS": "72",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_72" }
++            },
++            {
++              "name": "Bus 73",
++              "nameS": "73",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_73" }
++            },
++            {
++              "name": "Bus 86",
++              "nameS": "86",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_86" }
++            },
++            {
++              "name": "Bus 89",
++              "nameS": "89",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_89" }
++            },
++            {
++              "name": "Bus N1",
++              "nameS": "N1",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_N1" }
++            },
++            {
++              "name": "Bus N2",
++              "nameS": "N2",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_N2" }
++            },
++            {
++              "name": "Bus N3",
++              "nameS": "N3",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_N3" }
++            },
++            {
++              "name": "Bus N4",
++              "nameS": "N4",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_N4" }
++            },
++            {
++              "name": "Bus N5",
++              "nameS": "N5",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_N5" }
++            },
++            {
++              "name": "Bus N6",
++              "nameS": "N6",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_N6" }
++            },
++            {
++              "name": "Bus N7",
++              "nameS": "N7",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_N7" }
++            },
++            {
++              "name": "Bus N8",
++              "nameS": "N8",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_N8" }
++            },
++            {
++              "name": "Bus N9",
++              "nameS": "N9",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_N9" }
++            },
++            {
++              "name": "Bus 131",
++              "nameS": "131",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_131" }
++            },
++            {
++              "name": "Bus 196",
++              "nameS": "196",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasOVH_196" }
++            },
++            {
++              "name": "Bus 197",
++              "nameS": "197",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasOVH_197" }
++            },
++            {
++              "name": "Bus 412",
++              "nameS": "412",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasTHU_412" }
++            },
++            {
++              "name": "Bus 690",
++              "nameS": "690",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasRL__690" }
++            },
++            {
++              "name": "Bus N17",
++              "nameS": "N17",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_N17" }
++            },
++            {
++              "name": "STR 1",
++              "nameS": "1",
++              "icoX": 8,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_nasLVT_1" }
++            },
++            {
++              "name": "STR 2",
++              "nameS": "2",
++              "icoX": 8,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_nasLVT_2" }
++            },
++            {
++              "name": "STR 3",
++              "nameS": "3",
++              "icoX": 8,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_nasLVT_3" }
++            },
++            {
++              "name": "STR 4",
++              "nameS": "4",
++              "icoX": 8,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_nasLVT_4" }
++            },
++            {
++              "name": "STR 7",
++              "nameS": "7",
++              "icoX": 8,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_nasLVT_7" }
++            },
++            {
++              "name": "STR 8",
++              "nameS": "8",
++              "icoX": 8,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_nasLVT_8" }
++            },
++            {
++              "name": "STR 9",
++              "nameS": "9",
++              "icoX": 8,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_nasLVT_9" }
++            },
++            {
++              "name": "STR 10",
++              "nameS": "10",
++              "icoX": 8,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_nasLVT_10" }
++            },
++            {
++              "name": "STR 11",
++              "nameS": "11",
++              "icoX": 8,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_nasLVT_11" }
++            },
++            {
++              "name": "STR 12",
++              "nameS": "12",
++              "icoX": 8,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_nasLVT_12" }
++            },
++            {
++              "name": "STR 14",
++              "nameS": "14",
++              "icoX": 8,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_nasLVT_14" }
++            },
++            {
++              "name": "STR 15",
++              "nameS": "15",
++              "icoX": 8,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_nasLVT_15" }
++            },
++            {
++              "name": "STR 16",
++              "nameS": "16",
++              "icoX": 8,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_nasLVT_16" }
++            },
++            {
++              "name": "STR 56",
++              "nameS": "56",
++              "icoX": 8,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_nasLVT_56" }
++            },
++            {
++              "name": "STR N10",
++              "nameS": "N10",
++              "icoX": 8,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_nasLVT_N10" }
++            },
++            {
++              "name": "STR N17",
++              "nameS": "N17",
++              "icoX": 8,
++              "cls": 256,
++              "prodCtx": { "lineId": "8_nasLVT_N17" }
++            },
++            {
++              "name": "Bus 217",
++              "nameS": "217",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasOVH_217" }
++            },
++            {
++              "name": "RUF 217",
++              "nameS": "217",
++              "icoX": 9,
++              "cls": 512,
++              "prodCtx": { "lineId": "9_nasOVH_217" }
++            },
++            {
++              "name": "Bus SEV",
++              "nameS": "SEV",
++              "icoX": 2,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_EB_____SEV!!1377436!!5711898" }
++            },
++            {
++              "name": "Bus 90",
++              "nameS": "90",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_90" }
++            },
++            {
++              "name": "Bus 80",
++              "nameS": "80",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_80" }
++            },
++            {
++              "name": "Bus 60",
++              "nameS": "60",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_60" }
++            },
++            {
++              "name": "Bus 64",
++              "nameS": "64",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_64" }
++            },
++            {
++              "name": "Bus N60",
++              "nameS": "N60",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_N60" }
++            },
++            {
++              "name": "ALT 86",
++              "nameS": "86",
++              "icoX": 10,
++              "cls": 512,
++              "prodCtx": { "lineId": "9_nasLVB_86" }
++            },
++            {
++              "name": "Bus SEV",
++              "nameS": "SEV",
++              "icoX": 2,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_CX_____SEV!!1377436!!5711898" }
++            },
++            {
++              "name": "Bus SEV",
++              "nameS": "SEV",
++              "icoX": 2,
++              "cls": 8,
++              "prodCtx": { "lineId": "3_SD_____SEV" }
++            },
++            {
++              "name": "Bus 79",
++              "nameS": "79",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_79" }
++            },
++            {
++              "name": "Bus 74",
++              "nameS": "74",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_74" }
++            },
++            {
++              "name": "Bus 85",
++              "nameS": "85",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_85" }
++            },
++            {
++              "name": "Bus 61",
++              "nameS": "61",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_61" }
++            },
++            {
++              "name": "Bus 65",
++              "nameS": "65",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_65" }
++            },
++            {
++              "name": "Bus 66",
++              "nameS": "66",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_66" }
++            },
++            {
++              "name": "Bus 161",
++              "nameS": "161",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_161" }
++            },
++            {
++              "name": "Bus SEV2",
++              "nameS": "SEV2",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_SEV2" }
++            },
++            {
++              "name": "Bus 62",
++              "nameS": "62",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_62" }
++            },
++            {
++              "name": "Bus SEV1",
++              "nameS": "SEV1",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasLVB_SEV1" }
++            },
++            {
++              "name": "Bus 190",
++              "nameS": "190",
++              "icoX": 2,
++              "cls": 32,
++              "prodCtx": { "lineId": "5_nasOVH_190" }
++            }
++          ],
++          "polyL": [],
++          "layerL": [
++            { "id": "standard", "name": "standard", "index": 0, "annoCnt": 0 }
++          ],
++          "crdSysL": [
++            { "id": "standard", "index": 0, "type": "WGS84", "dim": 3 }
++          ],
++          "opL": [],
++          "remL": [],
++          "icoL": [
++            { "res": "ICE" },
++            { "res": "IC" },
++            { "res": "Bus" },
++            { "res": "DPF" },
++            { "res": "DPN" },
++            { "res": "RB" },
++            { "res": "RE" },
++            { "res": "S" },
++            { "res": "STR" },
++            { "res": "RUF" },
++            { "res": "ALT" }
++          ]
++        },
++        "match": {
++          "field": "S",
++          "state": "L",
++          "locL": [
++            {
++              "lid": "A=1@O=Leipzig Hbf@X=12382066@Y=51345467@U=80@L=8010205@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig Hbf",
++              "icoX": 0,
++              "extId": "8010205",
++              "state": "F",
++              "crd": {
++                "x": 12381167,
++                "y": 51345081,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 319,
++              "pRefL": [
++                0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17,
++                18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
++                34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
++                50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64
++              ],
++              "wt": 30285
++            },
++            {
++              "lid": "A=1@O=Leipzig/Halle Flughafen@X=12223424@Y=51423341@U=80@L=8012183@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig/Halle Flughafen",
++              "icoX": 0,
++              "extId": "8012183",
++              "state": "F",
++              "crd": {
++                "x": 12223451,
++                "y": 51423341,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 571,
++              "pRefL": [0, 1, 6, 8, 12, 25, 27, 29, 65, 66],
++              "wt": 6848
++            },
++            {
++              "lid": "A=1@O=Leipzig-Möckern@X=12352275@Y=51364435@U=80@L=8012193@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig-Möckern",
++              "icoX": 2,
++              "extId": "8012193",
++              "state": "F",
++              "crd": {
++                "x": 12351691,
++                "y": 51364156,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 312,
++              "pRefL": [4, 6, 67, 14, 19, 21, 23, 68, 37, 56, 57],
++              "wt": 6186
++            },
++            {
++              "lid": "A=1@O=Leipzig-Leutzsch@X=12303734@Y=51353998@U=80@L=8010207@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig-Leutzsch",
++              "icoX": 2,
++              "extId": "8010207",
++              "state": "F",
++              "crd": {
++                "x": 12304570,
++                "y": 51353818,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 312,
++              "pRefL": [4, 14, 19, 23, 69, 36, 53],
++              "wt": 6058
++            },
++            {
++              "lid": "A=1@O=Leipzig-Plagwitz@X=12322081@Y=51328037@U=80@L=8010209@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig-Plagwitz",
++              "icoX": 2,
++              "extId": "8010209",
++              "state": "F",
++              "crd": {
++                "x": 12321928,
++                "y": 51327858,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 312,
++              "pRefL": [4, 67, 19, 21, 23, 70, 71, 72, 59],
++              "wt": 6058
++            },
++            {
++              "lid": "A=1@O=Leipzig Messe@X=12389275@Y=51396149@U=80@L=8012478@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig Messe",
++              "icoX": 2,
++              "extId": "8012478",
++              "state": "F",
++              "crd": {
++                "x": 12389383,
++                "y": 51396167,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 824,
++              "pRefL": [5, 8, 9, 12, 16, 22, 24, 27, 28, 29, 32, 61, 62, 73],
++              "wt": 4956
++            },
++            {
++              "lid": "A=1@O=Leipzig-Engelsdorf@X=12477630@Y=51343948@U=80@L=8011491@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig-Engelsdorf",
++              "icoX": 2,
++              "extId": "8011491",
++              "state": "F",
++              "crd": {
++                "x": 12469549,
++                "y": 51343876,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 824,
++              "pRefL": [10, 74, 18, 19, 22, 25],
++              "wt": 5201
++            },
++            {
++              "lid": "A=1@O=Leipzig-Stötteritz@X=12411424@Y=51324514@U=80@L=8012194@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig-Stötteritz",
++              "icoX": 2,
++              "extId": "8012194",
++              "state": "F",
++              "crd": {
++                "x": 12411604,
++                "y": 51324639,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 312,
++              "pRefL": [4, 5, 6, 23, 24, 25, 41, 52],
++              "wt": 4820
++            },
++            {
++              "lid": "A=1@O=Leipzig-Paunsdorf@X=12444334@Y=51344299@U=80@L=8010208@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig-Paunsdorf",
++              "icoX": 2,
++              "extId": "8010208",
++              "state": "F",
++              "crd": {
++                "x": 12444612,
++                "y": 51344110,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 312,
++              "pRefL": [6, 10, 75, 18, 19, 20, 25, 76],
++              "wt": 4602
++            },
++            {
++              "lid": "A=1@O=Leipzig Bayerischer Bahnhof@X=12381661@Y=51329269@U=80@L=8012184@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig Bayerischer Bahnhof",
++              "icoX": 2,
++              "extId": "8012184",
++              "state": "F",
++              "crd": {
++                "x": 12381104,
++                "y": 51330087,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 312,
++              "pRefL": [
++                4, 5, 6, 7, 8, 9, 12, 23, 24, 25, 26, 27, 28, 29, 70, 41, 46,
++                72, 50, 55, 61
++              ],
++              "wt": 4385
++            },
++            {
++              "lid": "A=1@O=Leipzig-Sellerhausen@X=12424665@Y=51345180@U=80@L=8080930@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig-Sellerhausen",
++              "icoX": 2,
++              "extId": "8080930",
++              "state": "F",
++              "crd": {
++                "x": 12424099,
++                "y": 51345324,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 312,
++              "pRefL": [10, 74, 18, 19, 25],
++              "wt": 4447
++            },
++            {
++              "lid": "A=1@O=Leipzig MDR@X=12386317@Y=51320064@U=80@L=8012187@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig MDR",
++              "icoX": 2,
++              "extId": "8012187",
++              "state": "F",
++              "crd": {
++                "x": 12388169,
++                "y": 51316414,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 312,
++              "pRefL": [4, 5, 6, 7, 8, 9, 12, 23, 24, 25, 26, 27, 28, 29, 77],
++              "wt": 4143
++            },
++            {
++              "lid": "A=1@O=Leipzig Nord@X=12401060@Y=51364165@U=80@L=8012196@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig Nord",
++              "icoX": 2,
++              "extId": "8012196",
++              "state": "F",
++              "crd": {
++                "x": 12401410,
++                "y": 51365612,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 312,
++              "pRefL": [5, 7, 9, 24, 26, 28, 68],
++              "wt": 4143
++            },
++            {
++              "lid": "A=1@O=Leipzig Markt@X=12374613@Y=51340640@U=80@L=8012186@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig Markt",
++              "icoX": 7,
++              "extId": "8012186",
++              "state": "F",
++              "crd": {
++                "x": 12374604,
++                "y": 51340514,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 304,
++              "pRefL": [23, 24, 25, 26, 27, 28, 29, 33],
++              "wt": 3938
++            },
++            {
++              "lid": "A=1@O=Leipzig Wilhelm-Leuschner-Platz@X=12375396@Y=51335400@U=80@L=8012202@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig Wilhelm-Leuschner-Platz",
++              "icoX": 7,
++              "extId": "8012202",
++              "state": "F",
++              "crd": {
++                "x": 12375360,
++                "y": 51335507,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 312,
++              "pRefL": [
++                23, 24, 25, 26, 27, 28, 29, 33, 42, 50, 54, 55, 56, 57, 59, 60,
++                61, 62, 63
++              ],
++              "wt": 3794
++            },
++            {
++              "lid": "A=1@O=Leipzig-Knauthain@X=12309091@Y=51278183@U=80@L=8012192@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig-Knauthain",
++              "icoX": 2,
++              "extId": "8012192",
++              "state": "F",
++              "crd": {
++                "x": 12309073,
++                "y": 51278147,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 808,
++              "pRefL": [67, 19, 21],
++              "wt": 3924
++            },
++            {
++              "lid": "A=1@O=Leipzig-Miltitz@X=12255030@Y=51325314@U=80@L=8012355@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig-Miltitz",
++              "icoX": 2,
++              "extId": "8012355",
++              "state": "F",
++              "crd": {
++                "x": 12254931,
++                "y": 51325224,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 296,
++              "pRefL": [14, 19],
++              "wt": 3924
++            },
++            {
++              "lid": "A=1@O=Leipzig-Rückmarsdorf@X=12282672@Y=51341872@U=80@L=8012817@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig-Rückmarsdorf",
++              "icoX": 2,
++              "extId": "8012817",
++              "state": "F",
++              "crd": {
++                "x": 12282537,
++                "y": 51341800,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 552,
++              "pRefL": [14, 19],
++              "wt": 3924
++            },
++            {
++              "lid": "A=1@O=Leipzig-Connewitz@X=12386308@Y=51300719@U=80@L=8010206@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig-Connewitz",
++              "icoX": 2,
++              "extId": "8010206",
++              "state": "F",
++              "crd": {
++                "x": 12385625,
++                "y": 51300027,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 312,
++              "pRefL": [
++                6, 7, 8, 9, 12, 25, 26, 27, 28, 29, 76, 42, 55, 56, 57, 61, 62
++              ],
++              "wt": 3798
++            },
++            {
++              "lid": "A=1@O=Leipzig-Gohlis@X=12374533@Y=51362862@U=80@L=8012188@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig-Gohlis",
++              "icoX": 7,
++              "extId": "8012188",
++              "state": "F",
++              "crd": {
++                "x": 12374533,
++                "y": 51362808,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 312,
++              "pRefL": [23, 25, 78, 58],
++              "wt": 3338
++            },
++            {
++              "lid": "A=1@O=Leipzig Völkerschlachtdenkmal@X=12406282@Y=51318743@U=80@L=8012343@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig Völkerschlachtdenkmal",
++              "icoX": 7,
++              "extId": "8012343",
++              "state": "F",
++              "crd": {
++                "x": 12404817,
++                "y": 51317547,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 312,
++              "pRefL": [23, 24, 25],
++              "wt": 3195
++            },
++            {
++              "lid": "A=1@O=Leipzig Allee-Center@X=12291751@Y=51319156@U=80@L=8013070@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig Allee-Center",
++              "icoX": 2,
++              "extId": "8013070",
++              "state": "F",
++              "crd": {
++                "x": 12291787,
++                "y": 51319147,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 56,
++              "pRefL": [4, 23, 79, 80, 81, 82, 48, 83],
++              "wt": 2225
++            },
++            {
++              "lid": "A=1@O=Leipzig Essener Straße@X=12396988@Y=51376354@U=80@L=8012200@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig Essener Straße",
++              "icoX": 2,
++              "extId": "8012200",
++              "state": "F",
++              "crd": {
++                "x": 12396988,
++                "y": 51376354,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 56,
++              "pRefL": [5, 9, 24, 28, 69, 78],
++              "wt": 2225
++            },
++            {
++              "lid": "A=1@O=Leipzig Karlsruher Str@X=12279274@Y=51317232@U=80@L=8010186@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig Karlsruher Str",
++              "icoX": 2,
++              "extId": "8010186",
++              "state": "F",
++              "crd": {
++                "x": 12278941,
++                "y": 51317196,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 312,
++              "pRefL": [4, 23, 79, 84, 81, 82, 85, 83],
++              "wt": 2225
++            },
++            {
++              "lid": "A=1@O=Leipzig Slevogtstraße@X=12344419@Y=51372947@U=80@L=8012204@B=1@p=1663183251@",
++              "type": "S",
++              "name": "Leipzig Slevogtstraße",
++              "icoX": 2,
++              "extId": "8012204",
++              "state": "F",
++              "crd": {
++                "x": 12344868,
++                "y": 51372777,
++                "z": 0,
++                "type": "WGS84",
++                "layerX": 0,
++                "crdSysX": 0
++              },
++              "pCls": 312,
++              "pRefL": [6, 25, 69, 68, 38, 86],
++              "wt": 2225
++            }
++          ]
++        }
++      }
++    }
++  ]
++}
+diff --git a/tests/components/hafas/test_config_flow.py b/tests/components/hafas/test_config_flow.py
+new file mode 100644
+index 00000000000000..383683a95a9a02
+--- /dev/null
++++ b/tests/components/hafas/test_config_flow.py
+@@ -0,0 +1,48 @@
++"""Test the HaFAS config flow."""
++
++from homeassistant import config_entries
++from homeassistant.components.hafas.const import (
++    CONF_DESTINATION,
++    CONF_ONLY_DIRECT,
++    CONF_PROFILE,
++    CONF_START,
++    DOMAIN,
++)
++from homeassistant.const import CONF_OFFSET
++from homeassistant.core import HomeAssistant
++from homeassistant.data_entry_flow import FlowResultType
++
++from .const import (
++    TEST_OFFSET,
++    TEST_ONLY_DIRECT,
++    TEST_PROFILE,
++    TEST_STATION1,
++    TEST_STATION2,
++)
++
++
++async def test_form(hass: HomeAssistant) -> None:
++    """Test we get the form."""
++    result = await hass.config_entries.flow.async_init(
++        DOMAIN,
++        context={
++            "source": config_entries.SOURCE_USER,
++        },
++        data={
++            CONF_PROFILE: TEST_PROFILE,
++            CONF_START: TEST_STATION1,
++            CONF_DESTINATION: TEST_STATION2,
++            CONF_OFFSET: TEST_OFFSET,
++            CONF_ONLY_DIRECT: TEST_ONLY_DIRECT,
++        },
++    )
++
++    assert result["type"] == FlowResultType.CREATE_ENTRY
++    assert result["title"] == f"{TEST_STATION1} to {TEST_STATION2}"
++    assert result["data"] == {
++        CONF_PROFILE: TEST_PROFILE,
++        CONF_START: TEST_STATION1,
++        CONF_DESTINATION: TEST_STATION2,
++        CONF_OFFSET: TEST_OFFSET,
++        CONF_ONLY_DIRECT: TEST_ONLY_DIRECT,
++    }
+diff --git a/tests/components/hafas/test_sensors.py b/tests/components/hafas/test_sensors.py
+new file mode 100644
+index 00000000000000..50c55a98c7bd9e
+--- /dev/null
++++ b/tests/components/hafas/test_sensors.py
+@@ -0,0 +1,37 @@
++"""Test the HaFAS sensor device."""
++
++from datetime import datetime
++
++from homeassistant.components.hafas.const import DOMAIN
++from homeassistant.core import HomeAssistant
++import homeassistant.util.dt as dt_util
++
++from .common import setup_platform
++
++
++async def test_attributes(hass: HomeAssistant) -> None:
++    """Test the sensor attributes are correct."""
++    await setup_platform(hass, DOMAIN)
++
++    state = hass.states.get("sensor.mock_title")
++
++    assert state.state == "12:30"
++    assert dt_util.as_utc(state.attributes.get("departure")) == datetime(
++        2022, 10, 1, 10, 30, tzinfo=dt_util.UTC
++    )
++    assert dt_util.as_utc(state.attributes.get("arrival")) == datetime(
++        2022, 10, 1, 11, 42, tzinfo=dt_util.UTC
++    )
++    assert state.attributes.get("transfers") == 0
++    assert state.attributes.get("time") == "1:12:00"
++    assert state.attributes.get("products") == "ICE 5"
++    assert state.attributes.get("ontime") is True
++    assert state.attributes.get("delay") == "0:00:00"
++    assert state.attributes.get("canceled") is False
++    assert state.attributes.get("delay_arrival") == "0:00:00"
++    assert dt_util.as_utc(state.attributes.get("next")) == datetime(
++        2022, 10, 1, 11, 28, tzinfo=dt_util.UTC
++    )
++    assert dt_util.as_utc(state.attributes.get("next_on")) == datetime(
++        2022, 10, 1, 11, 37, tzinfo=dt_util.UTC
++    )

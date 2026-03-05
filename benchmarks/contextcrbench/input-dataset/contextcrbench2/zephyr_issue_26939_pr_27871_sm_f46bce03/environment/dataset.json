@@ -1,0 +1,13 @@
+[
+  {
+    "id": 26923,
+    "full_name": "zephyrproject-rtos/zephyr",
+    "lang": "c",
+    "issue_number": 26939,
+    "pr_number": 27871,
+    "diff_hunk": "@@ -138,8 +142,16 @@ static uint16_t smp_shell_get_mtu(const struct net_buf *nb)\n \n static int smp_shell_tx_raw(const void *data, int len, void *arg)\n {\n-\t/* Cast away const. */\n-\tk_str_out((void *)data, len);\n+\tconst struct shell_uart *const su = shell_backend_uart_get_ptr();\n+\tconst struct shell_uart_ctrl_blk *const scb = su->ctrl_blk;\n+\tconst uint8_t *out = data;\n+\n+\twhile ((out != NULL) && (len != 0)) {\n+\t\tuart_poll_out(scb->dev, *out);\n+\t\t++out;\n+\t\t--len;\n+\t}\n+\n \treturn 0;\n }\n \n",
+    "diff_hunk_content_with_line_number": "[138][142]  \n[139][143]  static int smp_shell_tx_raw(const void *data, int len, void *arg)\n[140][144]  {\n[141][] -\t/* Cast away const. */\n[142][] -\tk_str_out((void *)data, len);\n[][145] +\tconst struct shell_uart *const su = shell_backend_uart_get_ptr();\n[][146] +\tconst struct shell_uart_ctrl_blk *const scb = su->ctrl_blk;\n[][147] +\tconst uint8_t *out = data;\n[][148] +\n[][149] +\twhile ((out != NULL) && (len != 0)) {\n[][150] +\t\tuart_poll_out(scb->dev, *out);\n[][151] +\t\t++out;\n[][152] +\t\t--len;\n[][153] +\t}\n[][154] +\n[143][155]  \treturn 0;\n[144][156]  }\n[145][157]  ",
+    "checked_commit_id": "f46bce03cec1c06d2f5dbb22379b80d00447cd06",
+    "pr_size": "sm"
+  }
+]

@@ -1,0 +1,6 @@
+{
+  "issue_title": "Volumetric fog should work with spot lights and point lights",
+  "issue_body": "Current volumetric fog example only works with directional lights. \r\n ![Screenshot](https://github.com/user-attachments/assets/9a2c8623-22d6-4761-8957-19a94b392d36)\r\n\r\n\r\n",
+  "pr_title": "Implement volumetric fog support for both point lights and spotlights",
+  "pr_body": "# Objective\r\n- Fixes: https://github.com/bevyengine/bevy/issues/14451\r\n\r\n## Solution\r\n- Adding volumetric fog sampling code for both point lights and spotlights.\r\n\r\n## Testing\r\n- I have modified the example of volumetric_fog.rs by adding a volumetric point light and a volumetric spotlight.\r\n\r\nhttps://github.com/user-attachments/assets/3eeb77a0-f22d-40a6-a48a-2dd75d55a877\r\n\r\n"
+}

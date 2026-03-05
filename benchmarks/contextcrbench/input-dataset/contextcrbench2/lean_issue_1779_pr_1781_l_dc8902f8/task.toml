@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "lean_issue_1779_pr_1781_l_dc8902f8"
+contextcrbench2_full_name = "QuantConnect/Lean"
+contextcrbench2_lang = "c_sharp"
+contextcrbench2_issue_number = "1779"
+contextcrbench2_issue_title = "Create RSI Alpha Model"
+contextcrbench2_pr_number = "1781"
+contextcrbench2_pr_title = "Add rsi alpha model"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "dc8902f86bf0b2c0ad409646c4b719b5ebbb9e50"
+contextcrbench2_commit_id = "f5656f6113ad45750968c936d326037af0df4a6b"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2018-03-26T20:14:28Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

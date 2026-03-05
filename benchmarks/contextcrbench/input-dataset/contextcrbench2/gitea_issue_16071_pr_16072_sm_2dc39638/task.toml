@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "gitea_issue_16071_pr_16072_sm_2dc39638"
+contextcrbench2_full_name = "go-gitea/gitea"
+contextcrbench2_lang = "go"
+contextcrbench2_issue_number = "16071"
+contextcrbench2_issue_title = "infer panic in queue/unique_queue_disk_channel.go"
+contextcrbench2_pr_number = "16072"
+contextcrbench2_pr_title = "Fix panic in unique persistable channel queue"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "2dc39638387f5b3fd12c8cb9218024b96f6114be"
+contextcrbench2_commit_id = "6e651f9dc29fdfa792b567c412a9893a2867755f"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2021-06-05T10:17:44Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

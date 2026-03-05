@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "bazel_issue_7766_pr_8612_l_53968071"
+contextcrbench2_full_name = "bazelbuild/bazel"
+contextcrbench2_lang = "java"
+contextcrbench2_issue_number = "7766"
+contextcrbench2_issue_title = "Tags to execution requirements propagation in Starlark"
+contextcrbench2_pr_number = "8612"
+contextcrbench2_pr_title = "tags propagation: Starlark rules part"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "5396807130bafa76db6c6b2342cdfa0e2b4ff55d"
+contextcrbench2_commit_id = "7370188b39e5024d8aa30b7fe568f612eba9b39c"
+contextcrbench2_created_at = "2019-06-13T09:41:02Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

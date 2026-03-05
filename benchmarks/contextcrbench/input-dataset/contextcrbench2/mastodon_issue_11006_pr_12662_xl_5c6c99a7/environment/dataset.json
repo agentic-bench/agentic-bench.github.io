@@ -1,0 +1,24 @@
+[
+  {
+    "id": 50820,
+    "full_name": "mastodon/mastodon",
+    "lang": "ruby",
+    "issue_number": 11006,
+    "pr_number": 12662,
+    "diff_hunk": "@@ -8,7 +8,7 @@ class EntityCache\n   MAX_EXPIRATION = 7.days.freeze\n \n   def mention(username, domain)\n-    Rails.cache.fetch(to_key(:mention, username, domain), expires_in: MAX_EXPIRATION) { Account.select(:username, :domain, :url).find_remote(username, domain) }\n+    Rails.cache.fetch(to_key(:mention, username, domain), expires_in: MAX_EXPIRATION) { Account.select(:id, :username, :domain, :url).find_remote(username, domain) }\n   end\n \n   def emoji(shortcodes, domain)\n",
+    "diff_hunk_content_with_line_number": "[8][8]    MAX_EXPIRATION = 7.days.freeze\n[9][9]  \n[10][10]    def mention(username, domain)\n[11][] -    Rails.cache.fetch(to_key(:mention, username, domain), expires_in: MAX_EXPIRATION) { Account.select(:username, :domain, :url).find_remote(username, domain) }\n[][11] +    Rails.cache.fetch(to_key(:mention, username, domain), expires_in: MAX_EXPIRATION) { Account.select(:id, :username, :domain, :url).find_remote(username, domain) }\n[12][12]    end\n[13][13]  \n[14][14]    def emoji(shortcodes, domain)",
+    "checked_commit_id": "5c6c99a7c08c5ba551e35d615afe20e412db740b",
+    "pr_size": "xl"
+  },
+  {
+    "id": 50821,
+    "full_name": "mastodon/mastodon",
+    "lang": "ruby",
+    "issue_number": 11006,
+    "pr_number": 12662,
+    "diff_hunk": "@@ -0,0 +1,34 @@\n+# frozen_string_literal: true\n+\n+class REST::AnnouncementSerializer < ActiveModel::Serializer\n+  attributes :id, :content, :starts_at, :ends_at, :all_day\n+\n+  has_many :mentions\n+  has_many :tags, serializer: REST::StatusSerializer::TagSerializer\n+  has_many :emojis, serializer: REST::CustomEmojiSerializer\n+  has_many :reactions, serializer: REST::ReactionSerializer\n+\n+  def id\n+    object.id.to_s\n+  end\n+\n+  def content\n+    Formatter.instance.linkify(object.text)\n+  end\n+\n+  def reactions\n+    object.reactions(current_user&.account)\n+  end\n+\n+  class AccountSerializer < ActiveModel::Serializer\n+    attributes :id, :username, :url, :acct\n+\n+    def id\n+      object.id.to_s\n+    end\n+\n+    def url\n+      ActivityPub::TagManager.instance.url_for(object)\n+    end\n+  end\n+end\n",
+    "diff_hunk_content_with_line_number": "[][1] +# frozen_string_literal: true\n[][2] +\n[][3] +class REST::AnnouncementSerializer < ActiveModel::Serializer\n[][4] +  attributes :id, :content, :starts_at, :ends_at, :all_day\n[][5] +\n[][6] +  has_many :mentions\n[][7] +  has_many :tags, serializer: REST::StatusSerializer::TagSerializer\n[][8] +  has_many :emojis, serializer: REST::CustomEmojiSerializer\n[][9] +  has_many :reactions, serializer: REST::ReactionSerializer\n[][10] +\n[][11] +  def id\n[][12] +    object.id.to_s\n[][13] +  end\n[][14] +\n[][15] +  def content\n[][16] +    Formatter.instance.linkify(object.text)\n[][17] +  end\n[][18] +\n[][19] +  def reactions\n[][20] +    object.reactions(current_user&.account)\n[][21] +  end\n[][22] +\n[][23] +  class AccountSerializer < ActiveModel::Serializer\n[][24] +    attributes :id, :username, :url, :acct\n[][25] +\n[][26] +    def id\n[][27] +      object.id.to_s\n[][28] +    end\n[][29] +\n[][30] +    def url\n[][31] +      ActivityPub::TagManager.instance.url_for(object)\n[][32] +    end\n[][33] +  end\n[][34] +end",
+    "checked_commit_id": "5c6c99a7c08c5ba551e35d615afe20e412db740b",
+    "pr_size": "xl"
+  }
+]

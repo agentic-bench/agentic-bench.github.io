@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "tidb_issue_51477_pr_52015_xl_067b99d8"
+contextcrbench2_full_name = "pingcap/tidb"
+contextcrbench2_lang = "go"
+contextcrbench2_issue_number = "51477"
+contextcrbench2_issue_title = "\"optional\" properties for `expression.EvalContext`"
+contextcrbench2_pr_number = "52015"
+contextcrbench2_pr_title = "expression: finish to remove `SessionVars` and other complex objects from `EvalContext`"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "067b99d83597863bff6b158bb839ace84c8b5550"
+contextcrbench2_commit_id = "36859fb56f05087f9c25274f77fd593031418ee6"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2024-03-22T03:21:49Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

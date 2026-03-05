@@ -1,0 +1,32 @@
+[
+  {
+    "path": "src/Files.App/Data/Commands/HotKey/HotKeyCollection.cs",
+    "line": 16,
+    "original_line": 16,
+    "review_comment": [
+      "Don't we want `,` to be a valid separator?",
+      "',' is also valid hotkey. Using ',' as separator causes to misinterpret. Space or Tab is only valid for this situation because  we store them as 'Space' or 'Tab' not actual  characters"
+    ]
+  },
+  {
+    "path": "src/Files.App/Actions/Content/Archives/Decompress/DecompressArchiveToChildFolderAction.cs",
+    "line": 43,
+    "original_line": 43,
+    "review_comment": [
+      "What does this change?",
+      "It was empty string when no context given, like in this page.",
+      "What does it look like now?",
+      "![image](https://github.com/files-community/Files/assets/62196528/2641364a-608e-4763-9f0a-3b806b2b2abf)\r\n\r\nLooks not nice but better than nothing to show. It'd be better if we add simple title for this situation too as you suggested for Install commands."
+    ]
+  },
+  {
+    "path": "src/Files.App/Helpers/Win32/Win32PInvoke.Methods.cs",
+    "line": 215,
+    "original_line": 215,
+    "review_comment": [
+      "Is this being used?",
+      "Yeah separated from HotKey class.",
+      "I'm not sure why should use that though."
+    ]
+  }
+]

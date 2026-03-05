@@ -1,0 +1,13 @@
+[
+  {
+    "path": "packages/react-reconciler/src/ReactFiberBeginWork.old.js",
+    "line": 3264,
+    "original_line": 3264,
+    "review_comment": [
+      "I wouldn't expect this check to be necessary, since whenever you hit this block, you'll always fall into the `updateSimpleMemoComponent` path, so you can do everything in there.",
+      "Related: https://github.com/facebook/react/pull/19216/files#r447959102",
+      "This isn't specific to SimpleMemo though. This block is to fix the issue for all other cases (e.g. normal memo, or a function component). See the rest of the tests.",
+      "Ah. God Legacy Mode is annoying. OK that makes sense then."
+    ]
+  }
+]

@@ -1,0 +1,13 @@
+[
+  {
+    "id": 50296,
+    "full_name": "espressif/esp-idf",
+    "lang": "c",
+    "issue_number": 6397,
+    "pr_number": 6396,
+    "diff_hunk": "@@ -1281,12 +1283,15 @@ esp_err_t uart_flush_input(uart_port_t uart_num)\n         }\n         data = (uint8_t*) xRingbufferReceive(p_uart->rx_ring_buf, &size, (portTickType) 0);\n         if(data == NULL) {\n+            UART_ENTER_CRITICAL(&(uart_context[uart_num].spinlock));\n             if( p_uart_obj[uart_num]->rx_buffered_len != 0 ) {\n-                ESP_LOGE(UART_TAG, \"rx_buffered_len error\");\n                 p_uart_obj[uart_num]->rx_buffered_len = 0;\n+                UART_EXIT_CRITICAL(&(uart_context[uart_num].spinlock));\n+                // this must be called outside the critical section\n+                ESP_LOGE(UART_TAG, \"rx_buffered_len error\");\n+                UART_ENTER_CRITICAL(&(uart_context[uart_num].spinlock));\n             }\n             //We also need to clear the `rx_buffer_full_flg` here.\n-            UART_ENTER_CRITICAL(&(uart_context[uart_num].spinlock));\n             p_uart_obj[uart_num]->rx_buffer_full_flg = false;\n             UART_EXIT_CRITICAL(&(uart_context[uart_num].spinlock));\n             break;\n",
+    "diff_hunk_content_with_line_number": "[1281][1283]          }\n[1282][1284]          data = (uint8_t*) xRingbufferReceive(p_uart->rx_ring_buf, &size, (portTickType) 0);\n[1283][1285]          if(data == NULL) {\n[][1286] +            UART_ENTER_CRITICAL(&(uart_context[uart_num].spinlock));\n[1284][1287]              if( p_uart_obj[uart_num]->rx_buffered_len != 0 ) {\n[1285][] -                ESP_LOGE(UART_TAG, \"rx_buffered_len error\");\n[1286][1288]                  p_uart_obj[uart_num]->rx_buffered_len = 0;\n[][1289] +                UART_EXIT_CRITICAL(&(uart_context[uart_num].spinlock));\n[][1290] +                // this must be called outside the critical section\n[][1291] +                ESP_LOGE(UART_TAG, \"rx_buffered_len error\");\n[][1292] +                UART_ENTER_CRITICAL(&(uart_context[uart_num].spinlock));\n[1287][1293]              }\n[1288][1294]              //We also need to clear the `rx_buffer_full_flg` here.\n[1289][] -            UART_ENTER_CRITICAL(&(uart_context[uart_num].spinlock));\n[1290][1295]              p_uart_obj[uart_num]->rx_buffer_full_flg = false;\n[1291][1296]              UART_EXIT_CRITICAL(&(uart_context[uart_num].spinlock));\n[1292][1297]              break;",
+    "checked_commit_id": "fd2060af6e56eef580817a2f7eeec9da114340f4",
+    "pr_size": "sm"
+  }
+]

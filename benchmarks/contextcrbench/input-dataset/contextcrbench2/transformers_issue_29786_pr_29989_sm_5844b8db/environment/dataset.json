@@ -1,0 +1,13 @@
+[
+  {
+    "id": 66841,
+    "full_name": "huggingface/transformers",
+    "lang": "python",
+    "issue_number": 29786,
+    "pr_number": 29989,
+    "diff_hunk": "@@ -484,6 +484,7 @@ class EfficientNetPreTrainedModel(PreTrainedModel):\n     config_class = EfficientNetConfig\n     base_model_prefix = \"efficientnet\"\n     main_input_name = \"pixel_values\"\n+    _no_split_modules = []\n \n     def _init_weights(self, module):\n         \"\"\"Initialize the weights\"\"\"\n",
+    "diff_hunk_content_with_line_number": "[484][484]      config_class = EfficientNetConfig\n[485][485]      base_model_prefix = \"efficientnet\"\n[486][486]      main_input_name = \"pixel_values\"\n[][487] +    _no_split_modules = []\n[487][488]  \n[488][489]      def _init_weights(self, module):\n[489][490]          \"\"\"Initialize the weights\"\"\"",
+    "checked_commit_id": "5844b8db608aa35da6ab8b0f3735497b0ca8f4b6",
+    "pr_size": "sm"
+  }
+]

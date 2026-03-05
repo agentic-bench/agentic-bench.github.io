@@ -1,0 +1,59 @@
+[
+  {
+    "path": "subsys/bluetooth/audio/endpoint.h",
+    "line": 89,
+    "original_line": 89,
+    "review_comment": [
+      "It looks a bit odd I must say. Does it make sense to define structure this way? It might be empty. Is the implementation usable if CONFIG_BT_CODEC_MAX_DATA_COUNT is 0 or not defined?",
+      "Good catch. There was actually a place missing a guard for this. \r\nI added the guard, but maybe we need to revisit this definition. \r\n\r\nDo you have any suggestions? \r\n",
+      "Not really. Let's leave it as it is. Sorry for late response"
+    ]
+  },
+  {
+    "path": "subsys/bluetooth/audio/stream.c",
+    "line": 98,
+    "original_line": 98,
+    "review_comment": [
+      "I know that you move code only. But I feel we need to rename this to e.g. `bt_audio_stream_init`. The reason is that there is no registration actually",
+      "I disagree. \r\n\r\nThis works the same way as \r\n```c\r\nvoid bt_le_per_adv_sync_cb_register(struct bt_le_per_adv_sync_cb *cb);\r\nvoid bt_conn_cb_register(struct bt_conn_cb *cb);\r\nint bt_conn_auth_cb_register(const struct bt_conn_auth_cb *cb);\r\nint bt_conn_auth_info_cb_register(struct bt_conn_auth_info_cb *cb);\r\nvoid bt_gatt_cb_register(struct bt_gatt_cb *cb);\r\n```\r\netc. (with the minor difference that many of these are registering the callbacks in a list, instead of a specific object). \r\n\r\n\r\n",
+      "It's not the same, in the examples you mentioned there is actual callback registration, e.g. `bt_conn_cb_register` makes the `struct bt_conn_cb` to be appended to the callback lists, `bt_conn_auth_cb_register` registers `struct bt_conn_auth_cb` where can be just one registered.\r\n\r\nIn your case, the application provides uninitialized `struct bt_audio_stream *stream` object and is obliged to **initialize** the `ops` member by calling `bt_audio_stream_cb_register`. If the app won't do that, the object is simply unusable",
+      "That is a fair point. \r\n\r\nThe audio stream callbacks (or ops) are more in line with the ISO or L2CAP channel ops, which are actually never registered with a function. \r\n\r\nThis is one the problems I've always had with both the ISO, L2CAP and `bt_audio_stream` APIs: Some fields in the structs are expected to be set directly by the upper layers, and some are expected to be controlled by the stack. This is not only not documented, but even if it was, it would be hard to keep track of. \r\n\r\nIdeally all the fields are the owner's to control (perhaps with exception like `sys_snode_t _node;` which are always stack controlled), or none of them are (and in which case, the struct should be opaque/abstract). \r\n\r\nAs long as `bt_audio_stream` is this weird combination of both, it's hard to define a proper API for it. If we want `bt_audio_stream` to follow the APIs of ISO and L2CAP, then we should simply remove `bt_audio_stream_cb_register`"
+    ]
+  },
+  {
+    "path": "tests/bluetooth/bsim_bt/bsim_test_audio/src/broadcast_source_test.c",
+    "line": 109,
+    "original_line": 109,
+    "review_comment": [
+      "redundant nl\r\n"
+    ]
+  },
+  {
+    "path": "tests/bluetooth/bsim_bt/bsim_test_audio/src/broadcast_source_test.c",
+    "line": 148,
+    "original_line": 148,
+    "review_comment": [
+      "magic number",
+      "It's just a buffer large enough to hold some data. \r\n\r\nWould you like me to modify the value to the specific exact value needed (which would then need an update every time we modify the number of streams, the codec configuration or the metadata)? ",
+      "You're right, it does not make sense"
+    ]
+  },
+  {
+    "path": "include/zephyr/bluetooth/audio/audio.h",
+    "line": 2040,
+    "original_line": 2040,
+    "review_comment": [
+      "It's not entirely clear to me, but is it here it would be possible to set e.g. language metadata as well? ",
+      "The metadata parameters are supplied in the `codec` parameter on the next line, along with the codec configuration parameters"
+    ]
+  },
+  {
+    "path": "samples/bluetooth/broadcast_audio_source/src/main.c",
+    "line": 95,
+    "original_line": 95,
+    "review_comment": [
+      "This works when the stream count is the same per group. It can stay as is or maybe add a comment or check for clarification for devs picking up the sample.",
+      "This was added to properly test multiple subsgroups with multiple streams in it. \r\n\r\nI think when we work towards https://github.com/zephyrproject-rtos/zephyr/issues/52347 this will be modified again, and this comment will be resolved by that"
+    ]
+  }
+]

@@ -1,0 +1,13 @@
+[
+  {
+    "id": 39782,
+    "full_name": "pingcap/tidb",
+    "lang": "go",
+    "issue_number": 15488,
+    "pr_number": 15541,
+    "diff_hunk": "@@ -121,11 +121,6 @@ func (la *LogicalAggregation) PruneColumns(parentUsedCols []*expression.Column)\n \t\t\t\tselfUsedCols = append(selfUsedCols, cols...)\n \t\t\t}\n \t\t}\n-\t\t// If all the group by items are pruned, we should add a constant 1 to keep the correctness.\n-\t\t// Because `select count(*) from t` is different from `select count(*) from t group by 1`.\n-\t\tif len(la.GroupByItems) == 0 {\n-\t\t\tla.GroupByItems = []expression.Expression{expression.One}\n-\t\t}\n \t}\n \treturn child.PruneColumns(selfUsedCols)\n }\n",
+    "diff_hunk_content_with_line_number": "[121][121]  \t\t\t\tselfUsedCols = append(selfUsedCols, cols...)\n[122][122]  \t\t\t}\n[123][123]  \t\t}\n[124][] -\t\t// If all the group by items are pruned, we should add a constant 1 to keep the correctness.\n[125][] -\t\t// Because `select count(*) from t` is different from `select count(*) from t group by 1`.\n[126][] -\t\tif len(la.GroupByItems) == 0 {\n[127][] -\t\t\tla.GroupByItems = []expression.Expression{expression.One}\n[128][] -\t\t}\n[129][124]  \t}\n[130][125]  \treturn child.PruneColumns(selfUsedCols)\n[131][126]  }",
+    "checked_commit_id": "f63d9a1b4c5d916c4cf3abab1ebc5e72fda5a5e1",
+    "pr_size": "sm"
+  }
+]

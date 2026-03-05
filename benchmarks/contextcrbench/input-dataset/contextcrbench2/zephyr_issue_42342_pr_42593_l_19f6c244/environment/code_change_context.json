@@ -1,0 +1,6 @@
+{
+  "issue_title": "LE Audio: PACS notify changes to locations",
+  "issue_body": "**Is your enhancement proposal related to a problem? Please describe.**\r\nWhen a client writes a new location, the location shall be notified. \r\n\r\n**Describe the solution you'd like**\r\nNotify the location. \r\n\r\n**Describe alternatives you've considered**\r\nN/A\r\n\r\n**Additional context**\r\nN/A\r\n",
+  "pr_title": "Bluetooth: Audio: PAC location refactor",
+  "pr_body": "The location values in PACs were build-time initiated and unchangable by the server itself. \r\nThis PR adds support for changing the value in the server, as the value will live in the server (currently implemented in the capabilities.c layer), instead of in the service. \r\n\r\nThis also adds notification for the value when it is changed, by either the server or a remove client. \r\n\r\nfixes https://github.com/zephyrproject-rtos/zephyr/issues/42342\r\nfixes https://github.com/zephyrproject-rtos/zephyr/issues/42343"
+}

@@ -1,0 +1,14 @@
+[
+  {
+    "path": "packages/compiler-cli/ngcc/main-ngcc.ts",
+    "line": 153,
+    "original_line": 153,
+    "review_comment": [
+      "What about this one? Is there any benefit over `process.exit(0)` here?",
+      "Yeah - we could change that one, but it seems that exiting normally works fine, so I was loathe to fix things that weren't broken. WDYT?",
+      "Is there any reason for this in the first place? By default the exit code is zero. \r\n\r\nAlso, down the lIne if another exit code is set it will always be overridden with zero, unless an error is thrown, since I don\u2019t think it should be the case.\r\n",
+      "So originally this was like the last line to be executed in the ngcc main program, so there should be no other exit code set. As you say it is probably not needed... but I as I said earlier I am loathe to fix stuff that is not broken.",
+      "I'm fine with keeping it as is. I was just wondering if there is a reasons."
+    ]
+  }
+]

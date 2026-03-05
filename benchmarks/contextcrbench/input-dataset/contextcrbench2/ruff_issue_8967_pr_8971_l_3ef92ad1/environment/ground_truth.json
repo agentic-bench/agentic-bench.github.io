@@ -1,0 +1,10 @@
+[
+  {
+    "path": "crates/ruff_linter/src/rules/pycodestyle/mod.rs",
+    "line": 34,
+    "original_line": 34,
+    "review_comment": [
+      "I deleted `W605_1.py` which looks identical to `W605_0.py`? And then renamed `W605_2.py` to `W605_1.py`."
+    ]
+  }
+]

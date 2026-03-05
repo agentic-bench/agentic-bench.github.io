@@ -1,0 +1,6 @@
+{
+  "issue_title": "Wrong element focused when deleting items in project panel",
+  "issue_body": "### Check for existing issues\n\n- [X] Completed\n\n### Describe the bug / provide steps to reproduce it\n\nAfter removing a file/folder from sidebar, keyboard focus is switched to the first entry in the panel. This makes deleting multiple files very impractical.\r\n\r\nSolution would be to focus the next file after the deleted one.\r\n\n\n### Environment\n\nZed: v0.160.7 (Zed)\r\nOS: Linux X11 arch unknown\r\nMemory: 62.5 GiB\r\nArchitecture: x86_64\r\nGPU: NVIDIA GeForce RTX 2060 with Max-Q Design || NVIDIA || 565.57.01\n\n### If applicable, add mockups / screenshots to help explain present your vision of the feature\n\n_No response_\n\n### If applicable, attach your Zed.log file to this issue.\n\n_No response_",
+  "pr_title": "Maintain selection on file/dir deletion in project panel",
+  "pr_body": "Closes #20444\r\n\r\n- Focus on next file/dir on deletion.\r\n- Focus on prev file/dir in case where it's last item in worktree.\r\n- Tested when multiple files/dirs are being deleted.\r\n\r\nRelease Notes:\r\n\r\n- Maintain selection on file/dir deletion in project panel.\r\n"
+}

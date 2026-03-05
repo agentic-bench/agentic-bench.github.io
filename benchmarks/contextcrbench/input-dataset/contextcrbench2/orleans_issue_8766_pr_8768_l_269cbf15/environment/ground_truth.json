@@ -1,0 +1,10 @@
+[
+  {
+    "path": "src/Orleans.Serialization/Codecs/StackCodec.cs",
+    "line": 90,
+    "original_line": 90,
+    "review_comment": [
+      "The crux of the fix is to populate an array in reverse order and then initialize the stack with it. Stack does not offer a way to get/modify the underlying array directly or enumerate in reverse order."
+    ]
+  }
+]

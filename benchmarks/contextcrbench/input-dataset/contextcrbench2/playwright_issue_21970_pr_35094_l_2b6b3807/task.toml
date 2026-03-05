@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "playwright_issue_21970_pr_35094_l_2b6b3807"
+contextcrbench2_full_name = "microsoft/playwright"
+contextcrbench2_lang = "typescript"
+contextcrbench2_issue_number = "21970"
+contextcrbench2_issue_title = "[Feature] Have the ability to set workers count on a per project basis"
+contextcrbench2_pr_number = "35094"
+contextcrbench2_pr_title = "feat: support TestProject.workers limit"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "2b6b38071193a9f240d66f4909a454c0de23836f"
+contextcrbench2_commit_id = "2b6b38071193a9f240d66f4909a454c0de23836f"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2025-03-07T17:36:16Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

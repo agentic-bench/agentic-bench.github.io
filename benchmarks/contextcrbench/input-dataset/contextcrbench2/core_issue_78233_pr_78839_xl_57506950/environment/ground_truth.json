@@ -1,0 +1,21 @@
+[
+  {
+    "path": "homeassistant/components/hafas/sensor.py",
+    "line": 82,
+    "original_line": 82,
+    "review_comment": [
+      "It would be best to set `self._attr_unique_id` at this point with [a unique ID](https://developers.home-assistant.io/docs/entity_registry_index/), as that makes it a lot easier to manage the entity. I don't immediately see anything unique that could be used, other than the config entry's id, so that would probably be your best bet.",
+      "I added the `self._attr_unique_id`, not sure if that's enough.",
+      "That should be enough \ud83d\udc4d "
+    ]
+  },
+  {
+    "path": "homeassistant/components/hafas/config_flow.py",
+    "line": 157,
+    "original_line": 157,
+    "review_comment": [
+      "This doesn't seem like an extremely unexpected exception, as it's based on user input. Or did you put it like this because the API hardly ever refuses to return at least one station?",
+      "The API seems to always return values. I tried to input a lot of garbage, but there are always station returned. \r\n\r\nThough that probably depends on the hafas API implementation."
+    ]
+  }
+]

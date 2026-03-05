@@ -1,0 +1,13 @@
+[
+  {
+    "path": "arch/arm/core/aarch32/thread.c",
+    "line": 211,
+    "original_line": 211,
+    "review_comment": [
+      "If the user thread overflows its own stack, won't it get an MPU violation anyway? I supposed the execption generated will be simpler to comprehend.\r\nI'm OK with this as long as there logic to reprogram the PSPLIM location when going in/out of system calls.\r\nWe really need a test case to show that stack overflows during syscalls are caught properly, not sure if there is one.",
+      ">> If the user thread overflows its own stack, won't it get an MPU violation anyway? I supposed the execption generated will be simpler to comprehend.\r\n\r\nThere is no MPU-based protection in this case; stack protection is done via stack-limit checking supported by the built-in feature in ARMv8-M.\r\n\r\n>> I'm OK with this as long as there logic to reprogram the PSPLIM location when going in/out of system calls.\r\n\r\nYes there is, this was the main thing done in this PR; ensure PSPLIM is programmed at all times. (I guess that's a step towards functional safety...) Check the diff inside userspace.S.\r\n\r\n>> We really need a test case to show that stack overflows during syscalls are caught properly, not sure if there is one.\r\n\r\nWe have that since Zephyr 2.0; it's inside tests/kernel/fatal\r\nWe have that for both MPU-based and SPLIM-based stack-protection.\r\n\r\n",
+      "> We have that since Zephyr 2.0; it's inside tests/kernel/fatal\r\n> We have that for both MPU-based and SPLIM-based stack-protection.\r\n\r\nIt tests stack overflows for user and supervisor threads..but AFAICT it doesn't cover the scenario where we make a syscall, and the syscall overflows the privilege mode stack.",
+      "Nope, it tests for system calls too, I wrote the test for the 2.0 release. "
+    ]
+  }
+]

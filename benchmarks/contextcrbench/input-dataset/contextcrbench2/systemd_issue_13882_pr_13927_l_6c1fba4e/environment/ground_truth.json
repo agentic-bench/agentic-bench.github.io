@@ -1,0 +1,13 @@
+[
+  {
+    "path": "src/network/networkd-link.c",
+    "line": 2518,
+    "original_line": 2518,
+    "review_comment": [
+      "I think setting `ifindex` here is more efficient.",
+      "I tried that, but the kernel still replies with addresses for all interfaces...possibly because any use of RTM_GETADDR automatically sets NLM_F_DUMP?  I could check again and/or look in the kernel.  I also tried using sd_netlink_message_set_flags() to only request IFA_F_TENTATIVE addresses, but that also didn't work - the response included tentative and non-tentative addresses.  I even tried clearing NLM_F_DUMP but the netlink call didn't work then - I think the RTM_GETADDR call requires one (or both) of the NLM_F_DUMP bits to be set (it's just NLM_F_ROOT | NLM_F_MATCH)",
+      "I *think* it may be possible to have the kernel limit/filter what addresses it replies with, but a quick check of the kernel seems to indicate it will require setting the NETLINK_F_STRICT_CHK flag on the netlink socket:\r\nhttps://gitlab.freedesktop.org/drm/msm/commit/89d35528d17d25819a755a2b52931e911baebc66\r\n\r\nI'm not sure if that would affect other netlink calls, or if it's worth doing for this.  It might be worth doing this later, separately, since it seems like that's the intention of the new kernel socket flag, but as it might affect other parts of systemd it probably shouldn't be done with this patch.",
+      "OK. Let's do that in a later PR then."
+    ]
+  }
+]

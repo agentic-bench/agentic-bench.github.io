@@ -1,0 +1,10 @@
+[
+  {
+    "path": "crates/uv-distribution/src/error.rs",
+    "line": 18,
+    "original_line": 18,
+    "review_comment": [
+      "We do, however, need to be aggressive about rejecting _builds_ at metadata-fetch time."
+    ]
+  }
+]

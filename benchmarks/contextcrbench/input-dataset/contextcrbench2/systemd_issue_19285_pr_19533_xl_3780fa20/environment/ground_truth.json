@@ -1,0 +1,11 @@
+[
+  {
+    "path": "src/basic/in-addr-util.h",
+    "line": 130,
+    "original_line": 130,
+    "review_comment": [
+      "maybe switch this to be: `\"%\" PRIu8 \".%\" PRIu8 \u2026`\r\n\r\ni.e. use the right printf types for this?",
+      "`struct in_addr` is `uint32_t`, and `IPV4_ADDRESS_FMT_VAL()` simply picks up its part. So, at least, the type is not `uint8_t` but `uint32_t`...\r\n\r\nMoreover, in general, we do not usually use `\"%hhu\"` or `\"%\"PRIu8` for `unsigned char` or `uint8_t`. See e.g. `in_addr_prefix_to_string()`. And when I tried to change `%u` -> `%hhu` at somewhere previously, then you disagreed that change, hehe :-)"
+    ]
+  }
+]

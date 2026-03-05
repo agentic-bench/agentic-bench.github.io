@@ -1,0 +1,11 @@
+[
+  {
+    "path": "internal/gh/gh.go",
+    "line": 10,
+    "original_line": 1,
+    "review_comment": [
+      "I need to review the doc comments here.",
+      "What would a comment describing the `gh` package say about what should be in it?"
+    ]
+  }
+]

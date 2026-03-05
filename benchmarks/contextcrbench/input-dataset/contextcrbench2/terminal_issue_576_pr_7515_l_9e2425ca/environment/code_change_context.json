@@ -1,0 +1,6 @@
+{
+  "issue_title": "Feature Request: Task Bar jumplist should show items from profile",
+  "issue_body": "The Task Bar context menu \r\n\r\n![image](https://user-images.githubusercontent.com/189862/57370160-70cea980-715d-11e9-9c0b-718bb68e4ca9.png)\r\n\r\nshould show the items from the configured profiles that populate the new shell menu\r\n\r\n![image](https://user-images.githubusercontent.com/189862/57370126-5e547000-715d-11e9-99d6-d3249c9c2d68.png)\r\n",
+  "pr_title": "Add profiles to the Jumplist",
+  "pr_body": "This commit introduces Jumplist customization and an item for each\r\nprofile to the Jumplist. Selecting an entry in the jumplist will pretty\r\nmuch just execute  `wt.exe -p \"{profile guid}\"`, and so a new Terminal\r\nwill open with the selected profile.\r\n\r\nCloses #576"
+}

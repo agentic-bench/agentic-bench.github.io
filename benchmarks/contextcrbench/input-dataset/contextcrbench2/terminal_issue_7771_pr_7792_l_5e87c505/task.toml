@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "terminal_issue_7771_pr_7792_l_5e87c505"
+contextcrbench2_full_name = "microsoft/terminal"
+contextcrbench2_lang = "cpp"
+contextcrbench2_issue_number = "7771"
+contextcrbench2_issue_title = "UIA: crash at very end of buffer"
+contextcrbench2_pr_number = "7792"
+contextcrbench2_pr_title = "Properly handle and test a11y movement at end of buffer"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "5e87c505e4d3fb24300ba97d602238f2a92b2021"
+contextcrbench2_commit_id = "520ad928cf743b642b078d65e6921249753d32e5"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2020-10-01T03:17:56Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

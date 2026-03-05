@@ -1,0 +1,11 @@
+[
+  {
+    "path": "dev/breeze/src/airflow_breeze/commands/release_management_commands.py",
+    "line": 583,
+    "original_line": 583,
+    "review_comment": [
+      "Consistency is probably better, but in future we should look at `uv build --project task-sdk`",
+      "Yup will create a separate PR to switch it to uv everywhere"
+    ]
+  }
+]

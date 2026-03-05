@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "terminal_issue_15736_pr_17129_l_c3ecbe50"
+contextcrbench2_full_name = "microsoft/terminal"
+contextcrbench2_lang = "cpp"
+contextcrbench2_issue_number = "15736"
+contextcrbench2_issue_title = "doskey macros broken for inputs with >1 consecutive whitespace"
+contextcrbench2_pr_number = "17129"
+contextcrbench2_pr_title = "Fix doskey macros for inputs with >1 consecutive whitespace"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "c3ecbe507e6a760f12f80f5a356e8c50091afb55"
+contextcrbench2_commit_id = "00081392c03f09fa3ba945dade8841c32aefd9cd"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2024-04-26T01:12:49Z"
+contextcrbench2_entry_count = "8"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

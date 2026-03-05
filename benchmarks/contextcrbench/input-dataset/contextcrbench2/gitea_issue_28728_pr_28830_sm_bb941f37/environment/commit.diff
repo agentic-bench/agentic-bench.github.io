@@ -1,0 +1,24 @@
+diff --git a/cmd/migrate_storage.go b/cmd/migrate_storage.go
+index acc3ba16bab0e..aa49445a89e81 100644
+--- a/cmd/migrate_storage.go
++++ b/cmd/migrate_storage.go
+@@ -110,6 +110,9 @@ func migrateLFS(ctx context.Context, dstStorage storage.ObjectStorage) error {
+ 
+ func migrateAvatars(ctx context.Context, dstStorage storage.ObjectStorage) error {
+ 	return db.Iterate(ctx, nil, func(ctx context.Context, user *user_model.User) error {
++		if user.CustomAvatarRelativePath() == "" {
++			return nil
++		}
+ 		_, err := storage.Copy(dstStorage, user.CustomAvatarRelativePath(), storage.Avatars, user.CustomAvatarRelativePath())
+ 		return err
+ 	})
+@@ -117,6 +120,9 @@ func migrateAvatars(ctx context.Context, dstStorage storage.ObjectStorage) error
+ 
+ func migrateRepoAvatars(ctx context.Context, dstStorage storage.ObjectStorage) error {
+ 	return db.Iterate(ctx, nil, func(ctx context.Context, repo *repo_model.Repository) error {
++		if repo.CustomAvatarRelativePath() == "" {
++			return nil
++		}
+ 		_, err := storage.Copy(dstStorage, repo.CustomAvatarRelativePath(), storage.RepoAvatars, repo.CustomAvatarRelativePath())
+ 		return err
+ 	})

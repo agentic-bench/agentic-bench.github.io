@@ -1,0 +1,6 @@
+{
+  "issue_title": "Tasks filter does not works with the dump",
+  "issue_body": "**Describe the bug**\r\nAfter importing a dump, trying to query the task via a date filter doesn't works.\r\n\r\n**To Reproduce**\r\nSteps to reproduce the behavior:\r\n1. Import a dump\r\n2. Query the tasks via a date filter\r\n3. Find nothing\r\n\r\n**Expected behavior**\r\nIt works\r\n\r\n**Screenshots**\r\nIf applicable, add screenshots to help explain your problem.\r\n\r\n**Meilisearch version:** v1.0.2 & v1.1.0 & main branch\r\nIt has been present since v0.30\r\n",
+  "pr_title": "ensure that the task queue is correctly imported",
+  "pr_body": "## Related issue\r\nFixes #3596\r\n\r\nI updated all the dump's integration tests to ensure that we're effectively able to query the tasks"
+}

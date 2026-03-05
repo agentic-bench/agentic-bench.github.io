@@ -1,0 +1,13 @@
+[
+  {
+    "id": 68640,
+    "full_name": "astral-sh/ruff",
+    "lang": "rust",
+    "issue_number": 8967,
+    "pr_number": 8971,
+    "diff_hunk": "@@ -31,7 +31,6 @@ mod tests {\n     #[test_case(Rule::BlankLineWithWhitespace, Path::new(\"W29.py\"))]\n     #[test_case(Rule::InvalidEscapeSequence, Path::new(\"W605_0.py\"))]\n     #[test_case(Rule::InvalidEscapeSequence, Path::new(\"W605_1.py\"))]\n-    #[test_case(Rule::InvalidEscapeSequence, Path::new(\"W605_2.py\"))]\n     #[test_case(Rule::LineTooLong, Path::new(\"E501.py\"))]\n     #[test_case(Rule::LineTooLong, Path::new(\"E501_3.py\"))]\n     #[test_case(Rule::MixedSpacesAndTabs, Path::new(\"E101.py\"))]\n",
+    "diff_hunk_content_with_line_number": "[31][31]      #[test_case(Rule::BlankLineWithWhitespace, Path::new(\"W29.py\"))]\n[32][32]      #[test_case(Rule::InvalidEscapeSequence, Path::new(\"W605_0.py\"))]\n[33][33]      #[test_case(Rule::InvalidEscapeSequence, Path::new(\"W605_1.py\"))]\n[34][] -    #[test_case(Rule::InvalidEscapeSequence, Path::new(\"W605_2.py\"))]\n[35][34]      #[test_case(Rule::LineTooLong, Path::new(\"E501.py\"))]\n[36][35]      #[test_case(Rule::LineTooLong, Path::new(\"E501_3.py\"))]\n[37][36]      #[test_case(Rule::MixedSpacesAndTabs, Path::new(\"E101.py\"))]",
+    "checked_commit_id": "3ef92ad1f928182fd891aedaeb1c63ef9bde8a5e",
+    "pr_size": "l"
+  }
+]

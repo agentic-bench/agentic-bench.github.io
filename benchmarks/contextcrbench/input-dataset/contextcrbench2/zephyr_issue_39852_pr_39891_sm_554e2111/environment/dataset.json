@@ -1,0 +1,13 @@
+[
+  {
+    "id": 26893,
+    "full_name": "zephyrproject-rtos/zephyr",
+    "lang": "c",
+    "issue_number": 39852,
+    "pr_number": 39891,
+    "diff_hunk": "@@ -511,7 +511,7 @@ static int hci_set_adv_ext_fragmented(struct bt_le_ext_adv *adv, uint16_t hci_op\n \t\t\t\tif (offset == 0) {\n \t\t\t\t\tset_data->data[0] = len + 1;\n \t\t\t\t\tset_data->data[1] = type;\n-\t\t\t\t\tmemcpy(&set_data->data[2], data[j].data, set_data->len);\n+\t\t\t\t\tmemcpy(&set_data->data[2], data[j].data, set_data->len - 2);\n \t\t\t\t\toffset += set_data->len - 2;\n \t\t\t\t} else {\n \t\t\t\t\tmemcpy(&set_data->data[0], &data[j].data[offset],\n",
+    "diff_hunk_content_with_line_number": "[511][511]  \t\t\t\tif (offset == 0) {\n[512][512]  \t\t\t\t\tset_data->data[0] = len + 1;\n[513][513]  \t\t\t\t\tset_data->data[1] = type;\n[514][] -\t\t\t\t\tmemcpy(&set_data->data[2], data[j].data, set_data->len);\n[][514] +\t\t\t\t\tmemcpy(&set_data->data[2], data[j].data, set_data->len - 2);\n[515][515]  \t\t\t\t\toffset += set_data->len - 2;\n[516][516]  \t\t\t\t} else {\n[517][517]  \t\t\t\t\tmemcpy(&set_data->data[0], &data[j].data[offset],",
+    "checked_commit_id": "554e2111af39f433d1fe870d94289a54160e5617",
+    "pr_size": "sm"
+  }
+]

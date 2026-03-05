@@ -1,0 +1,44 @@
+diff --git a/pkg/cmd/extension/command.go b/pkg/cmd/extension/command.go
+index 30a7cb50824..7ab40b9f1ae 100644
+--- a/pkg/cmd/extension/command.go
++++ b/pkg/cmd/extension/command.go
+@@ -293,19 +293,35 @@ func NewCmdExtension(f *cmdutil.Factory) *cobra.Command {
+ 				Use:   "install <repository>",
+ 				Short: "Install a gh extension from a repository",
+ 				Long: heredoc.Docf(`
+-					Install a GitHub repository locally as a GitHub CLI extension.
++					Install a GitHub CLI extension from a GitHub repository.
+ 
+-					The repository argument can be specified in %[1]sOWNER/REPO%[1]s format as well as a full URL.
++					The repository argument can be specified in %[1]sOWNER/REPO%[1]s format or as a full repository URL.
+ 					The URL format is useful when the repository is not hosted on github.com.
+ 
+-					To install an extension in development from the current directory, use %[1]s.%[1]s as the
+-					value of the repository argument.
++					To install an in-development extension from a locally cloned repository, use %[1]s.%[1]s as the
++					value of the repository argument. Note the following:
++
++					- After installing an extension from a locally cloned repository, the GitHub CLI will
++					manage this extension as a symbolic link pointing to an executable file with the same
++					name as the repository in the repository's root.
++						- For example, if the repository is named %[1]sgh-foobar%[1]s, the symbolic link will
++						point to %[1]sgh-foobar%[1]s in the extension repository's root.
++					- When executing the extension, the GitHub CLI will run the executable file found
++					by following the symbolic link. If no executable file is found, the extension
++					will fail to execute.
++					- If the extension is precompiled, the executable file must be built manually and placed
++					in the repository's root.
+ 
+ 					For the list of available extensions, see <https://github.com/topics/gh-extension>.
+ 				`, "`"),
+ 				Example: heredoc.Doc(`
++					# Install an extension from a remote repository hosted on GitHub.com
+ 					$ gh extension install owner/gh-extension
++
++					# Install an extension from a remote repository on a different GitHub host
+ 					$ gh extension install https://git.example.com/owner/gh-extension
++
++					# Install an extension from a local repository in the current working directory
+ 					$ gh extension install .
+ 				`),
+ 				Args: cmdutil.MinimumArgs(1, "must specify a repository to install from"),

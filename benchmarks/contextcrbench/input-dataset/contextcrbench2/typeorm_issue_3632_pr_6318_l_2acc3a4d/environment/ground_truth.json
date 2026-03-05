@@ -1,0 +1,28 @@
+[
+  {
+    "path": "src/entity-schema/EntitySchemaEmbeddedOptions.ts",
+    "line": 7,
+    "original_line": 7,
+    "review_comment": [
+      "What `Function` can be here?",
+      "as I understood it can be a non-entity-schema entity "
+    ]
+  },
+  {
+    "path": "src/metadata-builder/EntityMetadataBuilder.ts",
+    "line": 560,
+    "original_line": 560,
+    "review_comment": [
+      "why do we need these changes? Basically, we shouldn't change this file and only `EntitySchemaTransformer` should be changed.",
+      "as I wrote below, we need to make embeddedMetadata.type equal to Function | undefined then we can rewrite this code just a bit and avoid duplication."
+    ]
+  },
+  {
+    "path": "src/metadata-args/EmbeddedMetadataArgs.ts",
+    "line": 32,
+    "original_line": 32,
+    "review_comment": [
+      "Lets make it undefined if entity schema is used."
+    ]
+  }
+]

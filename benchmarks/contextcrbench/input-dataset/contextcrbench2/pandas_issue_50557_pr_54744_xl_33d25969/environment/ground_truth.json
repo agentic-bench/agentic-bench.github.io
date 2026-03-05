@@ -1,0 +1,10 @@
+[
+  {
+    "path": "pandas/core/indexes/base.py",
+    "line": 3798,
+    "original_line": 3798,
+    "review_comment": [
+      "From the issue the error message here just needs improving"
+    ]
+  }
+]

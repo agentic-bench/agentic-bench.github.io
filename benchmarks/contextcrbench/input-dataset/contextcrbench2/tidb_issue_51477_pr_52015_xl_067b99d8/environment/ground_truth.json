@@ -1,0 +1,10 @@
+[
+  {
+    "path": "pkg/expression/helper.go",
+    "line": 166,
+    "original_line": 166,
+    "review_comment": [
+      "These code has been moved to: https://github.com/pingcap/tidb/pull/52015/files#diff-f1e249804afb644119e933b3c10bd07625d920b322393f8b3be95d192d50d608R180"
+    ]
+  }
+]

@@ -1,0 +1,28 @@
+[
+  {
+    "path": "OpenRA.Game/Sound/Sound.cs",
+    "line": 25,
+    "original_line": 25,
+    "review_comment": [
+      "For the `Try` pattern, the `[MaybeNullWhen(false)]` attribute is quite handy. It allows us to say the result is not-null in the success case, but that if the method fails then `null` is possible.\r\n\r\nThis is better than `out Item? item` which would indicates it could be null even in the success case."
+    ]
+  },
+  {
+    "path": "OpenRA.Game/Unforgiving.cs",
+    "line": 19,
+    "original_line": 19,
+    "review_comment": [
+      "Given the `!` is called the null-forgiving operator, I choose \"unforgiving\" as a name for these methods that throw rather than returning null. But open to ideas on naming here.\r\n\r\nIn general this is here so if you've got an annoying method that returns nulls you don't care about, sticking an \"Unforgiving\" at the front/end will give you a non-null version.",
+      "Fwiw, I saw this pattern with `ElseThrow` instead of `Unforgiving` in Java. (And although I hate Java, I think ElseThrow is a bit more explicit.)",
+      "In rust terms `Some` perhaps, but that also doesn't make it clearer. If not many functions will be unforgiving you could consider returning an `Optional`/`Mono`. \r\n\r\nWith your explenation `Unforgiven` may make the most sense. But needs getting used to."
+    ]
+  },
+  {
+    "path": "OpenRA.Game/System.Diagnostics.CodeAnalysis/MemberNotNullAttribute.cs",
+    "line": 4,
+    "original_line": 4,
+    "review_comment": [
+      "Required otherwise mono gives `error CS0122: 'MemberNotNullAttribute' is inaccessible due to its protection level`.\r\n\r\nAlso note the licence."
+    ]
+  }
+]

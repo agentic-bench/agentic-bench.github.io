@@ -1,0 +1,24 @@
+[
+  {
+    "id": 28770,
+    "full_name": "zephyrproject-rtos/zephyr",
+    "lang": "c",
+    "issue_number": 50853,
+    "pr_number": 51164,
+    "diff_hunk": "@@ -654,6 +640,21 @@ int stm32_clock_control_init(const struct device *dev)\n \t/* Some clocks would be activated by default */\n \tconfig_enable_default_clocks();\n \n+#if defined(STM32_PLL_ENABLED) && defined(CONFIG_SOC_SERIES_STM32F7X)\n+\t/* Assuming we stay on Power Scale default value: Power Scale 1 */\n+\tif (CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC > 180000000) {\n+\t\t/* Set Overdrive if needed before configuring the Flash Latency */\n+\t\tLL_PWR_EnableOverDriveMode();\n+\t\twhile (LL_PWR_IsActiveFlag_OD() != 1) {\n+\t\t/* Wait for OverDrive mode ready */\n+\t\t}\n+\t\tLL_PWR_EnableOverDriveSwitching();\n+\t\twhile (LL_PWR_IsActiveFlag_ODSW() != 1) {\n+\t\t/* Wait for OverDrive switch ready */\n+\t\t}\n+\t}\n+#endif /* STM32_PLL_ENABLED && CONFIG_SOC_SERIES_STM32F7X */\n+\n #if defined(FLASH_ACR_LATENCY)\n \tuint32_t old_flash_freq;\n \tuint32_t new_flash_freq;\n",
+    "diff_hunk_content_with_line_number": "[654][640]  \t/* Some clocks would be activated by default */\n[655][641]  \tconfig_enable_default_clocks();\n[656][642]  \n[][643] +#if defined(STM32_PLL_ENABLED) && defined(CONFIG_SOC_SERIES_STM32F7X)\n[][644] +\t/* Assuming we stay on Power Scale default value: Power Scale 1 */\n[][645] +\tif (CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC > 180000000) {\n[][646] +\t\t/* Set Overdrive if needed before configuring the Flash Latency */\n[][647] +\t\tLL_PWR_EnableOverDriveMode();\n[][648] +\t\twhile (LL_PWR_IsActiveFlag_OD() != 1) {\n[][649] +\t\t/* Wait for OverDrive mode ready */\n[][650] +\t\t}\n[][651] +\t\tLL_PWR_EnableOverDriveSwitching();\n[][652] +\t\twhile (LL_PWR_IsActiveFlag_ODSW() != 1) {\n[][653] +\t\t/* Wait for OverDrive switch ready */\n[][654] +\t\t}\n[][655] +\t}\n[][656] +#endif /* STM32_PLL_ENABLED && CONFIG_SOC_SERIES_STM32F7X */\n[][657] +\n[657][658]  #if defined(FLASH_ACR_LATENCY)\n[658][659]  \tuint32_t old_flash_freq;\n[659][660]  \tuint32_t new_flash_freq;",
+    "checked_commit_id": "5526fc7ae2ba5025f1625e1a12312e7e90c1377e",
+    "pr_size": "sm"
+  },
+  {
+    "id": 28771,
+    "full_name": "zephyrproject-rtos/zephyr",
+    "lang": "c",
+    "issue_number": 50853,
+    "pr_number": 51164,
+    "diff_hunk": "@@ -654,6 +640,21 @@ int stm32_clock_control_init(const struct device *dev)\n \t/* Some clocks would be activated by default */\n \tconfig_enable_default_clocks();\n \n+#if defined(STM32_PLL_ENABLED) && defined(CONFIG_SOC_SERIES_STM32F7X)\n+\t/* Assuming we stay on Power Scale default value: Power Scale 1 */\n+\tif (CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC > 180000000) {\n+\t\t/* Set Overdrive if needed before configuring the Flash Latency */\n+\t\tLL_PWR_EnableOverDriveMode();\n+\t\twhile (LL_PWR_IsActiveFlag_OD() != 1) {\n+\t\t/* Wait for OverDrive mode ready */\n+\t\t}\n+\t\tLL_PWR_EnableOverDriveSwitching();\n+\t\twhile (LL_PWR_IsActiveFlag_ODSW() != 1) {\n+\t\t/* Wait for OverDrive switch ready */\n+\t\t}\n+\t}\n+#endif /* STM32_PLL_ENABLED && CONFIG_SOC_SERIES_STM32F7X */\n+\n #if defined(FLASH_ACR_LATENCY)\n \tuint32_t old_flash_freq;\n \tuint32_t new_flash_freq;\n",
+    "diff_hunk_content_with_line_number": "[654][640]  \t/* Some clocks would be activated by default */\n[655][641]  \tconfig_enable_default_clocks();\n[656][642]  \n[][643] +#if defined(STM32_PLL_ENABLED) && defined(CONFIG_SOC_SERIES_STM32F7X)\n[][644] +\t/* Assuming we stay on Power Scale default value: Power Scale 1 */\n[][645] +\tif (CONFIG_SYS_CLOCK_HW_CYCLES_PER_SEC > 180000000) {\n[][646] +\t\t/* Set Overdrive if needed before configuring the Flash Latency */\n[][647] +\t\tLL_PWR_EnableOverDriveMode();\n[][648] +\t\twhile (LL_PWR_IsActiveFlag_OD() != 1) {\n[][649] +\t\t/* Wait for OverDrive mode ready */\n[][650] +\t\t}\n[][651] +\t\tLL_PWR_EnableOverDriveSwitching();\n[][652] +\t\twhile (LL_PWR_IsActiveFlag_ODSW() != 1) {\n[][653] +\t\t/* Wait for OverDrive switch ready */\n[][654] +\t\t}\n[][655] +\t}\n[][656] +#endif /* STM32_PLL_ENABLED && CONFIG_SOC_SERIES_STM32F7X */\n[][657] +\n[657][658]  #if defined(FLASH_ACR_LATENCY)\n[658][659]  \tuint32_t old_flash_freq;\n[659][660]  \tuint32_t new_flash_freq;",
+    "checked_commit_id": "5526fc7ae2ba5025f1625e1a12312e7e90c1377e",
+    "pr_size": "sm"
+  }
+]

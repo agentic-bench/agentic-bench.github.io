@@ -1,0 +1,12 @@
+[
+  {
+    "path": "crates/uv/src/commands/pip/operations.rs",
+    "line": 71,
+    "original_line": 71,
+    "review_comment": [
+      "Not in love, but... what am I to do?",
+      "Wait really, that works but these alt flags don't?",
+      "Yeah...\r\n\r\nSo.. `pip install package[extra]` is what's supported upstream. Downstream, we added support for `pip install -r pyproject.toml` but there's no syntax to select extras there so we have `--extra` and `--all-extras`. These are also copied over from `uv pip compile pyproject.toml` where they make a little more sense. `uv pip compile .` doesn't exist."
+    ]
+  }
+]

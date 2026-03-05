@@ -1,0 +1,6 @@
+{
+  "issue_title": "menu cursor showing while hovering over LegacySongProgress in Game ",
+  "issue_body": "### Type\n\nGame behaviour\n\n### Bug description\n\nThe newly added LegacySongProgress displays your menu cursor instead of the in game one when you hover over it while playing and mouse1 inputs do not get registered while menu cursor is shown, which makes it impossible to tap with mouse1 while above the LegacySongProgress\n\n### Screenshots or videos\n\n![osu_2022-08-02_20-21-32](https://user-images.githubusercontent.com/62897397/182445984-80ffbf16-85d9-4542-8d52-17cb7c645f9b.jpg)\r\n![osu_2022-08-02_20-21-33](https://user-images.githubusercontent.com/62897397/182445986-efe79fea-0355-4606-a918-aa28b9294ce6.jpg)\r\n![osu_2022-08-02_20-21-34](https://user-images.githubusercontent.com/62897397/182445987-2b7877e6-01f3-4e57-a5df-13e87bd3e9d9.jpg)\r\n\n\n### Version\n\n2022.731.1-lazer\n\n### Logs\n\n[database.log](https://github.com/ppy/osu/files/9244758/database.log)\r\n[network.log](https://github.com/ppy/osu/files/9244759/network.log)\r\n[performance.log](https://github.com/ppy/osu/files/9244760/performance.log)\r\n[runtime.log](https://github.com/ppy/osu/files/9244761/runtime.log)\r\n",
+  "pr_title": "Fix `LegacySongProgress` incorrectly blocking mouse input from gameplay",
+  "pr_body": "Closes #19555."
+}

@@ -1,0 +1,11 @@
+[
+  {
+    "path": "src/libsystemd-network/sd-dhcp-server.c",
+    "line": 1585,
+    "original_line": 1585,
+    "review_comment": [
+      "Can you add a note in the commit message explaining why it's not necessary? It's not immediately obvious without following all the crumbs. Probably doesn't need a code comment, but at least in the commit message it would help to make it clear.",
+      "Sure. Sorry, I am always lazy about commenting."
+    ]
+  }
+]

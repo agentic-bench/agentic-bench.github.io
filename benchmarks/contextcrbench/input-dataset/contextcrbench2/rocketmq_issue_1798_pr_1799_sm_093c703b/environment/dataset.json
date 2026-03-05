@@ -1,0 +1,13 @@
+[
+  {
+    "id": 21867,
+    "full_name": "apache/rocketmq",
+    "lang": "java",
+    "issue_number": 1798,
+    "pr_number": 1799,
+    "diff_hunk": "@@ -1025,8 +1026,19 @@ private RemotingCommand queryTopicConsumeByWho(ChannelHandlerContext ctx,\n             groups.addAll(groupInOffset);\n         }\n \n+        HashSet<String> filteredGroups = new HashSet<String>();\n+        if (requestHeader.isIgnoreDeteled()) {\n+            for (String group : groups) {\n+                if (this.brokerController.getSubscriptionGroupManager().getSubscriptionGroupTable().containsKey(group)) {\n+                    filteredGroups.add(group);\n+                }\n+            }\n+        } else {\n+            filteredGroups = groups;\n+        }\n+\n         GroupList groupList = new GroupList();\n-        groupList.setGroupList(groups);\n+        groupList.setGroupList(filteredGroups);\n         byte[] body = groupList.encode();\n \n         response.setBody(body);\n",
+    "diff_hunk_content_with_line_number": "[1025][1026]              groups.addAll(groupInOffset);\n[1026][1027]          }\n[1027][1028]  \n[][1029] +        HashSet<String> filteredGroups = new HashSet<String>();\n[][1030] +        if (requestHeader.isIgnoreDeteled()) {\n[][1031] +            for (String group : groups) {\n[][1032] +                if (this.brokerController.getSubscriptionGroupManager().getSubscriptionGroupTable().containsKey(group)) {\n[][1033] +                    filteredGroups.add(group);\n[][1034] +                }\n[][1035] +            }\n[][1036] +        } else {\n[][1037] +            filteredGroups = groups;\n[][1038] +        }\n[][1039] +\n[1028][1040]          GroupList groupList = new GroupList();\n[1029][] -        groupList.setGroupList(groups);\n[][1041] +        groupList.setGroupList(filteredGroups);\n[1030][1042]          byte[] body = groupList.encode();\n[1031][1043]  \n[1032][1044]          response.setBody(body);",
+    "checked_commit_id": "093c703bb0ffc51d107596ea658d231e3ba285b8",
+    "pr_size": "sm"
+  }
+]

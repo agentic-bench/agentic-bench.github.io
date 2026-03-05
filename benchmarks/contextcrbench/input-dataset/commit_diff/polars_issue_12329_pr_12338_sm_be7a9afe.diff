@@ -1,0 +1,27 @@
+diff --git a/py-polars/src/conversion.rs b/py-polars/src/conversion.rs
+index af937427509c..ecb3cbf83582 100644
+--- a/py-polars/src/conversion.rs
++++ b/py-polars/src/conversion.rs
+@@ -838,7 +838,7 @@ impl<'s> FromPyObject<'s> for Wrap<AnyValue<'s>> {
+                         if ob.is_instance_of::<PyBool>() {
+                             get_bool
+                             // TODO: this heap allocs on failure
+-                        } else if ob.extract::<i64>().is_ok() {
++                        } else if ob.extract::<i64>().is_ok() || ob.extract::<u64>().is_ok() {
+                             get_int
+                         } else if ob.is_instance_of::<PyFloat>() {
+                             get_float
+diff --git a/py-polars/tests/unit/dataframe/test_df.py b/py-polars/tests/unit/dataframe/test_df.py
+index 64d72935b833..d0fb66284607 100644
+--- a/py-polars/tests/unit/dataframe/test_df.py
++++ b/py-polars/tests/unit/dataframe/test_df.py
+@@ -3599,3 +3599,9 @@ def test_from_dicts_undeclared_column_dtype() -> None:
+     data = [{"a": 1, "b": 2}]
+     result = pl.from_dicts(data, schema=["x"])
+     assert result.schema == {"x": pl.Null}
++
++
++def test_from_records_u64_12329() -> None:
++    s = pl.from_records([{"a": 9908227375760408577}])
++    assert s.dtypes == [pl.UInt64]
++    assert s["a"][0] == 9908227375760408577

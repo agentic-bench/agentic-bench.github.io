@@ -1,0 +1,13 @@
+[
+  {
+    "path": "homeassistant/components/meteo_france/__init__.py",
+    "line": 88,
+    "original_line": 88,
+    "review_comment": [
+      "why do we use `_async_refresh`? And not a public function?",
+      "As written in the description: to only warn but not raise an error.\n\nOtherwise the user will both have an error and a warn.\n\nBecause `async_refresh` log_failures=True !",
+      "Oh It didn't dawn on me that that was what you meant with that",
+      "I may be rude, sorry \ud83d\ude05, I actually refactored the code 2-3 times to be as clean, and I was surprised when not seeing it in the patch release \ud83d\ude06 \r\n\r\nThanks \ud83d\ude4f "
+    ]
+  }
+]

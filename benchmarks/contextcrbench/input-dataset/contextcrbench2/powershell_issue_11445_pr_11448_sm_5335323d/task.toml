@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "powershell_issue_11445_pr_11448_sm_5335323d"
+contextcrbench2_full_name = "PowerShell/PowerShell"
+contextcrbench2_lang = "c_sharp"
+contextcrbench2_issue_number = "11445"
+contextcrbench2_issue_title = "PowerShell crash on Windows Server 2012 R2 with release tests: OutOfProcessClientSessionTransportManagerBase.GetMessageGuid"
+contextcrbench2_pr_number = "11448"
+contextcrbench2_pr_title = "Skip null data (fix NRE) in output data received handler"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "5335323dc203717a7abc51b650fdf5ea37a3dfbc"
+contextcrbench2_commit_id = "6f49088d0f93dae3e5bcb7dc2af954fe7d72c59c"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2019-12-28T17:43:16Z"
+contextcrbench2_entry_count = "2"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

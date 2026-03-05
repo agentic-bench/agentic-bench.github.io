@@ -1,0 +1,6 @@
+{
+  "issue_title": "Titlebar only updates when you switch tabs (not when terminal changes it)",
+  "issue_body": "It looks like the event that updates the _titlebar_ (TerminalPage calling TitleChangeHandlers) got disconnected. The tab works fine.\r\n\r\nhttps://github.com/microsoft/terminal/commit/9ed3da8b3b3b91f17731fcb33343de3485aa473f#diff-ded63038d58dbb9f43cb344d7cc06c76L727-L737 removed the roundabout \"page listens to control to make tab update itself\" event handler, but in doing so broke this.",
+  "pr_title": "Restore ability to set window title from commandline",
+  "pr_body": "## Summary of the Pull Request\r\n\r\nI regressed being able to set the window title with `title foo` in #3540. This restores that bit.\r\n\r\n## References\r\n\r\n## PR Checklist\r\n* [x] Closes #3674\r\n* [x] I work here\r\n* [ ] Tests added/passed\r\n* [n/a] Requires documentation to be updated\r\n\r\n## Detailed Description of the Pull Request / Additional comments\r\n\r\n## Validation Steps Performed\r\n"
+}

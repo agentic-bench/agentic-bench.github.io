@@ -1,0 +1,12 @@
+[
+  {
+    "path": "lib/ansible/plugins/lookup/csvfile.py",
+    "line": 70,
+    "original_line": 70,
+    "review_comment": [
+      "```yaml\r\n-   ansible.builtin.set_fact:\r\n      '{{columns[item|int]}}': \"{{ csvline }}\"\r\n    vars:\r\n      csvline: \"{{ lookup('csvfile', bgp_neighbor_ip, file='bgp_neighbors.csv', delimiter=',', keycol=0, col=item) }}\"\r\n      columns: ['loop_ip', 'int_ip', 'int_mask', 'int_name', 'local_as','neighbour_as', 'neight_int_ip']\r\n    loop: '{{range(7)}}'\r\n    delegate_to: localhost\r\n    delegate_facts: true\r\n```",
+      "```csv\r\n127.0.0.1, 10.0.0.1, 24, nones, lola, pepe, 127.0.0.2\r\n128.0.0.1, 10.1.0.1, 20, notes, lolita, pepito, 128.0.0.2\r\n129.0.0.1, 10.2.0.1, 23, nines, lolata, pepete, 129.0.0.2\r\n```",
+      "if you REALLY want to get fancy you can make headers/range dynamic:\r\n\r\n```\r\nloop: <\r\n {{range(lookup(\"pipe\", \"head -n1 bgp_neighbors.csv| sed 's/[^,]//g\\' | awk '{ print length }'\")|int + 1)}}\r\n```"
+    ]
+  }
+]

@@ -1,0 +1,11 @@
+[
+  {
+    "path": "pkg/planner/core/casetest/integration_test.go",
+    "line": 429,
+    "original_line": 428,
+    "review_comment": [
+      "better add `drop table if exists tx`",
+      "updated"
+    ]
+  }
+]

@@ -1,0 +1,13 @@
+[
+  {
+    "id": 51262,
+    "full_name": "vitejs/vite",
+    "lang": "typescript",
+    "issue_number": 19087,
+    "pr_number": 19174,
+    "diff_hunk": "@@ -481,3 +481,35 @@ test('config compat 2', async () => {\n     ]\n   `)\n })\n+\n+test('config compat 3', async () => {\n+  const config = await resolveConfig({}, 'serve')\n+  expect(config.resolve.conditions).toMatchInlineSnapshot(`\n+    [\n+      \"module\",\n+      \"browser\",\n+      \"development|production\",\n+    ]\n+  `)\n+  expect(config.environments.client.resolve.conditions).toMatchInlineSnapshot(`\n+    [\n+      \"module\",\n+      \"browser\",\n+      \"development|production\",\n+    ]\n+  `)\n+  expect(config.ssr.resolve?.conditions).toMatchInlineSnapshot(`\n+    [\n+      \"module\",\n+      \"node\",\n+      \"development|production\",\n+    ]\n+  `)\n+  expect(config.environments.ssr.resolve?.conditions).toMatchInlineSnapshot(`\n+    [\n+      \"module\",\n+      \"node\",\n+      \"development|production\",\n+    ]\n+  `)\n+})\n",
+    "diff_hunk_content_with_line_number": "[481][481]      ]\n[482][482]    `)\n[483][483]  })\n[][484] +\n[][485] +test('config compat 3', async () => {\n[][486] +  const config = await resolveConfig({}, 'serve')\n[][487] +  expect(config.resolve.conditions).toMatchInlineSnapshot(`\n[][488] +    [\n[][489] +      \"module\",\n[][490] +      \"browser\",\n[][491] +      \"development|production\",\n[][492] +    ]\n[][493] +  `)\n[][494] +  expect(config.environments.client.resolve.conditions).toMatchInlineSnapshot(`\n[][495] +    [\n[][496] +      \"module\",\n[][497] +      \"browser\",\n[][498] +      \"development|production\",\n[][499] +    ]\n[][500] +  `)\n[][501] +  expect(config.ssr.resolve?.conditions).toMatchInlineSnapshot(`\n[][502] +    [\n[][503] +      \"module\",\n[][504] +      \"node\",\n[][505] +      \"development|production\",\n[][506] +    ]\n[][507] +  `)\n[][508] +  expect(config.environments.ssr.resolve?.conditions).toMatchInlineSnapshot(`\n[][509] +    [\n[][510] +      \"module\",\n[][511] +      \"node\",\n[][512] +      \"development|production\",\n[][513] +    ]\n[][514] +  `)\n[][515] +})",
+    "checked_commit_id": "ea98aa1f3efd07dcd169b9d6a652f9d348dc1e46",
+    "pr_size": "sm"
+  }
+]

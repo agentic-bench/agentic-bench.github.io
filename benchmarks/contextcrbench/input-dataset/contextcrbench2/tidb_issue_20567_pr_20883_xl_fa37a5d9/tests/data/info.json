@@ -1,0 +1,8 @@
+{
+    "task_id": "tidb_issue_20567_pr_20883_xl_fa37a5d9",
+    "repo": "tidb",
+    "issue_number": 20567,
+    "pr_number": 20883,
+    "checked_commit_id": "fa37a5d90da99c9b91ccc576c3e4819076f273b5",
+    "entry_count": 1
+}

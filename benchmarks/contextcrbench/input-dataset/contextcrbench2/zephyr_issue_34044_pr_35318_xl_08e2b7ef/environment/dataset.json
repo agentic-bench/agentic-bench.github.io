@@ -1,0 +1,13 @@
+[
+  {
+    "id": 27253,
+    "full_name": "zephyrproject-rtos/zephyr",
+    "lang": "c",
+    "issue_number": 34044,
+    "pr_number": 35318,
+    "diff_hunk": "@@ -854,6 +856,12 @@ struct ifreq {\n /* Socket options for IPPROTO_TCP level */\n /** sockopt: Disable TCP buffering (ignored, for compatibility) */\n #define TCP_NODELAY 1\n+/** sockopt: Use seconds for get/setsockopt */\n+#define TCP_KEEPIDLE 2\n+/** sockopt: Use seconds for get/setsockopt */\n+#define TCP_KEEPINTVL 3\n+/** sockopt: Use number of probes sent for get/setsockopt */\n+#define TCP_KEEPCNT 4\n \n /* Socket options for IPPROTO_IPV6 level */\n /** sockopt: Don't support IPv4 access (ignored, for compatibility) */\n",
+    "diff_hunk_content_with_line_number": "[854][856]  /* Socket options for IPPROTO_TCP level */\n[855][857]  /** sockopt: Disable TCP buffering (ignored, for compatibility) */\n[856][858]  #define TCP_NODELAY 1\n[][859] +/** sockopt: Use seconds for get/setsockopt */\n[][860] +#define TCP_KEEPIDLE 2\n[][861] +/** sockopt: Use seconds for get/setsockopt */\n[][862] +#define TCP_KEEPINTVL 3\n[][863] +/** sockopt: Use number of probes sent for get/setsockopt */\n[][864] +#define TCP_KEEPCNT 4\n[857][865]  \n[858][866]  /* Socket options for IPPROTO_IPV6 level */\n[859][867]  /** sockopt: Don't support IPv4 access (ignored, for compatibility) */",
+    "checked_commit_id": "08e2b7ef8fe4c1852064af40098eeacad116d991",
+    "pr_size": "xl"
+  }
+]

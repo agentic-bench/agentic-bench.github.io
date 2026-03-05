@@ -1,0 +1,6 @@
+{
+  "issue_title": "importsNotUsedAsValues is wrong",
+  "issue_body": "@kdy1 This is not the behaviour of `tsc` under `\"importsNotUsedAsValues\": \"preserve\"`. The correct behaviour is to _never_ preserve completely unused import identifiers. The above branch should always be used.\r\n\r\nI think `ImportNotUsedAsValues` should be removed since it's a misunderstanding of the equivalent `tsc` option.\r\n\r\n_Originally posted by @nayeemrmn in https://github.com/swc-project/swc/pull/1060#discussion_r491990064_\r\n\r\n\r\nIt's a breaking change.",
+  "pr_title": "fix(strip): Fix Config::import_not_used_as_values",
+  "pr_body": "Closes #1065.\r\nCloses #1094.\r\n\r\n@kdy1 Could you cut a release after this?"
+}

@@ -1,0 +1,41 @@
+diff --git a/Files/Constants.cs b/Files/Constants.cs
+index 3783aa78f1d0..0933eb8924be 100644
+--- a/Files/Constants.cs
++++ b/Files/Constants.cs
+@@ -74,12 +74,12 @@ public static class GridViewBrowser
+ 
+             public static class DetailsLayoutBrowser
+             {
+-                public const int DetailsViewSize = 28;
++                public const int DetailsViewSize = 32;
+             }
+ 
+             public static class ColumnViewBrowser
+             {
+-                public const int ColumnViewSize = 28;
++                public const int ColumnViewSize = 32;
+             }
+         }
+ 
+diff --git a/Files/ViewModels/ItemViewModel.cs b/Files/ViewModels/ItemViewModel.cs
+index b25b6c2897c7..ad47fe94265a 100644
+--- a/Files/ViewModels/ItemViewModel.cs
++++ b/Files/ViewModels/ItemViewModel.cs
+@@ -750,7 +750,7 @@ await CoreApplication.MainView.DispatcherQueue.EnqueueAsync(async () =>
+                         {
+                             var mode = thumbnailSize < 80 ? ThumbnailMode.ListView : ThumbnailMode.SingleItem;
+ 
+-                            using var Thumbnail = await matchingStorageFile.GetThumbnailAsync(mode, thumbnailSize, ThumbnailOptions.UseCurrentScale);
++                            using var Thumbnail = await matchingStorageFile.GetThumbnailAsync(mode, thumbnailSize, ThumbnailOptions.ResizeThumbnail);
+                             if (!(Thumbnail == null || Thumbnail.Size == 0 || Thumbnail.OriginalHeight == 0 || Thumbnail.OriginalWidth == 0))
+                             {
+                                 await CoreApplication.MainView.DispatcherQueue.EnqueueAsync(async () =>
+@@ -823,7 +823,7 @@ await CoreApplication.MainView.DispatcherQueue.EnqueueAsync(async () =>
+                         {
+                             var mode = thumbnailSize < 80 ? ThumbnailMode.ListView : ThumbnailMode.SingleItem;
+ 
+-                            using var Thumbnail = await matchingStorageFolder.GetThumbnailAsync(mode, thumbnailSize, ThumbnailOptions.UseCurrentScale);
++                            using var Thumbnail = await matchingStorageFolder.GetThumbnailAsync(mode, thumbnailSize, ThumbnailOptions.ResizeThumbnail);
+                             if (!(Thumbnail == null || Thumbnail.Size == 0 || Thumbnail.OriginalHeight == 0 || Thumbnail.OriginalWidth == 0))
+                             {
+                                 await CoreApplication.MainView.DispatcherQueue.EnqueueAsync(async () =>

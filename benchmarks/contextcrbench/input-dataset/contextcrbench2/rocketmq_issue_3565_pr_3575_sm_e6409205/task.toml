@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "rocketmq_issue_3565_pr_3575_sm_e6409205"
+contextcrbench2_full_name = "apache/rocketmq"
+contextcrbench2_lang = "java"
+contextcrbench2_issue_number = "3565"
+contextcrbench2_issue_title = "Useless class file  MessageFilterImpl"
+contextcrbench2_pr_number = "3575"
+contextcrbench2_pr_title = "[ISSUE #3565] Removing message filter impldev"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "e64092054ec33b7bf68113fe5a574c2faa77e1c3"
+contextcrbench2_commit_id = "e64092054ec33b7bf68113fe5a574c2faa77e1c3"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2021-12-07T04:39:49Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

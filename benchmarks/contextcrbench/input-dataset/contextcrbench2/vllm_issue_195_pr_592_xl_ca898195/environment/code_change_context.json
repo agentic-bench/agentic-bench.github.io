@@ -1,0 +1,6 @@
+{
+  "issue_title": "Support for Falcon-7B / 40B models",
+  "issue_body": "It would be great, if you can add support for Falcon models as well!  Does it support onnx models today?",
+  "pr_title": "Add Falcon support (new)",
+  "pr_body": "Close #195 #197 #356\r\n\r\nThis PR replaces PR #321 \r\n\r\nAlso, revert an early all-reduce optimization that stores all all-reduce results in a shared buffer. This can lead to wrong results in distributed settings for models with two parallel all-reduce branches.\r\n\r\nCorrectness check:\r\n- [x] tiiuae/falcon-rw-1b\r\n- [x] tiiuae/falcon-rw-7b\r\n- [x] tiiuae/falcon-7b\r\n- [x] tiiuae/falcon-7b-instruct\r\n- [x] tiiuae/falcon-40b\r\n- [x] tiiuae/falcon-40b-instruct"
+}

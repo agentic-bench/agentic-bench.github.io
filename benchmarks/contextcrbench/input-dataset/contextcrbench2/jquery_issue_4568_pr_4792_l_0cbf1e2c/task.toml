@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "jquery_issue_4568_pr_4792_l_0cbf1e2c"
+contextcrbench2_full_name = "jquery/jquery"
+contextcrbench2_lang = "javascript"
+contextcrbench2_issue_number = "4568"
+contextcrbench2_issue_title = "Drop support for Edge Legacy (EdgeHTML-based) in 4.0?"
+contextcrbench2_pr_number = "4792"
+contextcrbench2_pr_title = "Core: Drop support for Edge Legacy (i.e. non-Chromium Microsoft Edge)"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "0cbf1e2cea3d70e4218ca5cfcc364773c861ee7a"
+contextcrbench2_commit_id = "0cbf1e2cea3d70e4218ca5cfcc364773c861ee7a"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2020-09-21T12:16:36Z"
+contextcrbench2_entry_count = "2"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

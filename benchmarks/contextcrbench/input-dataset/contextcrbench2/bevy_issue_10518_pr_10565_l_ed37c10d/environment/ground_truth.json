@@ -1,0 +1,11 @@
+[
+  {
+    "path": "crates/bevy_asset/src/loader.rs",
+    "line": 555,
+    "original_line": 555,
+    "review_comment": [
+      "What about a `load_with_reader`, and `load_with_reader_and_settings`? Looking at the `load` and `load_with_settings`, I think it should be possible to build on top of `load_direct_with_reader` and IMO would be disproportionately useful.",
+      "I've attempted to create these methods on `LoadContext`, but that required creating matching methods on `AssetServer` to have consistent behaviour. This still doesn't make any breaking changes, but there's now substantially more changes. Additionally, I believe there's a new foot-gun where if a user calls `load_with_reader` but `should_load_dependencies` is `false`. I don't think it makes sense to pass a `Reader` to a loader, only for it to be dropped, but maybe there are cases where you'd want to do that? I've added an `error!` message for now just to flag it for review from you guys."
+    ]
+  }
+]

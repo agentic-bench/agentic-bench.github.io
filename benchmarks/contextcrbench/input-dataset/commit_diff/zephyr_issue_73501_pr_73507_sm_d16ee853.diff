@@ -1,0 +1,14 @@
+diff --git a/subsys/fs/fs.c b/subsys/fs/fs.c
+index e959f345153f9..349b4bd7f1f34 100644
+--- a/subsys/fs/fs.c
++++ b/subsys/fs/fs.c
+@@ -791,9 +791,6 @@ int fs_unmount(struct fs_mount_t *mp)
+ 		goto unmount_err;
+ 	}
+ 
+-	/* clear file system interface */
+-	mp->fs = NULL;
+-
+ 	/* remove mount node from the list */
+ 	sys_dlist_remove(&mp->node);
+ 	LOG_DBG("fs unmounted from %s", mp->mnt_point);

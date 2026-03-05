@@ -1,0 +1,10 @@
+[
+  {
+    "path": "src/basic/in-addr-util.h",
+    "line": 82,
+    "original_line": 82,
+    "review_comment": [
+      "I guess that's OK, because `ip6` is the longer of the two members of the union. With `ip` the same trick would be more dangerous, since we'd be casting to a longer type. I guess this is OK here."
+    ]
+  }
+]

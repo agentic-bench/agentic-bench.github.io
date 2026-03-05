@@ -1,0 +1,20 @@
+[
+  {
+    "path": "crates/bevy_reflect/src/utility.rs",
+    "line": 109,
+    "original_line": 89,
+    "review_comment": [
+      "Should these be removed in favor of just ignoring the doc test? I'm of the opinion we should keep them.",
+      "I like these; ignoring doc tests is a serious maintainability hazard IMO."
+    ]
+  },
+  {
+    "path": "crates/bevy_reflect/src/lib.rs",
+    "line": 31,
+    "original_line": 31,
+    "review_comment": [
+      "Did not include this module in the prelude. Is this okay? I think it makes sense to exclude it since right now it only contains code that is unlikely to be used directly.",
+      "Yes please."
+    ]
+  }
+]

@@ -1,0 +1,163 @@
+{
+  "contextcrbench": {
+    "display_name": "ContextCRBench",
+    "benchmark_goal": "human-alignment",
+    "description": "Measures how well LLM-generated code review comments align with human reviewer comments on real-world PRs.",
+    "primary_metric": "metric/human/is_llm_context_aligned",
+    "column_groups": {
+      "Code Review Capability": [
+        "metric/human/is_llm_human_aligned",
+        "metric/human/is_llm_context_aligned",
+        "metric/human/is_human_llm_location_matched"
+      ],
+      "Text Similarity": [
+        "metric/human/llm_comment_rouge1_score",
+        "metric/human/llm_comment_rougel_score",
+        "metric/human/llm_comment_bleu_score",
+        "metric/human/llm_comment_edit_similarity_score"
+      ],
+      "Trajectory": [
+        "trajectory/input_tokens",
+        "trajectory/output_tokens",
+        "trajectory/steps",
+        "trajectory/input_costs",
+        "trajectory/output_costs",
+        "trajectory/total_costs"
+      ]
+    },
+    "group_summary": {
+      "Code Review Capability": {
+        "method": "mean",
+        "columns": [
+          "metric/human/is_llm_human_aligned",
+          "metric/human/is_llm_context_aligned",
+          "metric/human/is_human_llm_location_matched"
+        ]
+      },
+      "Text Similarity": {
+        "method": "mean",
+        "columns": [
+          "metric/human/llm_comment_rouge1_score",
+          "metric/human/llm_comment_rougel_score",
+          "metric/human/llm_comment_bleu_score",
+          "metric/human/llm_comment_edit_similarity_score"
+        ]
+      },
+      "Trajectory": {
+        "method": "pick",
+        "column": "trajectory/total_costs"
+      }
+    },
+    "metric_aggregation": {
+      "metric/human/is_human_llm_location_matched": "precision",
+      "metric/human/llm_comment_rouge1_score": "mean",
+      "metric/human/llm_comment_rougel_score": "mean",
+      "metric/human/llm_comment_bleu_score": "mean",
+      "metric/human/llm_comment_edit_similarity_score": "mean",
+      "metric/human/is_llm_human_aligned": "precision",
+      "metric/human/is_llm_context_aligned": "precision",
+      "trajectory/input_costs": "sum",
+      "trajectory/output_costs": "sum",
+      "trajectory/total_costs": "sum"
+    },
+    "display_names": {
+      "metric/human/is_llm_human_aligned": "Human Alignment",
+      "metric/human/is_llm_context_aligned": "Context Alignment",
+      "metric/human/is_human_llm_location_matched": "LLM Localization",
+      "metric/human/llm_comment_rouge1_score": "ROUGE-1",
+      "metric/human/llm_comment_rougel_score": "ROUGE-L",
+      "metric/human/llm_comment_bleu_score": "BLEU",
+      "metric/human/llm_comment_edit_similarity_score": "Edit Similarity",
+      "trajectory/input_tokens": "Input Tokens",
+      "trajectory/output_tokens": "Output Tokens",
+      "trajectory/steps": "Steps",
+      "trajectory/input_costs": "Input Cost (USD)",
+      "trajectory/output_costs": "Output Cost (USD)",
+      "trajectory/total_costs": "Total Cost (USD)",
+      "agent": "Agent",
+      "model": "Model",
+      "total_diffs": "PRs",
+      "total_comments": "Comments",
+      "overall_weighted_score": "Score"
+    },
+    "dataset_total_diffs": 421
+  },
+  "scrbench": {
+    "display_name": "SCRBench",
+    "benchmark_goal": "bug-capacity",
+    "description": "Measures how well LLM-generated comments detect and localize real security vulnerabilities (CWEs) in version-control commits.",
+    "primary_metric": "metric/bug/is_comment_location_relevant_matched",
+    "column_groups": {
+      "Code Review Capability": [
+        "metric/bug/is_comment_location_relevant_matched",
+        "metric/bug/is_comment_location_relevant_matched_recall",
+        "metric/bug/is_bug_location_matched",
+        "metric/bug/is_bug_comment_relevant",
+        "metric/bug/is_bug_comment_type_relevant",
+        "metric/bug/is_bug_suggestion_valid",
+        "metric/bug/is_comment_location_suggestion_matched"
+      ],
+      "Trajectory": [
+        "trajectory/input_tokens",
+        "trajectory/output_tokens",
+        "trajectory/total_tokens",
+        "trajectory/steps",
+        "trajectory/input_costs",
+        "trajectory/output_costs",
+        "trajectory/total_costs"
+      ]
+    },
+    "group_summary": {
+      "Code Review Capability": {
+        "method": "mean",
+        "columns": [
+          "metric/bug/is_comment_location_relevant_matched",
+          "metric/bug/is_comment_location_relevant_matched_recall",
+          "metric/bug/is_bug_location_matched",
+          "metric/bug/is_bug_comment_relevant",
+          "metric/bug/is_bug_comment_type_relevant",
+          "metric/bug/is_bug_suggestion_valid",
+          "metric/bug/is_comment_location_suggestion_matched"
+        ]
+      },
+      "Trajectory": {
+        "method": "pick",
+        "column": "trajectory/total_costs"
+      }
+    },
+    "metric_aggregation": {
+      "metric/bug/is_bug_location_matched": "precision",
+      "metric/bug/is_bug_comment_relevant": "precision",
+      "metric/bug/is_bug_comment_type_relevant": "precision",
+      "metric/bug/is_bug_suggestion_valid": "precision",
+      "metric/bug/is_comment_location_relevant_matched": "precision",
+      "metric/bug/is_comment_location_suggestion_matched": "precision",
+      "metric/bug/is_comment_location_relevant_matched_recall": "recall",
+      "trajectory/input_costs": "sum",
+      "trajectory/output_costs": "sum",
+      "trajectory/total_costs": "sum"
+    },
+    "display_names": {
+      "metric/bug/is_comment_location_relevant_matched": "Precision (Loc+Rel)",
+      "metric/bug/is_comment_location_relevant_matched_recall": "Recall (Loc+Rel)",
+      "metric/bug/is_bug_location_matched": "Location Match",
+      "metric/bug/is_bug_comment_relevant": "Comment Relevance",
+      "metric/bug/is_bug_comment_type_relevant": "Comment Type Match",
+      "metric/bug/is_bug_suggestion_valid": "Suggestion Quality",
+      "metric/bug/is_comment_location_suggestion_matched": "Precision (Loc+Sug)",
+      "trajectory/input_tokens": "Input Tokens",
+      "trajectory/output_tokens": "Output Tokens",
+      "trajectory/total_tokens": "Total Tokens",
+      "trajectory/steps": "Steps",
+      "trajectory/input_costs": "Input Cost (USD)",
+      "trajectory/output_costs": "Output Cost (USD)",
+      "trajectory/total_costs": "Total Cost (USD)",
+      "agent": "Agent",
+      "model": "Model",
+      "total_diffs": "PRs",
+      "total_comments": "Comments",
+      "overall_weighted_score": "Score"
+    },
+    "dataset_total_diffs": 144
+  }
+}

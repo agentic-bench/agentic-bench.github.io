@@ -1,0 +1,12 @@
+[
+  {
+    "path": "pandas/tests/indexing/test_datetime.py",
+    "line": 14,
+    "original_line": 14,
+    "review_comment": [
+      "Did you post the link on purpose instead of only the reference like GH#xxx ? If yes, ok for me",
+      "Yes, on (some) terminal emulators, clicking on the link will auto open them.\r\nAlso when seeing the code via a browser, it's easier to copy it, and paste it in the URL bar, or highlighting the URL and right-clicking and select \"open in a new tab\". instead of: copying the number and then searching it in the issues tab.\r\n\r\n---\r\nTL;DR\r\n\r\nThis is for convenience, but not a deal breaker. I can have it as `GH#XXXX` if it's a deal breaker:)",
+      "No strong opinion, would prefer consistency, but if you have a strong optinion this is fine with me"
+    ]
+  }
+]

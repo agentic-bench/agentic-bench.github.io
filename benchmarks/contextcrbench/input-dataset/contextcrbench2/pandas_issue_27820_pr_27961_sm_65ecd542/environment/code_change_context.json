@@ -1,0 +1,6 @@
+{
+  "issue_title": "DOC: clarify that read_parquet accepts a directory path",
+  "issue_body": "The current documentation (both docstring https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_parquet.html and user guide https://pandas.pydata.org/pandas-docs/stable/user_guide/io.html#partitioning-parquet-files) don't make it very clear that the file path can also be a directory name that contains multiple (partitioned) parquet files (in addition to single file path).",
+  "pr_title": "pandas.read_parquet now has info that it accepts path_to_directory that contains multiple parquet files",
+  "pr_body": "- [x] closes #27820 \r\n- [x] tests added / passed\r\n- [x] passes `black pandas`\r\n- [x] passes `git diff upstream/master -u -- \"*.py\" | flake8 --diff`\r\n- [x] whatsnew entry\r\n"
+}

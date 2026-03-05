@@ -1,0 +1,84 @@
+[
+  {
+    "path": "src/main/java/com/google/devtools/build/lib/remote/RemoteActionContextProvider.java",
+    "line": 47,
+    "original_line": 47,
+    "review_comment": [
+      "Remove the `@Nullable` and add a check that it's non-null. There's no reason for it to be null and it avoids all the null checks further down."
+    ]
+  },
+  {
+    "path": "src/main/java/com/google/devtools/build/lib/remote/RemoteStats.java",
+    "line": 12,
+    "original_line": 12,
+    "review_comment": [
+      "final please."
+    ]
+  },
+  {
+    "path": "src/main/java/com/google/devtools/build/lib/remote/RemoteStats.java",
+    "line": 18,
+    "original_line": 18,
+    "review_comment": [
+      "initialize all fields in the declaration and remove the constructor."
+    ]
+  },
+  {
+    "path": "src/main/java/com/google/devtools/build/lib/remote/RemoteStats.java",
+    "line": 8,
+    "original_line": 8,
+    "review_comment": [
+      "package private please."
+    ]
+  },
+  {
+    "path": "src/main/java/com/google/devtools/build/lib/remote/RemoteStats.java",
+    "line": 11,
+    "original_line": 11,
+    "review_comment": [
+      "we use camel case for fields."
+    ]
+  },
+  {
+    "path": "src/main/java/com/google/devtools/build/lib/remote/RemoteStats.java",
+    "line": 33,
+    "original_line": 33,
+    "review_comment": [
+      "Method names start with lower case.",
+      "Is there a way to run Google Java linter on an external patch? Or just Copybara it in?",
+      "It's automatically run on import."
+    ]
+  },
+  {
+    "path": "src/main/java/com/google/devtools/build/lib/remote/RemoteStats.java",
+    "line": 21,
+    "original_line": 21,
+    "review_comment": [
+      "`add` doesn't seem like a great fit ... name it `countSpawn`? Same for the methods below."
+    ]
+  },
+  {
+    "path": "src/main/java/com/google/devtools/build/lib/remote/RemoteStats.java",
+    "line": 27,
+    "original_line": 27,
+    "review_comment": [
+      "Use javadoc comments."
+    ]
+  },
+  {
+    "path": "src/main/java/com/google/devtools/build/lib/remote/RemoteStats.java",
+    "line": 28,
+    "original_line": 28,
+    "review_comment": [
+      "`countRemoteExecSpawn()`?"
+    ]
+  },
+  {
+    "path": "src/main/java/com/google/devtools/build/lib/remote/RemoteStats.java",
+    "line": 31,
+    "original_line": 31,
+    "review_comment": [
+      "`countLocalExecSpawn()`?"
+    ]
+  }
+]

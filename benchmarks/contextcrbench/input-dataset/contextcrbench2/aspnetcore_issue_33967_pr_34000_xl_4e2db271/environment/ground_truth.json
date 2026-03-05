@@ -1,0 +1,15 @@
+[
+  {
+    "path": "src/Components/Shared/src/WebEventData/MouseEventArgsReader.cs",
+    "line": 98,
+    "original_line": 98,
+    "review_comment": [
+      "This pattern is `O(NM)` with the number of properties on the eventargs type * number of incoming values. I know that `N` is fixed, but this is still a lot of `NameEquals` calls with `N=M=14` here. At what point do you think it would be worth amortizing that by creating a `SortedDictionary<JsonEncodedText, Action<MouseEventArgs, JsonValue>>` or similar up front? It's still `O(log(N) * M)` where `N` is fixed in the framework, so maybe it's not a big enough difference to complicate our lives with.\r\n\r\nSeparately, a hostile user could send an event payload like `{\"a\":0,\"b\":0,\"c\":0,...\"zzz\":0}` and force a lot of string comparisons per event. I estimate about 57,000 string comparisons per event based on `N=14` and `M=~4000` if we allow a 32KB message and they use two-char property name combinations using chars in `a-zA-Z0-9`. Is it worth counting the number of properties we've considered, and throwing if it gets above (say) 50? That wouldn't make the code much more complex.",
+      "In fact, would it be valid to throw if we see *any* property name that we didn't expect? Our JS client sends a known set, doesn't it (it doesn't just serialize raw JS `Event` objects, does it)?",
+      "> In fact, would it be valid to throw if we see any property name that we didn't expect?\r\n\r\nWe could. It'd be different to the current behavior (values without corresponding C# properties get ignored by the serializer) but that might be fine since it would indicate a bug or suggest that we could be sending less data from JS if we genuinely don't need it. ",
+      "Adding a throw for unknown properties to all of the readers doesn't cause any of our tests to fail, so perhaps that's a sufficient solution to limit this sort of attack vector. ",
+      "I'm not sure there's a security concern here, there's a limit to the number of operations you can force and its not controlled by the end user. If we want to make the implementation more \"scalable\" that's fine, but I don't think we should do anything in the name of security.\r\n\r\nThere's only an issue when you can cause the work performed by the server to grow without growing your own work. (For example, if you have an input where you enter a number and the server calculates the factorial or fibonacci of that number as an example), but in general it's ok if you have to do more work to cause the server to do more work, even if the scale is different. At that point, its up to the server to establish the appropriate limits of what it considers acceptable.\r\n\r\nIn this case, even if this can be 57K string comparisons in the worst case, I think it'll be fast enough that it won't matter. It might even be the case, that this way is even faster than doing a hash and a lookup on a Dictionary.",
+      "I was suggesting a structure that would seek via a series of comparisons, not a hash, but in any case it sounds like we\u2019re all settled on the pattern here with the sequence of Equals checks."
+    ]
+  }
+]

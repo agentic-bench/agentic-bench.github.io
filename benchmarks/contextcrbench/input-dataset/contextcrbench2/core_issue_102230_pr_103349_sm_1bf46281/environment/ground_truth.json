@@ -1,0 +1,11 @@
+[
+  {
+    "path": "homeassistant/components/weatherflow/sensor.py",
+    "line": 75,
+    "original_line": 75,
+    "review_comment": [
+      "If its `None` we should probably set the `available` `@property` to `False` instead",
+      "I've added the available property which will return False if this value is None."
+    ]
+  }
+]

@@ -1,0 +1,11 @@
+[
+  {
+    "path": "session/bootstrap.go",
+    "line": 329,
+    "original_line": 329,
+    "review_comment": [
+      "comment\uff1f",
+      "addressed, thanks."
+    ]
+  }
+]

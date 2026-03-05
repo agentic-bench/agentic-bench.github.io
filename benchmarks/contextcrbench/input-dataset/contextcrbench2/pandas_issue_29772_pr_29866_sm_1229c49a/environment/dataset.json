@@ -1,0 +1,13 @@
+[
+  {
+    "id": 63038,
+    "full_name": "pandas-dev/pandas",
+    "lang": "python",
+    "issue_number": 29772,
+    "pr_number": 29866,
+    "diff_hunk": "@@ -92,6 +92,25 @@ def test_groupby_aggregation_mixed_dtype():\n     tm.assert_frame_equal(result, expected)\n \n \n+def test_groupby_aggregation_multi_level_column():\n+    # GH 29772\n+    lst = [\n+        [True, True, True, False],\n+        [True, False, np.nan, False],\n+        [True, True, np.nan, False],\n+        [True, True, np.nan, False],\n+    ]\n+    df = pd.DataFrame(\n+        data=lst,\n+        columns=pd.MultiIndex.from_tuples([(\"A\", 0), (\"A\", 1), (\"B\", 0), (\"B\", 1)]),\n+    )\n+\n+    result = df.groupby(level=1, axis=1).sum()\n+    expected = pd.DataFrame({0: [2.0, 1, 1, 1], 1: [1, 0, 1, 1]})\n+\n+    tm.assert_frame_equal(result, expected)\n+\n+\n def test_agg_apply_corner(ts, tsframe):\n     # nothing to group, all NA\n     grouped = ts.groupby(ts * np.nan)\n",
+    "diff_hunk_content_with_line_number": "[92][92]      tm.assert_frame_equal(result, expected)\n[93][93]  \n[94][94]  \n[][95] +def test_groupby_aggregation_multi_level_column():\n[][96] +    # GH 29772\n[][97] +    lst = [\n[][98] +        [True, True, True, False],\n[][99] +        [True, False, np.nan, False],\n[][100] +        [True, True, np.nan, False],\n[][101] +        [True, True, np.nan, False],\n[][102] +    ]\n[][103] +    df = pd.DataFrame(\n[][104] +        data=lst,\n[][105] +        columns=pd.MultiIndex.from_tuples([(\"A\", 0), (\"A\", 1), (\"B\", 0), (\"B\", 1)]),\n[][106] +    )\n[][107] +\n[][108] +    result = df.groupby(level=1, axis=1).sum()\n[][109] +    expected = pd.DataFrame({0: [2.0, 1, 1, 1], 1: [1, 0, 1, 1]})\n[][110] +\n[][111] +    tm.assert_frame_equal(result, expected)\n[][112] +\n[][113] +\n[95][114]  def test_agg_apply_corner(ts, tsframe):\n[96][115]      # nothing to group, all NA\n[97][116]      grouped = ts.groupby(ts * np.nan)",
+    "checked_commit_id": "1229c49a4855e43dec7f3db34862a138551124e9",
+    "pr_size": "sm"
+  }
+]

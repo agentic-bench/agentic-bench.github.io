@@ -1,0 +1,13 @@
+[
+  {
+    "id": 43971,
+    "full_name": "microsoft/terminal",
+    "lang": "cpp",
+    "issue_number": 7771,
+    "pr_number": 7792,
+    "diff_hunk": "@@ -953,7 +964,7 @@ void UiaTextRangeBase::_moveEndpointByUnitCharacter(_In_ const int moveCount,\n             }\r\n             break;\r\n         case MovementDirection::Backward:\r\n-            success = buffer.MoveToPreviousGlyph(target, allowBottomExclusive);\r\n+            success = buffer.MoveToPreviousGlyph(target);\r\n             if (success)\r\n             {\r\n                 (*pAmountMoved)--;\r",
+    "diff_hunk_content_with_line_number": "[953][964]              }\n[954][965]              break;\n[955][966]          case MovementDirection::Backward:\n[956][] -            success = buffer.MoveToPreviousGlyph(target, allowBottomExclusive);\n[][967] +            success = buffer.MoveToPreviousGlyph(target);\n[957][968]              if (success)\n[958][969]              {\n[959][970]                  (*pAmountMoved)--;",
+    "checked_commit_id": "5e87c505e4d3fb24300ba97d602238f2a92b2021",
+    "pr_size": "l"
+  }
+]

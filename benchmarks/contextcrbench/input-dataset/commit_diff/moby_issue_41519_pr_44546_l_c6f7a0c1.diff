@@ -1,0 +1,163 @@
+diff --git a/daemon/graphdriver/devmapper/deviceset.go b/daemon/graphdriver/devmapper/deviceset.go
+index 9fa9cb268cdfb..5791efb60f999 100644
+--- a/daemon/graphdriver/devmapper/deviceset.go
++++ b/daemon/graphdriver/devmapper/deviceset.go
+@@ -19,7 +19,7 @@ import (
+ 	"time"
+ 
+ 	"github.com/docker/docker/daemon/graphdriver"
+-	"github.com/docker/docker/dockerversion"
++	"github.com/docker/docker/daemon/linkmode"
+ 	"github.com/docker/docker/pkg/devicemapper"
+ 	"github.com/docker/docker/pkg/dmesg"
+ 	"github.com/docker/docker/pkg/idtools"
+@@ -1672,7 +1672,7 @@ func (devices *DeviceSet) initDevmapper(doInit bool) (retErr error) {
+ 
+ 	// https://github.com/docker/docker/issues/4036
+ 	if supported := devicemapper.UdevSetSyncSupport(true); !supported {
+-		if dockerversion.IAmStatic == "true" {
++		if linkmode.IsStatic {
+ 			logger.Error("Udev sync is not supported. This will lead to data loss and unexpected behavior. Install a dynamic binary to use devicemapper or select a different storage driver. For more information, see https://docs.docker.com/engine/reference/commandline/dockerd/#storage-driver-options")
+ 		} else {
+ 			logger.Error("Udev sync is not supported. This will lead to data loss and unexpected behavior. Install a more recent version of libdevmapper or select a different storage driver. For more information, see https://docs.docker.com/engine/reference/commandline/dockerd/#storage-driver-options")
+diff --git a/daemon/linkmode/dynamic.go b/daemon/linkmode/dynamic.go
+new file mode 100644
+index 0000000000000..5950c397ce3eb
+--- /dev/null
++++ b/daemon/linkmode/dynamic.go
+@@ -0,0 +1,6 @@
++//go:build !static_build
++// +build !static_build
++
++package linkmode
++
++const IsStatic = false
+diff --git a/daemon/linkmode/static.go b/daemon/linkmode/static.go
+new file mode 100644
+index 0000000000000..8de78ef095f35
+--- /dev/null
++++ b/daemon/linkmode/static.go
+@@ -0,0 +1,6 @@
++//go:build static_build
++// +build static_build
++
++package linkmode
++
++const IsStatic = true
+diff --git a/daemon/logger/gcplogs/gcplogging.go b/daemon/logger/gcplogs/gcplogging.go
+index 94ef107510fc8..6c13cfcb95622 100644
+--- a/daemon/logger/gcplogs/gcplogging.go
++++ b/daemon/logger/gcplogs/gcplogging.go
+@@ -122,7 +122,7 @@ func New(info logger.Info) (logger.Logger, error) {
+ 	// However, in static binary, os/user.Current() leads to segfault due to a glibc issue that won't be fixed
+ 	// in a short term. (golang/go#13470, https://sourceware.org/bugzilla/show_bug.cgi?id=19341)
+ 	// So we forcibly set HOME so as to avoid call to os/user/Current()
+-	if err := ensureHomeIfIAmStatic(); err != nil {
++	if err := ensureHomeIfStatic(); err != nil {
+ 		return nil, err
+ 	}
+ 
+diff --git a/daemon/logger/gcplogs/gcplogging_linux.go b/daemon/logger/gcplogs/gcplogging_linux.go
+index 1c2160c41c5f5..17215d83f0739 100644
+--- a/daemon/logger/gcplogs/gcplogging_linux.go
++++ b/daemon/logger/gcplogs/gcplogging_linux.go
+@@ -3,22 +3,22 @@ package gcplogs // import "github.com/docker/docker/daemon/logger/gcplogs"
+ import (
+ 	"os"
+ 
+-	"github.com/docker/docker/dockerversion"
++	"github.com/docker/docker/daemon/linkmode"
+ 	"github.com/docker/docker/pkg/homedir"
+ 	"github.com/sirupsen/logrus"
+ )
+ 
+-// ensureHomeIfIAmStatic ensure $HOME to be set if dockerversion.IAmStatic is "true".
++// ensureHomeIfStatic ensure $HOME to be set if linkmode.IsStatic is true.
+ // See issue #29344: gcplogs segfaults (static binary)
+ // If HOME is not set, logging.NewClient() will call os/user.Current() via oauth2/google.
+ // If compiling statically, make sure osusergo build tag is also used to prevent a segfault
+ // due to a glibc issue that won't be fixed in a short term
+ // (see golang/go#13470, https://sourceware.org/bugzilla/show_bug.cgi?id=19341).
+ // So we forcibly set HOME so as to avoid call to os/user/Current()
+-func ensureHomeIfIAmStatic() error {
+-	// Note: dockerversion.IAmStatic is only available for linux.
++func ensureHomeIfStatic() error {
++	// Note: linkmode.IsStatic is only available for linux.
+ 	// So we need to use them in this gcplogging_linux.go rather than in gcplogging.go
+-	if dockerversion.IAmStatic == "true" && os.Getenv("HOME") == "" {
++	if linkmode.IsStatic && os.Getenv("HOME") == "" {
+ 		home := homedir.Get()
+ 		logrus.Warnf("gcplogs requires HOME to be set for static daemon binary. Forcibly setting HOME to %s.", home)
+ 		os.Setenv("HOME", home)
+diff --git a/daemon/logger/gcplogs/gcplogging_others.go b/daemon/logger/gcplogs/gcplogging_others.go
+index 55f43b0c0c712..6cf339e26b8ad 100644
+--- a/daemon/logger/gcplogs/gcplogging_others.go
++++ b/daemon/logger/gcplogs/gcplogging_others.go
+@@ -3,6 +3,6 @@
+ 
+ package gcplogs // import "github.com/docker/docker/daemon/logger/gcplogs"
+ 
+-func ensureHomeIfIAmStatic() error {
++func ensureHomeIfStatic() error {
+ 	return nil
+ }
+diff --git a/dockerversion/version_lib.go b/dockerversion/version_lib.go
+index 0004619f02105..c510e269e0ff4 100644
+--- a/dockerversion/version_lib.go
++++ b/dockerversion/version_lib.go
+@@ -6,7 +6,6 @@ var (
+ 	GitCommit             = "library-import"
+ 	Version               = "library-import"
+ 	BuildTime             = "library-import"
+-	IAmStatic             = "library-import"
+ 	PlatformName          = ""
+ 	ProductName           = ""
+ 	DefaultProductLicense = ""
+diff --git a/hack/make.sh b/hack/make.sh
+index c69826af2589a..1fc547aced516 100755
+--- a/hack/make.sh
++++ b/hack/make.sh
+@@ -100,7 +100,6 @@ fi
+ 
+ # Use these flags when compiling the tests and final binary
+ 
+-IAMSTATIC='true'
+ if [ -z "$DOCKER_DEBUG" ]; then
+ 	LDFLAGS='-w'
+ fi
+diff --git a/hack/make/.go-autogen b/hack/make/.go-autogen
+index 07205f5f4b74d..de1708dce7c38 100644
+--- a/hack/make/.go-autogen
++++ b/hack/make/.go-autogen
+@@ -4,7 +4,6 @@ LDFLAGS="${LDFLAGS} \
+ 	-X \"github.com/docker/docker/dockerversion.Version=${VERSION}\" \
+ 	-X \"github.com/docker/docker/dockerversion.GitCommit=${GITCOMMIT}\" \
+ 	-X \"github.com/docker/docker/dockerversion.BuildTime=${BUILDTIME}\" \
+-	-X \"github.com/docker/docker/dockerversion.IAmStatic=${IAMSTATIC:-true}\" \
+ 	-X \"github.com/docker/docker/dockerversion.PlatformName=${PLATFORM}\" \
+ 	-X \"github.com/docker/docker/dockerversion.ProductName=${PRODUCT}\" \
+ 	-X \"github.com/docker/docker/dockerversion.DefaultProductLicense=${DEFAULT_PRODUCT_LICENSE}\" \
+diff --git a/hack/make/dynbinary-daemon b/hack/make/dynbinary-daemon
+index 7d659695d4bed..efb69df75422d 100644
+--- a/hack/make/dynbinary-daemon
++++ b/hack/make/dynbinary-daemon
+@@ -4,7 +4,6 @@ set -e
+ [ -z "$KEEPDEST" ] && rm -rf "$DEST"
+ 
+ (
+-	export IAMSTATIC='false'
+ 	export LDFLAGS_STATIC_DOCKER=''
+ 	export BUILDFLAGS=("${BUILDFLAGS[@]/netgo /}")        # disable netgo, since we don't need it for a dynamic binary
+ 	export BUILDFLAGS=("${BUILDFLAGS[@]/osusergo /}")     # ditto for osusergo
+diff --git a/hack/make/dynbinary-proxy b/hack/make/dynbinary-proxy
+index ff408b299ebd3..048bd9d2b25f7 100644
+--- a/hack/make/dynbinary-proxy
++++ b/hack/make/dynbinary-proxy
+@@ -3,7 +3,6 @@
+ set -e
+ 
+ (
+-	export IAMSTATIC='false'
+ 	export LDFLAGS_STATIC_DOCKER=''
+ 	export BUILDFLAGS=("${BUILDFLAGS[@]/netgo /}")        # disable netgo, since we don't need it for a dynamic binary
+ 	export BUILDFLAGS=("${BUILDFLAGS[@]/osusergo /}")     # ditto for osusergo

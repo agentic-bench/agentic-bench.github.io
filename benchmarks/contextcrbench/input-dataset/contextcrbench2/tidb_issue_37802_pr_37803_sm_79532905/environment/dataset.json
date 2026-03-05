@@ -1,0 +1,13 @@
+[
+  {
+    "id": 41042,
+    "full_name": "pingcap/tidb",
+    "lang": "go",
+    "issue_number": 37802,
+    "pr_number": 37803,
+    "diff_hunk": "@@ -461,6 +461,12 @@ var defaultSysVars = []*SysVar{\n \t\t\treturn BoolToOnOff(config.GetGlobalConfig().Instance.TiDBEnableDDL.Load()), nil\n \t\t},\n \t},\n+\t{Scope: ScopeInstance, Name: TiDBRCReadCheckTS, Value: BoolToOnOff(DefRCReadCheckTS), Type: TypeBool, SetGlobal: func(s *SessionVars, val string) error {\n+\t\tEnableRCReadCheckTS.Store(TiDBOptOn(val))\n+\t\treturn nil\n+\t}, GetGlobal: func(s *SessionVars) (string, error) {\n+\t\treturn BoolToOnOff(EnableRCReadCheckTS.Load()), nil\n+\t}},\n \n \t/* The system variables below have GLOBAL scope  */\n \t{Scope: ScopeGlobal, Name: MaxPreparedStmtCount, Value: strconv.FormatInt(DefMaxPreparedStmtCount, 10), Type: TypeInt, MinValue: -1, MaxValue: 1048576},",
+    "diff_hunk_content_with_line_number": "[461][461]  \t\t\treturn BoolToOnOff(config.GetGlobalConfig().Instance.TiDBEnableDDL.Load()), nil\n[462][462]  \t\t},\n[463][463]  \t},\n[][464] +\t{Scope: ScopeInstance, Name: TiDBRCReadCheckTS, Value: BoolToOnOff(DefRCReadCheckTS), Type: TypeBool, SetGlobal: func(s *SessionVars, val string) error {\n[][465] +\t\tEnableRCReadCheckTS.Store(TiDBOptOn(val))\n[][466] +\t\treturn nil\n[][467] +\t}, GetGlobal: func(s *SessionVars) (string, error) {\n[][468] +\t\treturn BoolToOnOff(EnableRCReadCheckTS.Load()), nil\n[][469] +\t}},\n[464][470]  \n[465][471]  \t/* The system variables below have GLOBAL scope  */\n[466][472]  \t{Scope: ScopeGlobal, Name: MaxPreparedStmtCount, Value: strconv.FormatInt(DefMaxPreparedStmtCount, 10), Type: TypeInt, MinValue: -1, MaxValue: 1048576},",
+    "checked_commit_id": "79532905b0a8967a18b46d17a23a8e5ae7a28c32",
+    "pr_size": "sm"
+  }
+]

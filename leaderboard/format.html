@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Submission Format — Agentic Code Review Leaderboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="styles.css" rel="stylesheet">
+    <script>
+        (function() {
+            const saved = localStorage.getItem('lb-theme') || 'light';
+            document.documentElement.setAttribute('data-theme', saved);
+            function fmtToggleTheme() {
+                const html  = document.documentElement;
+                const next  = html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+                html.setAttribute('data-theme', next);
+                localStorage.setItem('lb-theme', next);
+                document.getElementById('fmt-theme-icon').innerHTML    = next === 'dark' ? '<i class="far fa-sun"></i>' : '<i class="far fa-moon"></i>';
+                document.getElementById('fmt-theme-label').textContent = next === 'dark' ? 'Light' : 'Dark';
+            }
+            document.addEventListener('DOMContentLoaded', () => {
+                const icon  = document.getElementById('fmt-theme-icon');
+                const label = document.getElementById('fmt-theme-label');
+                if (icon)  icon.innerHTML    = saved === 'dark' ? '<i class="far fa-sun"></i>' : '<i class="far fa-moon"></i>';
+                if (label) label.textContent = saved === 'dark' ? 'Light' : 'Dark';
+            });
+        })();
+    </script>
+    <style>
+        .format-page { max-width: 860px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+        .format-section { margin-bottom: 2.5rem; }
+        .format-section h2 { font-size: 1.2rem; font-weight: 700; margin-bottom: 1rem;
+            padding-bottom: .4rem; border-bottom: 2px solid var(--border); color: var(--primary); }
+        .format-section h3 { font-size: 1rem; font-weight: 600; margin: 1.25rem 0 .5rem; color: var(--text); }
+        pre.schema {
+            background: var(--bg-surface2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.1rem 1.25rem;
+            font-size: .8rem;
+            line-height: 1.6;
+            overflow-x: auto;
+            color: var(--text);
+        }
+        .field-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+        .field-table th { background: var(--bg-surface2); padding: .5rem .75rem;
+            text-align: left; border: 1px solid var(--border); color: var(--text-muted);
+            font-weight: 600; font-size: .78rem; text-transform: uppercase; letter-spacing: .05em; }
+        .field-table td { padding: .5rem .75rem; border: 1px solid var(--border);
+            vertical-align: top; color: var(--text); }
+        .field-table td code { font-size: .78rem; background: var(--bg-surface3);
+            border-radius: 3px; padding: .1rem .3rem; }
+        .badge-required { background: #cf222e; color: #fff; font-size: .65rem;
+            padding: 1px 6px; border-radius: 8px; vertical-align: middle; margin-left: 4px; }
+        .badge-optional { background: #57606a; color: #fff; font-size: .65rem;
+            padding: 1px 6px; border-radius: 8px; vertical-align: middle; margin-left: 4px; }
+        .back-link { color: var(--primary); text-decoration: none; font-size: .9rem; }
+        .back-link:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+    <nav class="navbar navbar-expand-lg">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand" href="index.html">
+                <i class="fas fa-robot me-2"></i>
+                Agentic Code Review Leaderboard
+            </a>
+            <button class="theme-toggle" onclick="fmtToggleTheme()" title="Toggle theme">
+                <span id="fmt-theme-icon"><i class="far fa-moon"></i></span>
+                <span id="fmt-theme-label">Dark</span>
+            </button>
+        </div>
+    </nav>
+
+    <div class="format-page">
+        <div class="mb-4">
+            <a href="index.html" class="back-link"><i class="fas fa-arrow-left me-1"></i>Back to Leaderboard</a>
+        </div>
+
+        <h1 class="fw-bold mb-1">Submission Format</h1>
+        <p class="text-muted mb-4">
+            Unified llm-comments JSONL format required for all benchmark submissions.
+        </p>
+
+        <!-- ================================================================
+             Overview
+             ================================================================ -->
+        <div class="format-section">
+            <h2>Overview</h2>
+            <p>
+                Each submission is a <strong>JSONL file</strong> (one JSON object per line),
+                where each line represents one <strong>diff</strong> (pull request) that was reviewed.
+                The filename determines the agent identity:
+            </p>
+            <pre class="schema">{agent_id}_{YYYYMMDD-HHMM}.jsonl
+
+Examples:
+  my-agent_20260301-0900.jsonl
+  rovodev-cli-0-12-16_20251105-0800.jsonl</pre>
+            <p class="mt-3">
+                Place the file in <code>benchmarks/{benchmark_name}/llm-comments/</code>.
+            </p>
+        </div>
+
+        <!-- ================================================================
+             Top-level fields
+             ================================================================ -->
+        <div class="format-section">
+            <h2>Top-level Fields (per line / per diff)</h2>
+            <pre class="schema">{
+  "diff_id":    "airflow_issue_10616_pr_10617_l_6bfba8c5",  <span style="color:#57606a">// required — matches dataset.jsonl</span>
+  "submission": { ... },                                      <span style="color:#57606a">// required — agent metadata</span>
+  "trajectory": { ... },                                      <span style="color:#57606a">// required — cost/usage data</span>
+  "has_reviews": true,                                        <span style="color:#57606a">// required — whether agent produced any comments</span>
+  "reviews":    [ ... ]                                       <span style="color:#57606a">// required — list of review comments (may be [])</span>
+}</pre>
+
+            <table class="field-table mt-3">
+                <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                <tbody>
+                    <tr><td><code>diff_id</code> <span class="badge-required">required</span></td>
+                        <td><code>string</code></td>
+                        <td>Must match a <code>diff_id</code> in the benchmark's <code>dataset.jsonl</code>.</td></tr>
+                    <tr><td><code>submission</code> <span class="badge-required">required</span></td>
+                        <td><code>object</code></td>
+                        <td>Agent identity — see <a href="#submission-block">Submission block</a> below.</td></tr>
+                    <tr><td><code>trajectory</code> <span class="badge-required">required</span></td>
+                        <td><code>object</code></td>
+                        <td>Token usage and cost for this diff — see <a href="#trajectory-block">Trajectory block</a> below.</td></tr>
+                    <tr><td><code>has_reviews</code> <span class="badge-required">required</span></td>
+                        <td><code>boolean</code></td>
+                        <td><code>true</code> if the agent produced at least one review comment for this diff.</td></tr>
+                    <tr><td><code>reviews</code> <span class="badge-required">required</span></td>
+                        <td><code>array</code></td>
+                        <td>List of review comment objects. May be <code>[]</code> if agent decided no comment is needed.</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- ================================================================
+             Submission block
+             ================================================================ -->
+        <div class="format-section" id="submission-block">
+            <h2>Submission Block</h2>
+            <pre class="schema">"submission": {
+  "agent_id":    "my-agent",                    <span style="color:#57606a">// required — stable identifier (used for leaderboard key)</span>
+  "model":       "claude-3-5-sonnet-20241022",  <span style="color:#57606a">// MANDATORY — base model name (used for cost calculation)</span>
+  "timestamp":   "20260301-0900",               <span style="color:#57606a">// required — YYYYMMDD-HHMM (must match filename)</span>
+  "extra": {                                    <span style="color:#57606a">// optional — any additional metadata</span>
+    "config_name": "default",
+    "version":     "1.0.0",
+    "description": "My agentic reviewer using chain-of-thought"
+  }
+}</pre>
+
+            <table class="field-table mt-3">
+                <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+                <tbody>
+                    <tr><td><code>agent_id</code> <span class="badge-required">required</span></td>
+                        <td><code>string</code></td>
+                        <td>Stable agent name. Latest submission for this <code>agent_id</code> replaces previous ones in the leaderboard.</td></tr>
+                    <tr><td><code>model</code> <span class="badge-required">required</span></td>
+                        <td><code>string</code></td>
+                        <td><strong>MANDATORY</strong> — Name of the underlying LLM (e.g. <code>gpt-4o</code>, <code>claude-3-5-sonnet-20241022</code>). Must be recognized by <code>genai_price</code> for cost calculation. Submission will be rejected if this field is missing.</td></tr>
+                    <tr><td><code>timestamp</code> <span class="badge-required">required</span></td>
+                        <td><code>string</code></td>
+                        <td>Must match the timestamp portion of the filename. Format: <code>YYYYMMDD-HHMM</code>.</td></tr>
+                    <tr><td><code>extra</code> <span class="badge-optional">optional</span></td>
+                        <td><code>object</code></td>
+                        <td>Any additional metadata. Stored as-is; some evaluators may inspect it.</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- ================================================================
+             Trajectory block
+             ================================================================ -->
+        <div class="format-section" id="trajectory-block">
+            <h2>Trajectory Block</h2>
+            <pre class="schema">"trajectory": {
+  "input_tokens":  12450,   <span style="color:#57606a">// required — total input tokens consumed for this diff</span>
+  "output_tokens": 843,     <span style="color:#57606a">// required — total output tokens produced for this diff</span>
+  "total_tokens":  13293,   <span style="color:#57606a">// optional — total tokens (input + output)</span>
+  "steps":         7,       <span style="color:#57606a">// required — number of agent steps / LLM calls</span>
+  "extra": {                <span style="color:#57606a">// optional — any additional usage fields</span>
+    "tool_calls":  5,
+    "requests":    3
+  }
+}</pre>
+
+            <p class="mt-3" style="color: var(--text-muted); font-size: 0.9rem;">
+                <strong>Note:</strong> Cost metrics (<code>input_costs</code>, <code>output_costs</code>, <code>total_costs</code>) are <strong>automatically calculated</strong> by the evaluation pipeline based on token counts and the model name specified in the submission block. You should not include cost values in your submission.
+            </p>
+            <p style="color: var(--text-muted); font-size: 0.9rem;">
+                <strong>Note:</strong> The <code>extra</code> field can contain additional trajectory data like <code>tool_calls</code> and <code>requests</code> which may be used by evaluators for deeper analysis.
+            </p>
+
+            <table class="field-table mt-3">
+                <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
+                <tbody>
+                    <tr><td><code>input_tokens</code> <span class="badge-required">required</span></td>
+                        <td><code>number</code></td><td>Summed across all LLM calls for this diff.</td></tr>
+                    <tr><td><code>output_tokens</code> <span class="badge-required">required</span></td>
+                        <td><code>number</code></td><td>Summed across all LLM calls for this diff.</td></tr>
+                    <tr><td><code>total_tokens</code> <span class="badge-optional">optional</span></td>
+                        <td><code>number</code></td><td>Total tokens (usually <code>input_tokens + output_tokens</code>).</td></tr>
+                    <tr><td><code>steps</code> <span class="badge-required">required</span></td>
+                        <td><code>number</code></td><td>Number of agentic steps / tool calls / LLM invocations.</td></tr>
+                    <tr><td><code>extra</code> <span class="badge-optional">optional</span></td>
+                        <td><code>object</code></td><td>Any additional usage data (cache tokens, latency, etc.).</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- ================================================================
+             Reviews array
+             ================================================================ -->
+        <div class="format-section">
+            <h2>Reviews Array</h2>
+            <p>Each element in <code>reviews</code> is a single code review comment:</p>
+            <pre class="schema">"reviews": [
+  {
+    "file":    "airflow/models/dagbag.py",  <span style="color:#57606a">// required — relative file path</span>
+    "line":    321,                          <span style="color:#57606a">// required — integer line number (1-based)</span>
+    "comment": "This approach of removing modules from sys.modules..."
+                                             <span style="color:#57606a">// required — the review comment text</span>
+  }
+]</pre>
+
+            <table class="field-table mt-3">
+                <thead><tr><th>Field</th><th>Type</th><th>Notes</th></tr></thead>
+                <tbody>
+                    <tr><td><code>file</code> <span class="badge-required">required</span></td>
+                        <td><code>string</code></td>
+                        <td>Relative path within the repository (e.g. <code>src/foo/bar.py</code>). No leading slash.</td></tr>
+                    <tr><td><code>line</code> <span class="badge-required">required</span></td>
+                        <td><code>integer</code></td>
+                        <td>Line number in the file. Must be a single integer — no line ranges. A ±5 window is used for fuzzy location matching.</td></tr>
+                    <tr><td><code>comment</code> <span class="badge-required">required</span></td>
+                        <td><code>string</code></td>
+                        <td>The review comment text produced by the agent.</td></tr>
+                    <tr><td><code>confidence</code> <span class="badge-optional">optional</span></td>
+                        <td><code>number</code></td>
+                        <td>Confidence score (0.0-1.0) for this review comment. Optional metadata for analysis.</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- ================================================================
+             Full example
+             ================================================================ -->
+        <div class="format-section">
+            <h2>Full Example (one line / one diff)</h2>
+            <pre class="schema">{
+  "diff_id": "airflow_issue_10616_pr_10617_l_6bfba8c5",
+  "submission": {
+    "agent_id":  "my-agent",
+    "model":     "claude-3-5-sonnet-20241022",
+    "timestamp": "20260301-0900",
+    "extra": { "version": "1.0.0" }
+  },
+  "trajectory": {
+    "input_tokens":  12450,
+    "output_tokens": 843,
+    "total_tokens":  13293,
+    "steps":         7
+  },
+  "has_reviews": true,
+  "reviews": [
+    {
+      "file": "airflow/models/dagbag.py",
+      "line": 321,
+      "comment": "Removing modules from sys.modules here can cause unintended side effects if other parts of the application hold references to these modules. Consider using a more targeted approach."
+    },
+    {
+      "file": "tests/models/test_dagbag.py",
+      "line": 257,
+      "comment": "The line `del sys.path[:1]` mutates the global sys.path, which may affect other tests running in the same process. Consider using a context manager or restoring the original path in a teardown."
+    }
+  ]
+}</pre>
+        </div>
+
+        <!-- ================================================================
+             Filename convention
+             ================================================================ -->
+        <div class="format-section">
+            <h2>Filename Convention</h2>
+            <pre class="schema">{agent_id}_{YYYYMMDD-HHMM}.jsonl
+
+Rules:
+- agent_id    : lowercase, hyphens allowed, no underscores (underscores separate agent_id from timestamp)
+- YYYYMMDD    : 8-digit date (year, month, day)
+- HHMM        : 4-digit time (hour, minute) in 24h format
+- .jsonl      : one JSON object per line, UTF-8 encoded</pre>
+            <p>
+                Re-submitting with the same <code>agent_id</code> but a newer timestamp will replace
+                the previous entry in the leaderboard (latest-wins deduplication).
+            </p>
+        </div>
+
+        <!-- ================================================================
+             Validation
+             ================================================================ -->
+        <div class="format-section">
+            <h2>Validation Tips</h2>
+            <ul style="font-size:.875rem;color:var(--text-muted);line-height:1.8">
+                <li>Every line must be valid JSON. Use <code>python3 -c "import json; [json.loads(l) for l in open('file.jsonl')]"</code> to check.</li>
+                <li>All <code>diff_id</code> values must appear in the benchmark's <code>dataset.jsonl</code>.</li>
+                <li>Diffs that your agent did not review may be <strong>omitted</strong> from the file — the evaluator will count missing diffs as not accomplished.</li>
+                <li>Diffs where your agent decided no comment is needed should still be included with <code>"reviews": []</code> and <code>"has_reviews": false</code>.</li>
+                <li><code>comment_line</code> must be a positive integer. Do not use line ranges.</li>
+                <li>All mandatory <code>trajectory</code> fields must be present and numeric (use <code>0</code> if unknown, not <code>null</code>).</li>
+            </ul>
+        </div>
+
+    </div>
+
+    <footer class="py-4 mt-4">
+        <div class="container-fluid px-4">
+            <!-- Powered-by logo bar -->
+            <div class="logo-bar-footer">
+                <div class="logo-slots">
+                    <!-- Atlassian: wide horizontal SVG, invert to white on dark bar -->
+                    <a href="https://www.atlassian.com" target="_blank" class="logo-slot" title="Atlassian">
+                        <img src="logos/Atlassian-logo.svg"
+                             alt="Atlassian"
+                             style="height:30px;width:auto;opacity:1">
+                    </a>
+                    <!-- University of Melbourne: square SVG with dark navy bg, show as-is -->
+                    <a href="https://www.unimelb.edu.au" target="_blank" class="logo-slot" title="University of Melbourne">
+                        <img src="logos/unimelb-logo.svg"
+                             alt="University of Melbourne"
+                             style="height:80px;width:auto;border-radius:4px">
+                    </a>
+                    <!-- Monash University: wide PNG, invert to white on dark bar -->
+                    <a href="https://www.monash.edu" target="_blank" class="logo-slot" title="Monash University">
+                        <img src="logos/monash-logo.png"
+                             alt="Monash University"
+                             style="height:60px;width:auto;opacity:1">
+                    </a>
+                </div>
+            </div>
+            <div class="text-center mt-3">
+                <p class="mb-0" style="font-size:.85rem;color:var(--text-muted)">
+                    &copy; 2026 Agentic Code Review Leaderboard &mdash; AI for Software Engineering Research.
+                </p>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

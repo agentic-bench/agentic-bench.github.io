@@ -1,0 +1,11 @@
+[
+  {
+    "path": "planner/core/planbuilder.go",
+    "line": 532,
+    "original_line": 529,
+    "review_comment": [
+      "Why do we need to return 0 for sampling?",
+      "This is used to disable logic optimization."
+    ]
+  }
+]

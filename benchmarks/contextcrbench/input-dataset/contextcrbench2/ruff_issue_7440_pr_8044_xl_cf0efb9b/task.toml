@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "ruff_issue_7440_pr_8044_xl_cf0efb9b"
+contextcrbench2_full_name = "astral-sh/ruff"
+contextcrbench2_lang = "rust"
+contextcrbench2_issue_number = "7440"
+contextcrbench2_issue_title = "Formatter incompatibility: ellipses are not inlined in `.py` files"
+contextcrbench2_pr_number = "8044"
+contextcrbench2_pr_title = "Add test and basic implementation for formatter preview mode"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "cf0efb9b81efa2590bb68f3d0f33efaa58339243"
+contextcrbench2_commit_id = "a6ae408682b78ca518e449b2eb6ff95a4cce82f7"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2023-10-18T23:08:05Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

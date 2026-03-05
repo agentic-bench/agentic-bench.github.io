@@ -1,0 +1,10 @@
+[
+  {
+    "path": "executor/test/indexmergereadtest/index_merge_reader_test.go",
+    "line": 1209,
+    "original_line": 1209,
+    "review_comment": [
+      "ditto"
+    ]
+  }
+]

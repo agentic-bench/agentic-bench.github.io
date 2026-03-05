@@ -1,0 +1,13 @@
+[
+  {
+    "path": "airflow/triggers/temporal.py",
+    "line": 45,
+    "original_line": 45,
+    "review_comment": [
+      "\"Tests Police\" here \ud83e\udd23 , we need also test this one.\r\n\r\nA guess we do not have unittests for this constructor except type checking.\r\nThe same valid for `TimeDeltaTrigger` which based on `DateTimeTrigger`",
+      "I just updated the test `test_datetime_trigger_timing` to check if the logic remains valid with different timezones",
+      "I guess we could check just in class constructor but this seems like even better",
+      "@Taragolis looks like there are tests added. Do you think there should be more testing?"
+    ]
+  }
+]

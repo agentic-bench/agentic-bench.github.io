@@ -1,0 +1,27 @@
+[
+  {
+    "path": "src/libsystemd/sd-journal/test-journal-interleaving.c",
+    "line": 896,
+    "original_line": 896,
+    "review_comment": [
+      "assert(e)"
+    ]
+  },
+  {
+    "path": "src/libsystemd/sd-journal/test-journal-interleaving.c",
+    "line": 921,
+    "original_line": 921,
+    "review_comment": [
+      "assert(entries || n_entires == 0)",
+      "same below"
+    ]
+  },
+  {
+    "path": "src/libsystemd/sd-journal/test-journal-interleaving.c",
+    "line": 995,
+    "original_line": 995,
+    "review_comment": [
+      "assert(entry)"
+    ]
+  }
+]

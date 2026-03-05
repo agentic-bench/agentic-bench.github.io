@@ -1,0 +1,8 @@
+{
+    "task_id": "systemd_issue_19543_pr_19544_sm_87cd4ce0",
+    "repo": "systemd",
+    "issue_number": 19543,
+    "pr_number": 19544,
+    "checked_commit_id": "87cd4ce09efca26c0d5a6d5aa76df2d3df4a85bc",
+    "entry_count": 1
+}

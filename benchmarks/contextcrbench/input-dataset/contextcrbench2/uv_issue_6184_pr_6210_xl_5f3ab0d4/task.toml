@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "uv_issue_6184_pr_6210_xl_5f3ab0d4"
+contextcrbench2_full_name = "astral-sh/uv"
+contextcrbench2_lang = "rust"
+contextcrbench2_issue_number = "6184"
+contextcrbench2_issue_title = "Allow users to constrain universal locks to specific markers"
+contextcrbench2_pr_number = "6210"
+contextcrbench2_pr_title = "Allow user to constrain supported lock environments"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "5f3ab0d4f01501e8dfd152ce67a3a26fdd6dd351"
+contextcrbench2_commit_id = "ded478a7478d8d4b1aedb2e29aba47b96bc18339"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2024-08-19T16:33:35Z"
+contextcrbench2_entry_count = "3"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

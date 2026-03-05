@@ -1,0 +1,10 @@
+[
+  {
+    "path": "src/network/networkd-ipv4acd.c",
+    "line": 69,
+    "original_line": 69,
+    "review_comment": [
+      "\"is\" \u2192 \"was\""
+    ]
+  }
+]

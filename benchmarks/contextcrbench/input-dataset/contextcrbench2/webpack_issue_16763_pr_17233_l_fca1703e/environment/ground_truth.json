@@ -1,0 +1,10 @@
+[
+  {
+    "path": "lib/javascript/JavascriptParser.js",
+    "line": 3966,
+    "original_line": 3966,
+    "review_comment": [
+      "I will fix it late, I am already working on types here, we need rewrite some parts of code"
+    ]
+  }
+]

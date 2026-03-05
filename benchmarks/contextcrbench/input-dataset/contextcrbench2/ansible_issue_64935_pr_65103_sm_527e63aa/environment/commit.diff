@@ -1,0 +1,58 @@
+diff --git a/changelogs/fragments/64935_import_tasks.yml b/changelogs/fragments/64935_import_tasks.yml
+new file mode 100644
+index 00000000000000..b69645152d4aa9
+--- /dev/null
++++ b/changelogs/fragments/64935_import_tasks.yml
+@@ -0,0 +1,2 @@
++bugfixes:
++- import_tasks - raise an error when invalid params are specified (https://github.com/ansible/ansible/issues/64935).
+diff --git a/lib/ansible/modules/import_tasks.py b/lib/ansible/modules/import_tasks.py
+index e3884c75b1928f..e31adfa44a392a 100644
+--- a/lib/ansible/modules/import_tasks.py
++++ b/lib/ansible/modules/import_tasks.py
+@@ -24,6 +24,10 @@
+       - If you need any of those to apply, use M(include_tasks) instead.
+ notes:
+   - This is a core feature of Ansible, rather than a module, and cannot be overridden like a module.
++  - Following are valid Task-level keywords - 'action', 'args', 'become', 'check_mode', 'collections', 'debugger',  'delegate_to',
++    'delegate_facts', 'diff', 'environment', 'ignore_errors', 'ignore_unreachable', 'module_defaults', 'name', 'no_log',
++    'remote_user', 'run_once', 'tags', 'vars', and 'when'.
++
+ seealso:
+ - module: import_playbook
+ - module: import_role
+diff --git a/lib/ansible/playbook/task_include.py b/lib/ansible/playbook/task_include.py
+index 3989d391c0fe67..3b2cfb6aa04fa1 100644
+--- a/lib/ansible/playbook/task_include.py
++++ b/lib/ansible/playbook/task_include.py
+@@ -42,9 +42,12 @@ class TaskInclude(Task):
+     BASE = frozenset(('file', '_raw_params'))  # directly assigned
+     OTHER_ARGS = frozenset(('apply',))  # assigned to matching property
+     VALID_ARGS = BASE.union(OTHER_ARGS)  # all valid args
+-    VALID_INCLUDE_KEYWORDS = frozenset(('action', 'args', 'collections', 'debugger', 'ignore_errors', 'loop', 'loop_control',
+-                                        'loop_with', 'name', 'no_log', 'register', 'run_once', 'tags', 'vars',
+-                                        'when'))
++    VALID_KEYWORDS = frozenset(('action', 'args', 'collections', 'debugger', 'ignore_errors', 'name', 'no_log',
++                                'run_once', 'tags', 'vars', 'when'))
++    VALID_INCLUDE_KEYWORDS = VALID_KEYWORDS.union(frozenset(('loop', 'loop_control', 'loop_with', 'register',)))
++    VALID_IMPORT_KEYWORDS = VALID_KEYWORDS.union(frozenset(('become', 'check_mode', 'delegate_to', 'delegate_facts',
++                                                            'diff', 'environment', 'ignore_unreachable', 'module_defaults',
++                                                            'remote_user')))
+ 
+     # =================================================================================
+     # ATTRIBUTES
+@@ -104,6 +107,14 @@ def preprocess_data(self, ds):
+                 else:
+                     display.warning("Ignoring invalid attribute: %s" % k)
+ 
++        if ds['action'] in ('import_tasks'):
++            diff = set(ds.keys()).difference(self.VALID_IMPORT_KEYWORDS)
++            for key in diff:
++                if key in ds and ds[key] is not Sentinel:
++                    if C.INVALID_TASK_ATTRIBUTE_FAILED:
++                        raise AnsibleParserError("'%s' is not a valid attribute for a %s" % (key, ds['action']), obj=ds)
++                    else:
++                        display.warning("Ignoring invalid attribute: '%s' for %s" % (key, ds['action']))
+         return ds
+ 
+     def copy(self, exclude_parent=False, exclude_tasks=False):

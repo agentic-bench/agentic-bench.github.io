@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "transformers_issue_29786_pr_29989_sm_5844b8db"
+contextcrbench2_full_name = "huggingface/transformers"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "29786"
+contextcrbench2_issue_title = "Community contribution: enabling `device_map=\"auto\"` support for more vision and multimodal models"
+contextcrbench2_pr_number = "29989"
+contextcrbench2_pr_title = "Enable multi-device for efficientnet"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "5844b8db608aa35da6ab8b0f3735497b0ca8f4b6"
+contextcrbench2_commit_id = "5844b8db608aa35da6ab8b0f3735497b0ca8f4b6"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2024-04-02T08:49:48Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

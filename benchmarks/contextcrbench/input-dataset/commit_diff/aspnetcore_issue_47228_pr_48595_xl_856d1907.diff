@@ -1,0 +1,1084 @@
+diff --git a/src/Http/Authentication.Abstractions/src/AuthenticationProperties.cs b/src/Http/Authentication.Abstractions/src/AuthenticationProperties.cs
+index 7da312cd0105..590da7383f36 100644
+--- a/src/Http/Authentication.Abstractions/src/AuthenticationProperties.cs
++++ b/src/Http/Authentication.Abstractions/src/AuthenticationProperties.cs
+@@ -16,6 +16,7 @@ public class AuthenticationProperties
+     internal const string IsPersistentKey = ".persistent";
+     internal const string RedirectUriKey = ".redirect";
+     internal const string RefreshKey = ".refresh";
++    internal const string RefreshTokenKey = ".refreshToken";
+     internal const string UtcDateTimeFormat = "r";
+ 
+     /// <summary>
+@@ -116,6 +117,15 @@ public bool? AllowRefresh
+         set => SetBool(RefreshKey, value);
+     }
+ 
++    /// <summary>
++    /// If set, the token must be valid for sign in to continue.
++    /// </summary>
++    public string? RefreshToken
++    {
++        get => GetParameter<string?>(RefreshTokenKey);
++        set => SetParameter<string?>(RefreshTokenKey, value);
++    }
++
+     /// <summary>
+     /// Get a string value from the <see cref="Items"/> collection.
+     /// </summary>
+diff --git a/src/Http/Authentication.Abstractions/src/PublicAPI.Unshipped.txt b/src/Http/Authentication.Abstractions/src/PublicAPI.Unshipped.txt
+index 80662da04d55..c05478c6c522 100644
+--- a/src/Http/Authentication.Abstractions/src/PublicAPI.Unshipped.txt
++++ b/src/Http/Authentication.Abstractions/src/PublicAPI.Unshipped.txt
+@@ -2,3 +2,5 @@
+ Microsoft.AspNetCore.Authentication.AuthenticationFailureException
+ Microsoft.AspNetCore.Authentication.AuthenticationFailureException.AuthenticationFailureException(string? message) -> void
+ Microsoft.AspNetCore.Authentication.AuthenticationFailureException.AuthenticationFailureException(string? message, System.Exception? innerException) -> void
++Microsoft.AspNetCore.Authentication.AuthenticationProperties.RefreshToken.get -> string?
++Microsoft.AspNetCore.Authentication.AuthenticationProperties.RefreshToken.set -> void
+diff --git a/src/Identity/Core/src/DTO/RefreshRequest.cs b/src/Identity/Core/src/DTO/RefreshRequest.cs
+new file mode 100644
+index 000000000000..d435822a6ad1
+--- /dev/null
++++ b/src/Identity/Core/src/DTO/RefreshRequest.cs
+@@ -0,0 +1,9 @@
++// Licensed to the .NET Foundation under one or more agreements.
++// The .NET Foundation licenses this file to you under the MIT license.
++
++namespace Microsoft.AspNetCore.Identity.DTO;
++
++internal sealed class RefreshRequest
++{
++    public required string RefreshToken { get; init; }
++}
+diff --git a/src/Identity/Core/src/IdentityApiEndpointRouteBuilderExtensions.cs b/src/Identity/Core/src/IdentityApiEndpointRouteBuilderExtensions.cs
+index 11a40a5e74be..db19fccd29da 100644
+--- a/src/Identity/Core/src/IdentityApiEndpointRouteBuilderExtensions.cs
++++ b/src/Identity/Core/src/IdentityApiEndpointRouteBuilderExtensions.cs
+@@ -2,6 +2,8 @@
+ // The .NET Foundation licenses this file to you under the MIT license.
+ 
+ using System.Linq;
++using System.Security.Claims;
++using Microsoft.AspNetCore.Authentication;
+ using Microsoft.AspNetCore.Authentication.BearerToken.DTO;
+ using Microsoft.AspNetCore.Builder;
+ using Microsoft.AspNetCore.Http;
+@@ -18,6 +20,7 @@ namespace Microsoft.AspNetCore.Routing;
+ /// </summary>
+ public static class IdentityApiEndpointRouteBuilderExtensions
+ {
++
+     /// <summary>
+     /// Add endpoints for registering, logging in, and logging out using ASP.NET Core Identity.
+     /// </summary>
+@@ -72,6 +75,20 @@ public static class IdentityApiEndpointRouteBuilderExtensions
+             return TypedResults.SignIn(claimsPrincipal, authenticationScheme: scheme);
+         });
+ 
++        routeGroup.MapPost("/refresh", Results<UnauthorizedHttpResult, Ok<AccessTokenResponse>, SignInHttpResult>
++            ([FromBody] RefreshRequest refreshRequest) =>
++        {
++            // This is the minimal principal that IsAuthenticated. The BearerTokenHander will recreate the full principal
++            // from the refresh token if it is able. The sign in will fail without an identity name.
++            var refreshPrincipal =  new ClaimsPrincipal(new ClaimsIdentity(IdentityConstants.BearerScheme));
++            var properties = new AuthenticationProperties
++            {
++                RefreshToken = refreshRequest.RefreshToken
++            };
++
++            return TypedResults.SignIn(refreshPrincipal, properties, IdentityConstants.BearerScheme);
++        });
++
+         return new IdentityEndpointsConventionBuilder(routeGroup);
+     }
+ 
+diff --git a/src/Identity/Core/src/IdentityApiEndpointsIdentityBuilderExtensions.cs b/src/Identity/Core/src/IdentityApiEndpointsIdentityBuilderExtensions.cs
+deleted file mode 100644
+index c8dc72997a5f..000000000000
+--- a/src/Identity/Core/src/IdentityApiEndpointsIdentityBuilderExtensions.cs
++++ /dev/null
+@@ -1,34 +0,0 @@
+-// Licensed to the .NET Foundation under one or more agreements.
+-// The .NET Foundation licenses this file to you under the MIT license.
+-
+-using Microsoft.AspNetCore.Authentication;
+-using Microsoft.AspNetCore.Authentication.BearerToken;
+-using Microsoft.AspNetCore.Http.Json;
+-using Microsoft.AspNetCore.Routing;
+-using Microsoft.Extensions.DependencyInjection;
+-using Microsoft.Extensions.DependencyInjection.Extensions;
+-using Microsoft.Extensions.Options;
+-
+-namespace Microsoft.AspNetCore.Identity;
+-
+-/// <summary>
+-/// <see cref="IdentityBuilder"/> extension methods to support <see cref="IdentityApiEndpointRouteBuilderExtensions.MapIdentityApi{TUser}(IEndpointRouteBuilder)"/>.
+-/// </summary>
+-public static class IdentityApiEndpointsIdentityBuilderExtensions
+-{
+-    /// <summary>
+-    /// Adds configuration ans services needed to support <see cref="IdentityApiEndpointRouteBuilderExtensions.MapIdentityApi{TUser}(IEndpointRouteBuilder)"/>
+-    /// but does not configure authentication. Call <see cref="BearerTokenExtensions.AddBearerToken(AuthenticationBuilder, Action{BearerTokenOptions}?)"/> and/or
+-    /// <see cref="IdentityCookieAuthenticationBuilderExtensions.AddIdentityCookies(AuthenticationBuilder)"/> to configure authentication separately.
+-    /// </summary>
+-    /// <param name="builder">The <see cref="IdentityBuilder"/>.</param>
+-    /// <returns>The <see cref="IdentityBuilder"/>.</returns>
+-    public static IdentityBuilder AddApiEndpoints(this IdentityBuilder builder)
+-    {
+-        ArgumentNullException.ThrowIfNull(builder);
+-
+-        builder.AddSignInManager();
+-        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<JsonOptions>, IdentityEndpointsJsonOptionsSetup>());
+-        return builder;
+-    }
+-}
+diff --git a/src/Identity/Core/src/IdentityApiEndpointsServiceCollectionExtensions.cs b/src/Identity/Core/src/IdentityApiEndpointsServiceCollectionExtensions.cs
+deleted file mode 100644
+index e24ba288c345..000000000000
+--- a/src/Identity/Core/src/IdentityApiEndpointsServiceCollectionExtensions.cs
++++ /dev/null
+@@ -1,78 +0,0 @@
+-// Licensed to the .NET Foundation under one or more agreements.
+-// The .NET Foundation licenses this file to you under the MIT license.
+-
+-using System.Diagnostics.CodeAnalysis;
+-using System.Text.Encodings.Web;
+-using Microsoft.AspNetCore.Authentication;
+-using Microsoft.AspNetCore.Identity;
+-using Microsoft.AspNetCore.Routing;
+-using Microsoft.Extensions.Logging;
+-using Microsoft.Extensions.Options;
+-
+-namespace Microsoft.Extensions.DependencyInjection;
+-
+-/// <summary>
+-/// Default extensions to <see cref="IServiceCollection"/> for <see cref="IdentityApiEndpointRouteBuilderExtensions.MapIdentityApi{TUser}(IEndpointRouteBuilder)"/>.
+-/// </summary>
+-public static class IdentityApiEndpointsServiceCollectionExtensions
+-{
+-    /// <summary>
+-    /// Adds a set of common identity services to the application to support <see cref="IdentityApiEndpointRouteBuilderExtensions.MapIdentityApi{TUser}(IEndpointRouteBuilder)"/>
+-    /// and configures authentication to support identity bearer tokens and cookies.
+-    /// </summary>
+-    /// <param name="services">The <see cref="IServiceCollection"/>.</param>
+-    /// <returns>The <see cref="IdentityBuilder"/>.</returns>
+-    [RequiresUnreferencedCode("Authentication middleware does not currently support native AOT.", Url = "https://aka.ms/aspnet/nativeaot")]
+-    public static IdentityBuilder AddIdentityApiEndpoints<TUser>(this IServiceCollection services)
+-        where TUser : class, new()
+-        => services.AddIdentityApiEndpoints<TUser>(_ => { });
+-
+-    /// <summary>
+-    /// Adds a set of common identity services to the application to support <see cref="IdentityApiEndpointRouteBuilderExtensions.MapIdentityApi{TUser}(IEndpointRouteBuilder)"/>
+-    /// and configures authentication to support identity bearer tokens and cookies.
+-    /// </summary>
+-    /// <param name="services">The <see cref="IServiceCollection"/>.</param>
+-    /// <param name="configure">Configures the <see cref="IdentityOptions"/>.</param>
+-    /// <returns>The <see cref="IdentityBuilder"/>.</returns>
+-    [RequiresUnreferencedCode("Authentication middleware does not currently support native AOT.", Url = "https://aka.ms/aspnet/nativeaot")]
+-    public static IdentityBuilder AddIdentityApiEndpoints<TUser>(this IServiceCollection services, Action<IdentityOptions> configure)
+-        where TUser : class, new()
+-    {
+-        ArgumentNullException.ThrowIfNull(services);
+-        ArgumentNullException.ThrowIfNull(configure);
+-
+-        services.AddAuthentication(IdentityConstants.BearerAndApplicationScheme)
+-            .AddScheme<PolicySchemeOptions, CompositeIdentityHandler>(IdentityConstants.BearerAndApplicationScheme, null, o =>
+-            {
+-                o.ForwardDefault = IdentityConstants.BearerScheme;
+-                o.ForwardAuthenticate = IdentityConstants.BearerAndApplicationScheme;
+-            })
+-            .AddBearerToken(IdentityConstants.BearerScheme)
+-            .AddIdentityCookies();
+-
+-        return services.AddIdentityCore<TUser>(o =>
+-            {
+-                o.Stores.MaxLengthForKeys = 128;
+-                configure(o);
+-            })
+-            .AddApiEndpoints();
+-    }
+-
+-    private sealed class CompositeIdentityHandler(IOptionsMonitor<PolicySchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
+-        : PolicySchemeHandler(options, logger, encoder)
+-    {
+-        protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
+-        {
+-            var bearerResult = await Context.AuthenticateAsync(IdentityConstants.BearerScheme);
+-
+-            // Only try to authenticate with the application cookie if there is no bearer token.
+-            if (!bearerResult.None)
+-            {
+-                return bearerResult;
+-            }
+-
+-            // Cookie auth will return AuthenticateResult.NoResult() like bearer auth just did if there is no cookie.
+-            return await Context.AuthenticateAsync(IdentityConstants.ApplicationScheme);
+-        }
+-    }
+-}
+diff --git a/src/Identity/Core/src/IdentityAuthenticationBuilderExtensions.cs b/src/Identity/Core/src/IdentityAuthenticationBuilderExtensions.cs
+new file mode 100644
+index 000000000000..24bea547b041
+--- /dev/null
++++ b/src/Identity/Core/src/IdentityAuthenticationBuilderExtensions.cs
+@@ -0,0 +1,64 @@
++// Licensed to the .NET Foundation under one or more agreements.
++// The .NET Foundation licenses this file to you under the MIT license.
++
++using Microsoft.AspNetCore.Authentication;
++using Microsoft.AspNetCore.Authentication.BearerToken;
++using Microsoft.Extensions.DependencyInjection;
++
++namespace Microsoft.AspNetCore.Identity;
++
++/// <summary>
++/// Extension methods to enable bearer token authentication for use with identity.
++/// </summary>
++public static class IdentityAuthenticationBuilderExtensions
++{
++    /// <summary>
++    /// Adds cookie authentication.
++    /// </summary>
++    /// <param name="builder">The current <see cref="AuthenticationBuilder"/> instance.</param>
++    /// <returns>The <see cref="AuthenticationBuilder"/>.</returns>
++    public static AuthenticationBuilder AddIdentityBearerToken<TUser>(this AuthenticationBuilder builder)
++        where TUser : class, new()
++        => builder.AddIdentityBearerToken<TUser>(o => { });
++
++    /// <summary>
++    /// Adds the cookie authentication needed for sign in manager.
++    /// </summary>
++    /// <param name="builder">The current <see cref="AuthenticationBuilder"/> instance.</param>
++    /// <param name="configureOptions">Action used to configure the bearer token handler.</param>
++    /// <returns>The <see cref="AuthenticationBuilder"/>.</returns>
++    public static AuthenticationBuilder AddIdentityBearerToken<TUser>(this AuthenticationBuilder builder, Action<BearerTokenOptions> configureOptions)
++        where TUser : class, new()
++    {
++        ArgumentNullException.ThrowIfNull(builder);
++        ArgumentNullException.ThrowIfNull(configureOptions);
++
++        return builder.AddBearerToken(IdentityConstants.BearerScheme, bearerOptions =>
++        {
++            bearerOptions.Events.OnSigningIn = HandleSigningIn<TUser>;
++            configureOptions(bearerOptions);
++        });
++    }
++
++    private static async Task HandleSigningIn<TUser>(SigningInContext signInContext)
++        where TUser : class, new()
++    {
++        // Only validate the security stamp and refresh the user from the store during /refresh
++        // not during the initial /login when the Principal is already newly created from the store.
++        if (signInContext.Properties.RefreshToken is null)
++        {
++            return;
++        }
++
++        var signInManager = signInContext.HttpContext.RequestServices.GetRequiredService<SignInManager<TUser>>();
++
++        // Reject the /refresh attempt if the security stamp validation fails which will result in a 401 challenge.
++        if (await signInManager.ValidateSecurityStampAsync(signInContext.Principal) is not TUser user)
++        {
++            signInContext.Principal = null;
++            return;
++        }
++
++        signInContext.Principal = await signInManager.CreateUserPrincipalAsync(user);
++    }
++}
+diff --git a/src/Identity/Core/src/IdentityBuilderExtensions.cs b/src/Identity/Core/src/IdentityBuilderExtensions.cs
+index ffefe1fde029..1e2be3b64c7d 100644
+--- a/src/Identity/Core/src/IdentityBuilderExtensions.cs
++++ b/src/Identity/Core/src/IdentityBuilderExtensions.cs
+@@ -2,6 +2,10 @@
+ // The .NET Foundation licenses this file to you under the MIT license.
+ 
+ using System.Diagnostics.CodeAnalysis;
++using Microsoft.AspNetCore.Authentication;
++using Microsoft.AspNetCore.Authentication.BearerToken;
++using Microsoft.AspNetCore.Http.Json;
++using Microsoft.AspNetCore.Routing;
+ using Microsoft.Extensions.DependencyInjection;
+ using Microsoft.Extensions.DependencyInjection.Extensions;
+ using Microsoft.Extensions.Options;
+@@ -79,6 +83,22 @@ public static IdentityBuilder AddSignInManager(this IdentityBuilder builder)
+         return builder;
+     }
+ 
++    /// <summary>
++    /// Adds configuration ans services needed to support <see cref="IdentityApiEndpointRouteBuilderExtensions.MapIdentityApi{TUser}(IEndpointRouteBuilder)"/>
++    /// but does not configure authentication. Call <see cref="BearerTokenExtensions.AddBearerToken(AuthenticationBuilder, Action{BearerTokenOptions}?)"/> and/or
++    /// <see cref="IdentityCookieAuthenticationBuilderExtensions.AddIdentityCookies(AuthenticationBuilder)"/> to configure authentication separately.
++    /// </summary>
++    /// <param name="builder">The <see cref="IdentityBuilder"/>.</param>
++    /// <returns>The <see cref="IdentityBuilder"/>.</returns>
++    public static IdentityBuilder AddApiEndpoints(this IdentityBuilder builder)
++    {
++        ArgumentNullException.ThrowIfNull(builder);
++
++        builder.AddSignInManager();
++        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<JsonOptions>, IdentityEndpointsJsonOptionsSetup>());
++        return builder;
++    }
++
+     // Set TimeProvider from DI on all options instances, if not already set by tests.
+     private sealed class PostConfigureSecurityStampValidatorOptions : IPostConfigureOptions<SecurityStampValidatorOptions>
+     {
+diff --git a/src/Identity/Core/src/IdentityServiceCollectionExtensions.cs b/src/Identity/Core/src/IdentityServiceCollectionExtensions.cs
+index 7d58e00ee764..7d5153c80fb7 100644
+--- a/src/Identity/Core/src/IdentityServiceCollectionExtensions.cs
++++ b/src/Identity/Core/src/IdentityServiceCollectionExtensions.cs
+@@ -2,10 +2,15 @@
+ // The .NET Foundation licenses this file to you under the MIT license.
+ 
+ using System.Diagnostics.CodeAnalysis;
++using System.Security.Claims;
++using System.Text.Encodings.Web;
++using Microsoft.AspNetCore.Authentication;
+ using Microsoft.AspNetCore.Authentication.Cookies;
+ using Microsoft.AspNetCore.Http;
+ using Microsoft.AspNetCore.Identity;
++using Microsoft.AspNetCore.Routing;
+ using Microsoft.Extensions.DependencyInjection.Extensions;
++using Microsoft.Extensions.Logging;
+ using Microsoft.Extensions.Options;
+ 
+ namespace Microsoft.Extensions.DependencyInjection;
+@@ -109,6 +114,47 @@ public static class IdentityServiceCollectionExtensions
+         return new IdentityBuilder(typeof(TUser), typeof(TRole), services);
+     }
+ 
++    /// <summary>
++    /// Adds a set of common identity services to the application to support <see cref="IdentityApiEndpointRouteBuilderExtensions.MapIdentityApi{TUser}(IEndpointRouteBuilder)"/>
++    /// and configures authentication to support identity bearer tokens and cookies.
++    /// </summary>
++    /// <param name="services">The <see cref="IServiceCollection"/>.</param>
++    /// <returns>The <see cref="IdentityBuilder"/>.</returns>
++    public static IdentityBuilder AddIdentityApiEndpoints<TUser>(this IServiceCollection services)
++        where TUser : class, new()
++        => services.AddIdentityApiEndpoints<TUser>(_ => { });
++
++    /// <summary>
++    /// Adds a set of common identity services to the application to support <see cref="IdentityApiEndpointRouteBuilderExtensions.MapIdentityApi{TUser}(IEndpointRouteBuilder)"/>
++    /// and configures authentication to support identity bearer tokens and cookies.
++    /// </summary>
++    /// <param name="services">The <see cref="IServiceCollection"/>.</param>
++    /// <param name="configure">Configures the <see cref="IdentityOptions"/>.</param>
++    /// <returns>The <see cref="IdentityBuilder"/>.</returns>
++    public static IdentityBuilder AddIdentityApiEndpoints<TUser>(this IServiceCollection services, Action<IdentityOptions> configure)
++        where TUser : class, new()
++    {
++        ArgumentNullException.ThrowIfNull(services);
++        ArgumentNullException.ThrowIfNull(configure);
++
++        services
++            .AddAuthentication(IdentityConstants.BearerAndApplicationScheme)
++            .AddScheme<AuthenticationSchemeOptions, CompositeIdentityHandler>(IdentityConstants.BearerAndApplicationScheme, null, compositeOptions =>
++            {
++                compositeOptions.ForwardDefault = IdentityConstants.BearerScheme;
++                compositeOptions.ForwardAuthenticate = IdentityConstants.BearerAndApplicationScheme;
++            })
++            .AddIdentityBearerToken<TUser>()
++            .AddIdentityCookies();
++
++        return services.AddIdentityCore<TUser>(o =>
++            {
++                o.Stores.MaxLengthForKeys = 128;
++                configure(o);
++            })
++            .AddApiEndpoints();
++    }
++
+     /// <summary>
+     /// Configures the application cookie.
+     /// </summary>
+@@ -141,4 +187,32 @@ public void PostConfigure(string? name, SecurityStampValidatorOptions options)
+             options.TimeProvider ??= TimeProvider;
+         }
+     }
++
++    private sealed class CompositeIdentityHandler(IOptionsMonitor<AuthenticationSchemeOptions> options, ILoggerFactory logger, UrlEncoder encoder)
++        : SignInAuthenticationHandler<AuthenticationSchemeOptions>(options, logger, encoder)
++    {
++        protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
++        {
++            var bearerResult = await Context.AuthenticateAsync(IdentityConstants.BearerScheme);
++
++            // Only try to authenticate with the application cookie if there is no bearer token.
++            if (!bearerResult.None)
++            {
++                return bearerResult;
++            }
++
++            // Cookie auth will return AuthenticateResult.NoResult() like bearer auth just did if there is no cookie.
++            return await Context.AuthenticateAsync(IdentityConstants.ApplicationScheme);
++        }
++
++        protected override Task HandleSignInAsync(ClaimsPrincipal user, AuthenticationProperties? properties)
++        {
++            throw new NotImplementedException();
++        }
++
++        protected override Task HandleSignOutAsync(AuthenticationProperties? properties)
++        {
++            throw new NotImplementedException();
++        }
++    }
+ }
+diff --git a/src/Identity/Core/src/PublicAPI.Unshipped.txt b/src/Identity/Core/src/PublicAPI.Unshipped.txt
+index b917f951ab88..9bd478611156 100644
+--- a/src/Identity/Core/src/PublicAPI.Unshipped.txt
++++ b/src/Identity/Core/src/PublicAPI.Unshipped.txt
+@@ -1,15 +1,16 @@
+ #nullable enable
+-Microsoft.AspNetCore.Identity.IdentityApiEndpointsIdentityBuilderExtensions
++Microsoft.AspNetCore.Identity.IdentityAuthenticationBuilderExtensions
+ Microsoft.AspNetCore.Identity.SecurityStampValidator<TUser>.SecurityStampValidator(Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Identity.SecurityStampValidatorOptions!>! options, Microsoft.AspNetCore.Identity.SignInManager<TUser!>! signInManager, Microsoft.Extensions.Logging.ILoggerFactory! logger) -> void
+ Microsoft.AspNetCore.Identity.SecurityStampValidator<TUser>.TimeProvider.get -> System.TimeProvider!
+ Microsoft.AspNetCore.Identity.SecurityStampValidatorOptions.TimeProvider.get -> System.TimeProvider?
+ Microsoft.AspNetCore.Identity.SecurityStampValidatorOptions.TimeProvider.set -> void
+ Microsoft.AspNetCore.Identity.TwoFactorSecurityStampValidator<TUser>.TwoFactorSecurityStampValidator(Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Identity.SecurityStampValidatorOptions!>! options, Microsoft.AspNetCore.Identity.SignInManager<TUser!>! signInManager, Microsoft.Extensions.Logging.ILoggerFactory! logger) -> void
+ Microsoft.AspNetCore.Routing.IdentityApiEndpointRouteBuilderExtensions
+-Microsoft.Extensions.DependencyInjection.IdentityApiEndpointsServiceCollectionExtensions
+-static Microsoft.AspNetCore.Identity.IdentityApiEndpointsIdentityBuilderExtensions.AddApiEndpoints(this Microsoft.AspNetCore.Identity.IdentityBuilder! builder) -> Microsoft.AspNetCore.Identity.IdentityBuilder!
++static Microsoft.AspNetCore.Identity.IdentityAuthenticationBuilderExtensions.AddIdentityBearerToken<TUser>(this Microsoft.AspNetCore.Authentication.AuthenticationBuilder! builder) -> Microsoft.AspNetCore.Authentication.AuthenticationBuilder!
++static Microsoft.AspNetCore.Identity.IdentityAuthenticationBuilderExtensions.AddIdentityBearerToken<TUser>(this Microsoft.AspNetCore.Authentication.AuthenticationBuilder! builder, System.Action<Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenOptions!>! configureOptions) -> Microsoft.AspNetCore.Authentication.AuthenticationBuilder!
++static Microsoft.AspNetCore.Identity.IdentityBuilderExtensions.AddApiEndpoints(this Microsoft.AspNetCore.Identity.IdentityBuilder! builder) -> Microsoft.AspNetCore.Identity.IdentityBuilder!
+ static Microsoft.AspNetCore.Routing.IdentityApiEndpointRouteBuilderExtensions.MapIdentityApi<TUser>(this Microsoft.AspNetCore.Routing.IEndpointRouteBuilder! endpoints) -> Microsoft.AspNetCore.Builder.IEndpointConventionBuilder!
+-static Microsoft.Extensions.DependencyInjection.IdentityApiEndpointsServiceCollectionExtensions.AddIdentityApiEndpoints<TUser>(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.AspNetCore.Identity.IdentityBuilder!
+-static Microsoft.Extensions.DependencyInjection.IdentityApiEndpointsServiceCollectionExtensions.AddIdentityApiEndpoints<TUser>(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<Microsoft.AspNetCore.Identity.IdentityOptions!>! configure) -> Microsoft.AspNetCore.Identity.IdentityBuilder!
++static Microsoft.Extensions.DependencyInjection.IdentityServiceCollectionExtensions.AddIdentityApiEndpoints<TUser>(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services) -> Microsoft.AspNetCore.Identity.IdentityBuilder!
++static Microsoft.Extensions.DependencyInjection.IdentityServiceCollectionExtensions.AddIdentityApiEndpoints<TUser>(this Microsoft.Extensions.DependencyInjection.IServiceCollection! services, System.Action<Microsoft.AspNetCore.Identity.IdentityOptions!>! configure) -> Microsoft.AspNetCore.Identity.IdentityBuilder!
+ static readonly Microsoft.AspNetCore.Identity.IdentityConstants.BearerScheme -> string!
+ virtual Microsoft.AspNetCore.Identity.SignInManager<TUser>.IsTwoFactorEnabledAsync(TUser! user) -> System.Threading.Tasks.Task<bool>!
+diff --git a/src/Identity/Identity.slnf b/src/Identity/Identity.slnf
+index bce278e7f590..0f3fe6d1d784 100644
+--- a/src/Identity/Identity.slnf
++++ b/src/Identity/Identity.slnf
+@@ -84,6 +84,7 @@
+       "src\\Security\\Authentication\\JwtBearer\\src\\Microsoft.AspNetCore.Authentication.JwtBearer.csproj",
+       "src\\Security\\Authentication\\OAuth\\src\\Microsoft.AspNetCore.Authentication.OAuth.csproj",
+       "src\\Security\\Authentication\\Twitter\\src\\Microsoft.AspNetCore.Authentication.Twitter.csproj",
++      "src\\Security\\Authentication\\test\\Microsoft.AspNetCore.Authentication.Test.csproj",
+       "src\\Security\\Authorization\\Core\\src\\Microsoft.AspNetCore.Authorization.csproj",
+       "src\\Security\\Authorization\\Policy\\src\\Microsoft.AspNetCore.Authorization.Policy.csproj",
+       "src\\Security\\CookiePolicy\\src\\Microsoft.AspNetCore.CookiePolicy.csproj",
+diff --git a/src/Identity/test/Identity.FunctionalTests/MapIdentityTests.cs b/src/Identity/test/Identity.FunctionalTests/MapIdentityTests.cs
+index 42cad245feb0..82344ccf489f 100644
+--- a/src/Identity/test/Identity.FunctionalTests/MapIdentityTests.cs
++++ b/src/Identity/test/Identity.FunctionalTests/MapIdentityTests.cs
+@@ -4,6 +4,7 @@
+ #nullable enable
+ 
+ using System.Net;
++using System.Net.Http;
+ using System.Net.Http.Json;
+ using System.Security.Claims;
+ using System.Text.Json;
+@@ -76,7 +77,7 @@ public async Task CanCustomizeBearerTokenExpiration()
+         await using var app = await CreateAppAsync(services =>
+         {
+             services.AddIdentityCore<ApplicationUser>().AddApiEndpoints().AddEntityFrameworkStores<ApplicationDbContext>();
+-            services.AddAuthentication(IdentityConstants.BearerScheme).AddBearerToken(IdentityConstants.BearerScheme, options =>
++            services.AddAuthentication(IdentityConstants.BearerScheme).AddIdentityBearerToken<ApplicationUser>(options =>
+             {
+                 options.BearerTokenExpiration = expireTimeSpan;
+                 options.TimeProvider = clock;
+@@ -101,15 +102,13 @@ public async Task CanCustomizeBearerTokenExpiration()
+ 
+         clock.Advance(TimeSpan.FromSeconds(expireTimeSpan.TotalSeconds - 1));
+ 
+-        // Still works without one second before expiration.
++        // Still works one second before expiration.
+         Assert.Equal($"Hello, {Username}!", await client.GetStringAsync("/auth/hello"));
+ 
+         clock.Advance(TimeSpan.FromSeconds(1));
+-        var unauthorizedResponse = await client.GetAsync("/auth/hello");
+ 
+         // Fails the second the BearerTokenExpiration elapses.
+-        Assert.Equal(HttpStatusCode.Unauthorized, unauthorizedResponse.StatusCode);
+-        Assert.Equal(0, unauthorizedResponse.Content.Headers.ContentLength);
++        AssertUnauthorizedAndEmpty(await client.GetAsync("/auth/hello"));
+     }
+ 
+     [Fact]
+@@ -155,7 +154,7 @@ public async Task CanReadBearerTokenFromQueryString()
+         await using var app = await CreateAppAsync(services =>
+         {
+             services.AddIdentityCore<ApplicationUser>().AddApiEndpoints().AddEntityFrameworkStores<ApplicationDbContext>();
+-            services.AddAuthentication(IdentityConstants.BearerScheme).AddBearerToken(IdentityConstants.BearerScheme, options =>
++            services.AddAuthentication(IdentityConstants.BearerScheme).AddIdentityBearerToken<ApplicationUser>(options =>
+             {
+                 options.Events.OnMessageReceived = context =>
+                 {
+@@ -187,8 +186,159 @@ public async Task Returns401UnauthorizedStatusGivenNoBearerTokenOrCookie(string
+         await using var app = await CreateAppAsync(AddIdentityActions[addIdentityMode]);
+         using var client = app.GetTestClient();
+ 
+-        var unauthorizedResponse = await client.GetAsync($"/auth/hello");
+-        Assert.Equal(HttpStatusCode.Unauthorized, unauthorizedResponse.StatusCode);
++        AssertUnauthorizedAndEmpty(await client.GetAsync($"/auth/hello"));
++
++        client.DefaultRequestHeaders.Authorization = new("Bearer");
++        AssertUnauthorizedAndEmpty(await client.GetAsync($"/auth/hello"));
++
++        client.DefaultRequestHeaders.Authorization = new("Bearer", "");
++        AssertUnauthorizedAndEmpty(await client.GetAsync($"/auth/hello"));
++    }
++
++    [Theory]
++    [MemberData(nameof(AddIdentityModes))]
++    public async Task CanUseRefreshToken(string addIdentityMode)
++    {
++        await using var app = await CreateAppAsync(AddIdentityActions[addIdentityMode]);
++        using var client = app.GetTestClient();
++
++        await client.PostAsJsonAsync("/identity/register", new { Username, Password });
++        var loginResponse = await client.PostAsJsonAsync("/identity/login", new { Username, Password });
++        var loginContent = await loginResponse.Content.ReadFromJsonAsync<JsonElement>();
++        var refreshToken = loginContent.GetProperty("refresh_token").GetString();
++
++        var refreshResponse = await client.PostAsJsonAsync("/identity/refresh", new { refreshToken });
++        var refreshContent = await refreshResponse.Content.ReadFromJsonAsync<JsonElement>();
++        var accessToken = loginContent.GetProperty("access_token").GetString();
++
++        client.DefaultRequestHeaders.Authorization = new("Bearer", accessToken);
++        Assert.Equal($"Hello, {Username}!", await client.GetStringAsync("/auth/hello"));
++    }
++
++    [Fact]
++    public async Task Returns401UnauthorizedStatusGivenNullOrEmptyRefreshToken()
++    {
++        await using var app = await CreateAppAsync();
++        using var client = app.GetTestClient();
++
++        string? refreshToken = null;
++        AssertUnauthorizedAndEmpty(await client.PostAsJsonAsync("/identity/refresh", new { refreshToken }));
++
++        refreshToken = "";
++        AssertUnauthorizedAndEmpty(await client.PostAsJsonAsync("/identity/refresh", new { refreshToken }));
++    }
++
++    [Fact]
++    public async Task CanCustomizeRefreshTokenExpiration()
++    {
++        var clock = new MockTimeProvider();
++        var expireTimeSpan = TimeSpan.FromHours(42);
++
++        await using var app = await CreateAppAsync(services =>
++        {
++            services.AddIdentityCore<ApplicationUser>().AddApiEndpoints().AddEntityFrameworkStores<ApplicationDbContext>();
++            services.AddAuthentication(IdentityConstants.BearerScheme).AddIdentityBearerToken<ApplicationUser>(options =>
++            {
++                options.RefreshTokenExpiration = expireTimeSpan;
++                options.TimeProvider = clock;
++            });
++        });
++
++        using var client = app.GetTestClient();
++
++        await client.PostAsJsonAsync("/identity/register", new { Username, Password });
++        var loginResponse = await client.PostAsJsonAsync("/identity/login", new { Username, Password });
++
++        var loginContent = await loginResponse.Content.ReadFromJsonAsync<JsonElement>();
++        var refreshToken = loginContent.GetProperty("refresh_token").GetString();
++        var accessToken = loginContent.GetProperty("refresh_token").GetString();
++
++        // Works without time passing.
++        var refreshResponse = await client.PostAsJsonAsync("/identity/refresh", new { refreshToken });
++        Assert.True(refreshResponse.IsSuccessStatusCode);
++
++        clock.Advance(TimeSpan.FromSeconds(expireTimeSpan.TotalSeconds - 1));
++
++        // Still works one second before expiration.
++        refreshResponse = await client.PostAsJsonAsync("/identity/refresh", new { refreshToken });
++        Assert.True(refreshResponse.IsSuccessStatusCode);
++        
++        // The bearer token stopped working 41 hours ago with the default 1 hour expiration.
++        client.DefaultRequestHeaders.Authorization = new("Bearer", accessToken);
++        AssertUnauthorizedAndEmpty(await client.GetAsync("/auth/hello"));
++
++        clock.Advance(TimeSpan.FromSeconds(1));
++
++        // Fails the second the RefreshTokenExpiration elapses.
++        AssertUnauthorizedAndEmpty(await client.PostAsJsonAsync("/identity/refresh", new { refreshToken }));
++
++        // But the last refresh_token from the successful /refresh only a second ago has not expired.
++        var refreshContent =  await refreshResponse.Content.ReadFromJsonAsync<JsonElement>();
++        refreshToken = refreshContent.GetProperty("refresh_token").GetString();
++
++        refreshResponse = await client.PostAsJsonAsync("/identity/refresh", new { refreshToken });
++        refreshContent = await refreshResponse.Content.ReadFromJsonAsync<JsonElement>();
++        accessToken = refreshContent.GetProperty("access_token").GetString();
++
++        client.DefaultRequestHeaders.Authorization = new("Bearer", accessToken);
++        Assert.Equal($"Hello, {Username}!", await client.GetStringAsync("/auth/hello"));
++    }
++
++    [Theory]
++    [MemberData(nameof(AddIdentityModes))]
++    public async Task RefreshReturns401UnauthorizedIfSecurityStampChanges(string addIdentityMode)
++    {
++        await using var app = await CreateAppAsync(AddIdentityActions[addIdentityMode]);
++        using var client = app.GetTestClient();
++
++        await client.PostAsJsonAsync("/identity/register", new { Username, Password });
++        var loginResponse = await client.PostAsJsonAsync("/identity/login", new { Username, Password });
++        var loginContent = await loginResponse.Content.ReadFromJsonAsync<JsonElement>();
++        var refreshToken = loginContent.GetProperty("refresh_token").GetString();
++
++        var userManager = app.Services.GetRequiredService<UserManager<ApplicationUser>>();
++        var user = await userManager.FindByNameAsync(Username);
++
++        Assert.NotNull(user);
++
++        await userManager.UpdateSecurityStampAsync(user);
++
++        AssertUnauthorizedAndEmpty(await client.PostAsJsonAsync("/identity/refresh", new { refreshToken }));
++    }
++
++    [Theory]
++    [MemberData(nameof(AddIdentityModes))]
++    public async Task RefreshUpdatesUserFromStore(string addIdentityMode)
++    {
++        await using var app = await CreateAppAsync(AddIdentityActions[addIdentityMode]);
++        using var client = app.GetTestClient();
++
++        await client.PostAsJsonAsync("/identity/register", new { Username, Password });
++        var loginResponse = await client.PostAsJsonAsync("/identity/login", new { Username, Password });
++        var loginContent = await loginResponse.Content.ReadFromJsonAsync<JsonElement>();
++        var refreshToken = loginContent.GetProperty("refresh_token").GetString();
++
++        var userManager = app.Services.GetRequiredService<UserManager<ApplicationUser>>();
++        var user = await userManager.FindByNameAsync(Username);
++
++        Assert.NotNull(user);
++
++        var newUsername = $"{Guid.NewGuid()}@example.org";
++        user.UserName = newUsername;
++        await userManager.UpdateAsync(user);
++
++        var refreshResponse = await client.PostAsJsonAsync("/identity/refresh", new { refreshToken });
++        var refreshContent = await refreshResponse.Content.ReadFromJsonAsync<JsonElement>();
++        var accessToken = refreshContent.GetProperty("access_token").GetString();
++
++        client.DefaultRequestHeaders.Authorization = new("Bearer", accessToken);
++        Assert.Equal($"Hello, {newUsername}!", await client.GetStringAsync("/auth/hello"));
++    }
++
++    private static void AssertUnauthorizedAndEmpty(HttpResponseMessage response)
++    {
++        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
++        Assert.Equal(0, response.Content.Headers.ContentLength);
+     }
+ 
+     private async Task<WebApplication> CreateAppAsync<TUser, TContext>(Action<IServiceCollection>? configureServices)
+@@ -231,8 +381,13 @@ private static void AddIdentityEndpoints(IServiceCollection services)
+ 
+     private static void AddIdentityEndpointsBearerOnly(IServiceCollection services)
+     {
+-        services.AddIdentityCore<ApplicationUser>().AddEntityFrameworkStores<ApplicationDbContext>();
+-        services.AddAuthentication(IdentityConstants.BearerScheme).AddBearerToken(IdentityConstants.BearerScheme);
++        services
++            .AddIdentityCore<ApplicationUser>()
++            .AddEntityFrameworkStores<ApplicationDbContext>()
++            .AddApiEndpoints();
++        services
++            .AddAuthentication(IdentityConstants.BearerScheme)
++            .AddIdentityBearerToken<ApplicationUser>();
+     }
+ 
+     private Task<WebApplication> CreateAppAsync(Action<IServiceCollection>? configureServices = null)
+diff --git a/src/Security/Authentication/BearerToken/src/BearerTokenEvents.cs b/src/Security/Authentication/BearerToken/src/BearerTokenEvents.cs
+index f2662caaff2d..ae7ed997ba55 100644
+--- a/src/Security/Authentication/BearerToken/src/BearerTokenEvents.cs
++++ b/src/Security/Authentication/BearerToken/src/BearerTokenEvents.cs
+@@ -13,8 +13,20 @@ public class BearerTokenEvents
+     /// </summary>
+     public Func<MessageReceivedContext, Task> OnMessageReceived { get; set; } = context => Task.CompletedTask;
+ 
++    /// <summary>
++    /// Invoked when signing in.
++    /// </summary>
++    public Func<SigningInContext, Task> OnSigningIn { get; set; } = context => Task.CompletedTask;
++
+     /// <summary>
+     /// Invoked when a protocol message is first received.
+     /// </summary>
+-    public virtual Task MessageReceived(MessageReceivedContext context) => OnMessageReceived(context);
++    /// <param name="context">The <see cref="MessageReceivedContext"/>.</param>
++    public virtual Task MessageReceivedAsync(MessageReceivedContext context) => OnMessageReceived(context);
++
++    /// <summary>
++    /// Invoked when signing in.
++    /// </summary>
++    /// <param name="context">The <see cref="SigningInContext"/>.</param>
++    public virtual Task SigningInAsync(SigningInContext context) => OnSigningIn(context);
+ }
+diff --git a/src/Security/Authentication/BearerToken/src/BearerTokenHandler.cs b/src/Security/Authentication/BearerToken/src/BearerTokenHandler.cs
+index 72c451681b7a..cb7fa611813f 100644
+--- a/src/Security/Authentication/BearerToken/src/BearerTokenHandler.cs
++++ b/src/Security/Authentication/BearerToken/src/BearerTokenHandler.cs
+@@ -16,18 +16,19 @@ internal sealed class BearerTokenHandler(
+     IOptionsMonitor<BearerTokenOptions> optionsMonitor,
+     ILoggerFactory loggerFactory,
+     UrlEncoder urlEncoder,
+-#pragma warning disable IDE0060 // Remove unused parameter. False positive fixed by https://github.com/dotnet/roslyn/pull/67167
+     IDataProtectionProvider dataProtectionProvider)
+-#pragma warning restore IDE0060 // Remove unused parameter
+     : SignInAuthenticationHandler<BearerTokenOptions>(optionsMonitor, loggerFactory, urlEncoder)
+ {
+-    private const string BearerTokenPurpose = $"Microsoft.AspNetCore.Authentication.BearerToken:v1:BearerToken";
++    private const string BearerTokenPurpose = "BearerToken";
++    private const string RefreshTokenPurpose = "RefreshToken";
++
++    private static readonly long OneSecondTicks = TimeSpan.FromSeconds(1).Ticks;
+ 
+     private static readonly AuthenticateResult FailedUnprotectingToken = AuthenticateResult.Fail("Unprotected token failed");
+     private static readonly AuthenticateResult TokenExpired = AuthenticateResult.Fail("Token expired");
+ 
+-    private ISecureDataFormat<AuthenticationTicket> BearerTokenProtector
+-        => Options.BearerTokenProtector ?? new TicketDataFormat(dataProtectionProvider.CreateProtector(BearerTokenPurpose));
++    private ISecureDataFormat<AuthenticationTicket> TokenProtector
++        => Options.TokenProtector ?? new TicketDataFormat(dataProtectionProvider.CreateProtector("Microsoft.AspNetCore.Authentication.BearerToken", Scheme.Name));
+ 
+     private new BearerTokenEvents Events => (BearerTokenEvents)base.Events!;
+ 
+@@ -36,9 +37,9 @@ protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
+         // Give application opportunity to find from a different location, adjust, or reject token
+         var messageReceivedContext = new MessageReceivedContext(Context, Scheme, Options);
+ 
+-        await Events.MessageReceived(messageReceivedContext);
++        await Events.MessageReceivedAsync(messageReceivedContext);
+ 
+-        if (messageReceivedContext.Result != null)
++        if (messageReceivedContext.Result is not null)
+         {
+             return messageReceivedContext.Result;
+         }
+@@ -50,14 +51,14 @@ protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
+             return AuthenticateResult.NoResult();
+         }
+ 
+-        var ticket = BearerTokenProtector.Unprotect(token);
++        var ticket = TokenProtector.Unprotect(token, BearerTokenPurpose);
+ 
+-        if (ticket?.Properties?.ExpiresUtc is null)
++        if (ticket?.Properties?.ExpiresUtc is not { } expiresUtc)
+         {
+             return FailedUnprotectingToken;
+         }
+ 
+-        if (TimeProvider.GetUtcNow() >= ticket.Properties.ExpiresUtc)
++        if (TimeProvider.GetUtcNow() >= expiresUtc)
+         {
+             return TokenExpired;
+         }
+@@ -65,37 +66,60 @@ protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
+         return AuthenticateResult.Success(ticket);
+     }
+ 
+-    protected override async Task HandleChallengeAsync(AuthenticationProperties properties)
++    protected override Task HandleChallengeAsync(AuthenticationProperties properties)
+     {
+         Response.Headers.Append(HeaderNames.WWWAuthenticate, "Bearer");
+-        await base.HandleChallengeAsync(properties);
++        return base.HandleChallengeAsync(properties);
+     }
+ 
+-    protected override Task HandleSignInAsync(ClaimsPrincipal user, AuthenticationProperties? properties)
++    protected override async Task HandleSignInAsync(ClaimsPrincipal user, AuthenticationProperties? properties)
+     {
+-        long expiresInTotalSeconds;
+         var utcNow = TimeProvider.GetUtcNow();
+ 
+         properties ??= new();
++        properties.ExpiresUtc ??= utcNow + Options.BearerTokenExpiration;
++        var isRefresh = properties.RefreshToken is not null;
+ 
+-        if (properties.ExpiresUtc is null)
++        if (isRefresh)
+         {
+-            properties.ExpiresUtc ??= utcNow + Options.BearerTokenExpiration;
+-            expiresInTotalSeconds = (long)Options.BearerTokenExpiration.TotalSeconds;
++            var refreshTicket = TokenProtector.Unprotect(properties.RefreshToken, RefreshTokenPurpose);
++
++            if (refreshTicket?.Properties?.ExpiresUtc is not { } expiresUtc || TimeProvider.GetUtcNow() >= expiresUtc)
++            {
++                await ChallengeAsync(properties);
++                return;
++            }
++
++            user = refreshTicket.Principal;
+         }
+-        else
++
++        var signingInContext = new SigningInContext(Context, Scheme, Options, user, properties);
++
++        await Events.SigningInAsync(signingInContext);
++
++        if (signingInContext.Principal?.Identity?.Name is null)
+         {
+-            expiresInTotalSeconds = (long)(properties.ExpiresUtc.Value - utcNow).TotalSeconds;
++            await ChallengeAsync(properties);
++            return;
+         }
+ 
+-        var ticket = new AuthenticationTicket(user, properties, Scheme.Name);
+-        var accessTokenResponse = new AccessTokenResponse
++        var response = new AccessTokenResponse
+         {
+-            AccessToken = BearerTokenProtector.Protect(ticket),
+-            ExpiresInTotalSeconds = expiresInTotalSeconds,
++            AccessToken = signingInContext.AccessToken ?? TokenProtector.Protect(CreateAccessTicket(signingInContext), BearerTokenPurpose),
++            ExpiresInSeconds = CalculateExpiresInSeconds(utcNow, signingInContext.Properties.ExpiresUtc),
++            RefreshToken = signingInContext.RefreshToken ?? TokenProtector.Protect(CreateRefreshTicket(user, utcNow), RefreshTokenPurpose),
+         };
+ 
+-        return Context.Response.WriteAsJsonAsync(accessTokenResponse, BearerTokenJsonSerializerContext.Default.AccessTokenResponse);
++        await Context.Response.WriteAsJsonAsync(response, BearerTokenJsonSerializerContext.Default.AccessTokenResponse);
++
++        if (isRefresh)
++        {
++            Logger.AuthenticationSchemeSignedInWithRefreshToken(Scheme.Name);
++        }
++        else
++        {
++            Logger.AuthenticationSchemeSignedIn(Scheme.Name);
++        }
+     }
+ 
+     // No-op to avoid interfering with any mass sign-out logic.
+@@ -109,4 +133,35 @@ protected override Task HandleSignInAsync(ClaimsPrincipal user, AuthenticationPr
+             ? authorization["Bearer ".Length..]
+             : null;
+     }
++
++    private long CalculateExpiresInSeconds(DateTimeOffset utcNow, DateTimeOffset? expiresUtc)
++    {
++        static DateTimeOffset FloorSeconds(DateTimeOffset dateTimeOffset)
++            => new(dateTimeOffset.Ticks / OneSecondTicks * OneSecondTicks, dateTimeOffset.Offset);
++
++        // AuthenticationProperties floors ExpiresUtc. If this remains unchanged, we'll use BearerTokenExpiration directly
++        // to produce a consistent ExpiresInTotalSeconds values. If ExpiresUtc was overridden, we just calculate the
++        // the difference from utcNow and round even though this will likely result in unstable values.
++        var expiresTimeSpan = Options.BearerTokenExpiration;
++        var expectedExpiresUtc = FloorSeconds(utcNow + expiresTimeSpan);
++        return (long)(expiresUtc switch
++        {
++            DateTimeOffset d when d == expectedExpiresUtc => expiresTimeSpan.TotalSeconds,
++            DateTimeOffset d => (d - utcNow).TotalSeconds,
++            _ => expiresTimeSpan.TotalSeconds,
++        });
++    }
++
++    private static AuthenticationTicket CreateAccessTicket(SigningInContext context)
++        => new(context.Principal!, context.Properties, context.Scheme.Name);
++
++    private AuthenticationTicket CreateRefreshTicket(ClaimsPrincipal user, DateTimeOffset utcNow)
++    {
++        var refreshProperties = new AuthenticationProperties
++        {
++            ExpiresUtc = utcNow + Options.RefreshTokenExpiration
++        };
++
++        return new AuthenticationTicket(user, refreshProperties, $"{Scheme.Name}:{RefreshTokenPurpose}");
++    }
+ }
+diff --git a/src/Security/Authentication/BearerToken/src/BearerTokenOptions.cs b/src/Security/Authentication/BearerToken/src/BearerTokenOptions.cs
+index b62fe134bd41..49027e5ad68d 100644
+--- a/src/Security/Authentication/BearerToken/src/BearerTokenOptions.cs
++++ b/src/Security/Authentication/BearerToken/src/BearerTokenOptions.cs
+@@ -23,14 +23,26 @@ public BearerTokenOptions()
+     /// The expiration information is stored in the protected token. Because of that, an expired token will be rejected
+     /// even if it is passed to the server after the client should have purged it.
+     /// </summary>
++    /// <remarks>
++    /// Defaults to 1 hour.
++    /// </remarks>
+     public TimeSpan BearerTokenExpiration { get; set; } = TimeSpan.FromHours(1);
+ 
+     /// <summary>
+-    /// If set, the <see cref="BearerTokenProtector"/> is used to protect and unprotect the identity and other properties which are stored in the
+-    /// bearer token value. If not provided, one will be created using <see cref="TicketDataFormat"/> and the <see cref="IDataProtectionProvider"/>
++    /// Controls how much time the refresh token will remain valid from the point it is created.
++    /// The expiration information is stored in the protected token.
++    /// </summary>
++    /// <remarks>
++    /// Defaults to 14 days.
++    /// </remarks>
++    public TimeSpan RefreshTokenExpiration { get; set; } = TimeSpan.FromDays(14);
++
++    /// <summary>
++    /// If set, the <see cref="TokenProtector"/> is used to protect and unprotect the identity and other properties which are stored in the
++    /// bearer token and refresh token. If not provided, one will be created using <see cref="TicketDataFormat"/> and the <see cref="IDataProtectionProvider"/>
+     /// from the application <see cref="IServiceProvider"/>.
+     /// </summary>
+-    public ISecureDataFormat<AuthenticationTicket>? BearerTokenProtector { get; set; }
++    public ISecureDataFormat<AuthenticationTicket>? TokenProtector { get; set; }
+ 
+     /// <summary>
+     /// The object provided by the application to process events raised by the bearer token authentication handler.
+diff --git a/src/Security/Authentication/BearerToken/src/LoggingExtensions.cs b/src/Security/Authentication/BearerToken/src/LoggingExtensions.cs
+new file mode 100644
+index 000000000000..2bb5361f548e
+--- /dev/null
++++ b/src/Security/Authentication/BearerToken/src/LoggingExtensions.cs
+@@ -0,0 +1,13 @@
++// Licensed to the .NET Foundation under one or more agreements.
++// The .NET Foundation licenses this file to you under the MIT license.
++
++namespace Microsoft.Extensions.Logging;
++
++internal static partial class LoggingExtensions
++{
++    [LoggerMessage(10, LogLevel.Information, "AuthenticationScheme: {AuthenticationScheme} signed in.", EventName = "AuthenticationSchemeSignedIn")]
++    public static partial void AuthenticationSchemeSignedIn(this ILogger logger, string authenticationScheme);
++
++    [LoggerMessage(11, LogLevel.Information, "AuthenticationScheme: {AuthenticationScheme} signed in with refresh token.", EventName = "AuthenticationSchemeSignedInWithRefreshToken")]
++    public static partial void AuthenticationSchemeSignedInWithRefreshToken(this ILogger logger, string authenticationScheme);
++}
+diff --git a/src/Security/Authentication/BearerToken/src/PublicAPI.Unshipped.txt b/src/Security/Authentication/BearerToken/src/PublicAPI.Unshipped.txt
+index 1765bd328d8e..4275cdd15544 100644
+--- a/src/Security/Authentication/BearerToken/src/PublicAPI.Unshipped.txt
++++ b/src/Security/Authentication/BearerToken/src/PublicAPI.Unshipped.txt
+@@ -5,21 +5,32 @@ Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenEvents
+ Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenEvents.BearerTokenEvents() -> void
+ Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenEvents.OnMessageReceived.get -> System.Func<Microsoft.AspNetCore.Authentication.BearerToken.MessageReceivedContext!, System.Threading.Tasks.Task!>!
+ Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenEvents.OnMessageReceived.set -> void
++Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenEvents.OnSigningIn.get -> System.Func<Microsoft.AspNetCore.Authentication.BearerToken.SigningInContext!, System.Threading.Tasks.Task!>!
++Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenEvents.OnSigningIn.set -> void
+ Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenOptions
+ Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenOptions.BearerTokenExpiration.get -> System.TimeSpan
+ Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenOptions.BearerTokenExpiration.set -> void
+ Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenOptions.BearerTokenOptions() -> void
+-Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenOptions.BearerTokenProtector.get -> Microsoft.AspNetCore.Authentication.ISecureDataFormat<Microsoft.AspNetCore.Authentication.AuthenticationTicket!>?
+-Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenOptions.BearerTokenProtector.set -> void
+ Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenOptions.Events.get -> Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenEvents!
+ Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenOptions.Events.set -> void
++Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenOptions.RefreshTokenExpiration.get -> System.TimeSpan
++Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenOptions.RefreshTokenExpiration.set -> void
++Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenOptions.TokenProtector.get -> Microsoft.AspNetCore.Authentication.ISecureDataFormat<Microsoft.AspNetCore.Authentication.AuthenticationTicket!>?
++Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenOptions.TokenProtector.set -> void
+ Microsoft.AspNetCore.Authentication.BearerToken.MessageReceivedContext
+ Microsoft.AspNetCore.Authentication.BearerToken.MessageReceivedContext.MessageReceivedContext(Microsoft.AspNetCore.Http.HttpContext! context, Microsoft.AspNetCore.Authentication.AuthenticationScheme! scheme, Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenOptions! options) -> void
+ Microsoft.AspNetCore.Authentication.BearerToken.MessageReceivedContext.Token.get -> string?
+ Microsoft.AspNetCore.Authentication.BearerToken.MessageReceivedContext.Token.set -> void
++Microsoft.AspNetCore.Authentication.BearerToken.SigningInContext
++Microsoft.AspNetCore.Authentication.BearerToken.SigningInContext.AccessToken.get -> string?
++Microsoft.AspNetCore.Authentication.BearerToken.SigningInContext.AccessToken.set -> void
++Microsoft.AspNetCore.Authentication.BearerToken.SigningInContext.RefreshToken.get -> string?
++Microsoft.AspNetCore.Authentication.BearerToken.SigningInContext.RefreshToken.set -> void
++Microsoft.AspNetCore.Authentication.BearerToken.SigningInContext.SigningInContext(Microsoft.AspNetCore.Http.HttpContext! context, Microsoft.AspNetCore.Authentication.AuthenticationScheme! scheme, Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenOptions! options, System.Security.Claims.ClaimsPrincipal! principal, Microsoft.AspNetCore.Authentication.AuthenticationProperties? properties) -> void
+ Microsoft.Extensions.DependencyInjection.BearerTokenExtensions
+ static Microsoft.Extensions.DependencyInjection.BearerTokenExtensions.AddBearerToken(this Microsoft.AspNetCore.Authentication.AuthenticationBuilder! builder) -> Microsoft.AspNetCore.Authentication.AuthenticationBuilder!
+ static Microsoft.Extensions.DependencyInjection.BearerTokenExtensions.AddBearerToken(this Microsoft.AspNetCore.Authentication.AuthenticationBuilder! builder, string! authenticationScheme) -> Microsoft.AspNetCore.Authentication.AuthenticationBuilder!
+ static Microsoft.Extensions.DependencyInjection.BearerTokenExtensions.AddBearerToken(this Microsoft.AspNetCore.Authentication.AuthenticationBuilder! builder, string! authenticationScheme, System.Action<Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenOptions!>! configure) -> Microsoft.AspNetCore.Authentication.AuthenticationBuilder!
+ static Microsoft.Extensions.DependencyInjection.BearerTokenExtensions.AddBearerToken(this Microsoft.AspNetCore.Authentication.AuthenticationBuilder! builder, System.Action<Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenOptions!>! configure) -> Microsoft.AspNetCore.Authentication.AuthenticationBuilder!
+-virtual Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenEvents.MessageReceived(Microsoft.AspNetCore.Authentication.BearerToken.MessageReceivedContext! context) -> System.Threading.Tasks.Task!
++virtual Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenEvents.MessageReceivedAsync(Microsoft.AspNetCore.Authentication.BearerToken.MessageReceivedContext! context) -> System.Threading.Tasks.Task!
++virtual Microsoft.AspNetCore.Authentication.BearerToken.BearerTokenEvents.SigningInAsync(Microsoft.AspNetCore.Authentication.BearerToken.SigningInContext! context) -> System.Threading.Tasks.Task!
+diff --git a/src/Security/Authentication/BearerToken/src/SigningInContext.cs b/src/Security/Authentication/BearerToken/src/SigningInContext.cs
+new file mode 100644
+index 000000000000..ded323e5485d
+--- /dev/null
++++ b/src/Security/Authentication/BearerToken/src/SigningInContext.cs
+@@ -0,0 +1,46 @@
++// Licensed to the .NET Foundation under one or more agreements.
++// The .NET Foundation licenses this file to you under the MIT license.
++
++using System.Security.Claims;
++using Microsoft.AspNetCore.Http;
++
++namespace Microsoft.AspNetCore.Authentication.BearerToken;
++
++/// <summary>
++/// A context for <see cref="BearerTokenEvents.OnSigningIn"/>.
++/// </summary>
++public class SigningInContext : PrincipalContext<BearerTokenOptions>
++{
++    /// <summary>
++    /// Creates a new instance of the context object.
++    /// </summary>
++    /// <param name="context">The HTTP request context</param>
++    /// <param name="scheme">The scheme data</param>
++    /// <param name="options">The handler options</param>
++    /// <param name="principal">Initializes Principal property</param>
++    /// <param name="properties">The authentication properties.</param>
++    public SigningInContext(
++        HttpContext context,
++        AuthenticationScheme scheme,
++        BearerTokenOptions options,
++        ClaimsPrincipal principal,
++        AuthenticationProperties? properties)
++        : base(context, scheme, options, properties)
++    {
++        Principal = principal;
++    }
++
++    /// <summary>
++    /// The opaque bearer token to be written to the JSON response body as the "access_token".
++    /// If left unset, one will be generated automatically.
++    /// This should later be sent as part of the Authorization request header.
++    /// </summary>
++    public string? AccessToken { get; set; }
++
++    /// <summary>
++    /// The opaque refresh token written the to the JSON response body as the "refresh_token".
++    /// If left unset, it will be generated automatically.
++    /// This should later be sent as part of a request to refresh the <see cref="AccessToken"/>
++    /// </summary>
++    public string? RefreshToken { get; set; }
++}
+diff --git a/src/Shared/BearerToken/DTO/AccessTokenResponse.cs b/src/Shared/BearerToken/DTO/AccessTokenResponse.cs
+index 04a7fb75374e..18755578bd69 100644
+--- a/src/Shared/BearerToken/DTO/AccessTokenResponse.cs
++++ b/src/Shared/BearerToken/DTO/AccessTokenResponse.cs
+@@ -5,14 +5,45 @@
+ 
+ namespace Microsoft.AspNetCore.Authentication.BearerToken.DTO;
+ 
++/// <summary>
++/// The JSON data transfer object for the bearer token response.
++/// </summary>
+ internal sealed class AccessTokenResponse
+ {
++    /// <summary>
++    /// The value is always "Bearer" which indicates this response provides a "Bearer" token
++    /// in the form of an opaque <see cref="AccessToken"/>.
++    /// </summary>
++    /// <remarks>
++    /// This is serialized as "token_type": "Bearer" using System.Text.Json.
++    /// </remarks>
+     [JsonPropertyName("token_type")]
+     public string TokenType { get; } = "Bearer";
+ 
++    /// <summary>
++    /// The opaque bearer token to send as part of the Authorization request header.
++    /// </summary>
++    /// <remarks>
++    /// This is serialized as "access_token": "{AccessToken}" using System.Text.Json.
++    /// </remarks>
+     [JsonPropertyName("access_token")]
+     public required string AccessToken { get; init; }
+ 
++    /// <summary>
++    /// The number of seconds before the <see cref="AccessToken"/> expires.
++    /// </summary>
++    /// <remarks>
++    /// This is serialized as "expires_in": "{ExpiresInSeconds}" using System.Text.Json.
++    /// </remarks>
+     [JsonPropertyName("expires_in")]
+-    public required long ExpiresInTotalSeconds { get; init; }
++    public required long ExpiresInSeconds { get; init; }
++
++    /// <summary>
++    /// If set, this provides the ability to get a new access_token after it expires using a refresh endpoint.
++    /// </summary>
++    /// <remarks>
++    /// This is serialized as "refresh_token": "{RefreshToken}" using System.Text.Json.
++    /// </remarks>
++    [JsonPropertyName("refresh_token")]
++    public required string RefreshToken { get; init; }
+ }

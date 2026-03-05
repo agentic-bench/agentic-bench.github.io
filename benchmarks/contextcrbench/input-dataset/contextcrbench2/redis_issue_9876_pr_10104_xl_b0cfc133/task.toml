@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "redis_issue_9876_pr_10104_xl_b0cfc133"
+contextcrbench2_full_name = "redis/redis"
+contextcrbench2_lang = "c"
+contextcrbench2_issue_number = "9876"
+contextcrbench2_issue_title = "Define and document command tips"
+contextcrbench2_pr_number = "10104"
+contextcrbench2_pr_title = "Add command tips to COMMAND DOCS"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "b0cfc133282e8ecd249fd41b7988288be5970b5d"
+contextcrbench2_commit_id = "d419095f8eceb2019981c19c9a843b56416e5f0a"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2022-01-12T16:25:08Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

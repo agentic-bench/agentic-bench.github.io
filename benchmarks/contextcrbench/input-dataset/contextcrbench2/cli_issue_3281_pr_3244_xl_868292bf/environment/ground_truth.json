@@ -1,0 +1,18 @@
+[
+  {
+    "path": "pkg/markdown/markdown.go",
+    "line": 12,
+    "original_line": 12,
+    "review_comment": [
+      "I like how you added these in a composable way! "
+    ]
+  },
+  {
+    "path": "pkg/cmd/workflow/view/view.go",
+    "line": 131,
+    "original_line": 131,
+    "review_comment": [
+      "Just a heads up since this will likely conflict with https://github.com/cli/cli/pull/3279, who ever merges second will have to resolve the conflict. "
+    ]
+  }
+]

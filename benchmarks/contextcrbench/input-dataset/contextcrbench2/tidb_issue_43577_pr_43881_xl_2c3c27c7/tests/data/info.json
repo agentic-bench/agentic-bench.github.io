@@ -1,0 +1,8 @@
+{
+    "task_id": "tidb_issue_43577_pr_43881_xl_2c3c27c7",
+    "repo": "tidb",
+    "issue_number": 43577,
+    "pr_number": 43881,
+    "checked_commit_id": "2c3c27c743eb92f7f394c06dbefa3d8add3b368b",
+    "entry_count": 1
+}

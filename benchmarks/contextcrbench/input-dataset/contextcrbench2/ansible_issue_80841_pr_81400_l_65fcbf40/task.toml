@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "ansible_issue_80841_pr_81400_l_65fcbf40"
+contextcrbench2_full_name = "ansible/ansible"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "80841"
+contextcrbench2_issue_title = "Add type hints to `ansible.utils.display::Display`"
+contextcrbench2_pr_number = "81400"
+contextcrbench2_pr_title = "Add type hints to ansible.utils.display::Display"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "65fcbf40b3ce6980ccc1c3147dbadd6ef3b64522"
+contextcrbench2_commit_id = "5c0bf6c2b6826d76a32ea0ec70eb2a956851a328"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2023-08-02T13:10:31Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

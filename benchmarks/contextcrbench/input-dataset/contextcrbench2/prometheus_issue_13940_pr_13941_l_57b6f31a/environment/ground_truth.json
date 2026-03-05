@@ -1,0 +1,16 @@
+[
+  {
+    "path": "discovery/scaleway/instance.go",
+    "line": 193,
+    "original_line": 193,
+    "review_comment": [
+      "Thanks.\r\n\r\nI'm not familiar with the API, but is it possible for the IP pointers to be not nil but point to the empty string? If that is possible, then this changes the behavior a little bit, as it would have been possible, before, for `model.AddressLabel` to be set to `\"\"` but now we completely skip setting that label if it's the case, I'm not sure if it's ok.\r\n\r\nAdding a test for this would be great especially to enforce the use case and avoid regressions.\r\n\r\nI think we'll need to adjust the doc now https://github.com/prometheus/prometheus/blob/b938bbc11169dc224c103bec32a55daad0f3f34e/docs/configuration/configuration.md?plain=1#L2952 to inform that we try other addresses.",
+      "I have updated the documentation to reflect the order of use as well as what happens when there's no IP. English is not my native language but I hope I made the doc clear enough.\r\n\r\nI'm not familiar with Scaleway's API either and I could not find any mention of non-null-but-empty private IP. Out of caution I've changed changed the code which should now follow the previous behavior.",
+      "I took a look at the API and the client, I don't think that non-null-pointer-but-empty address is mentioned.\r\nI think we can go with your first approach.\r\n\r\nThanks for updating the docs.\r\nHave you looked into adding a test for this? I can help with that if you want.",
+      "What test cases should I cover? Would one instance with their new routed IPv4 but no private IP enough?\r\n\r\nFrom my understanding, I can simply add my test data to `discovery/scaleway/testdata/instance.json` and update the `TestScalewayInstanceRefresh` test. Is this correct or should I make a new separate test?\r\n",
+      "I think so. Yes, add the case to TestScalewayInstanceRefresh should do it.",
+      "The test case has been added, it should be good to go.",
+      "Thanks for the test. Sorry for not being that clear in my second to last comment, I think we can go with your first approach for the address retrieval (using `addr := \"\"` instead of the slice `var addrs []string`)."
+    ]
+  }
+]

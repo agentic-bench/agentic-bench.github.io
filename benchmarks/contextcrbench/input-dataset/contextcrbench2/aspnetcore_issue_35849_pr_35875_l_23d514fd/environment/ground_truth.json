@@ -1,0 +1,12 @@
+[
+  {
+    "path": "src/Mvc/Mvc.ApiExplorer/test/EndpointMetadataApiDescriptionProviderTest.cs",
+    "line": 415,
+    "original_line": 415,
+    "review_comment": [
+      "@davidfowl FYI, I removed this test as well since we are now skipping creating the api parameter description from body and only getting the value from the metadata. I, also adjusted some other tests. ",
+      "Can we reimplement this test by calling `MapPost` on the `TestEndpointRouteBuilder` and verify the optionality still flows correctly from the `RequestDelegateFactory` to the `EndpointMetadataApiDescriptionProvider` via `IAcceptsMetadta`?\r\n\r\nI suspect ",
+      "yes added tests. "
+    ]
+  }
+]

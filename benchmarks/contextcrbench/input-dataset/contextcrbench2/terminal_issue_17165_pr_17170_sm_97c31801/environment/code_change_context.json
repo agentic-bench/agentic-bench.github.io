@@ -1,0 +1,6 @@
+{
+  "issue_title": "Double-click word selection picks up the RPROMPT from the previous line because word wrapping is hard",
+  "issue_body": "Discussed this with Leonard a while ago",
+  "pr_title": "Take wrapping into account when expanding wordwise selections",
+  "pr_body": "Closes #17165"
+}

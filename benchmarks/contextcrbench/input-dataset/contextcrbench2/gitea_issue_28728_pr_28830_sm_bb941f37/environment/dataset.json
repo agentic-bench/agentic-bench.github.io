@@ -1,0 +1,13 @@
+[
+  {
+    "id": 30116,
+    "full_name": "go-gitea/gitea",
+    "lang": "go",
+    "issue_number": 28728,
+    "pr_number": 28830,
+    "diff_hunk": "@@ -117,6 +120,9 @@ func migrateAvatars(ctx context.Context, dstStorage storage.ObjectStorage) error\n \n func migrateRepoAvatars(ctx context.Context, dstStorage storage.ObjectStorage) error {\n \treturn db.Iterate(ctx, nil, func(ctx context.Context, repo *repo_model.Repository) error {\n+\t\tif repo.CustomAvatarRelativePath() == \"\" {\n+\t\t\treturn nil\n+\t\t}\n \t\t_, err := storage.Copy(dstStorage, repo.CustomAvatarRelativePath(), storage.RepoAvatars, repo.CustomAvatarRelativePath())\n \t\treturn err\n \t})\n",
+    "diff_hunk_content_with_line_number": "[117][120]  \n[118][121]  func migrateRepoAvatars(ctx context.Context, dstStorage storage.ObjectStorage) error {\n[119][122]  \treturn db.Iterate(ctx, nil, func(ctx context.Context, repo *repo_model.Repository) error {\n[][123] +\t\tif repo.CustomAvatarRelativePath() == \"\" {\n[][124] +\t\t\treturn nil\n[][125] +\t\t}\n[120][126]  \t\t_, err := storage.Copy(dstStorage, repo.CustomAvatarRelativePath(), storage.RepoAvatars, repo.CustomAvatarRelativePath())\n[121][127]  \t\treturn err\n[122][128]  \t})",
+    "checked_commit_id": "bb941f375950d3d8e23ae02f1ebd2ddf2bdae3ab",
+    "pr_size": "sm"
+  }
+]

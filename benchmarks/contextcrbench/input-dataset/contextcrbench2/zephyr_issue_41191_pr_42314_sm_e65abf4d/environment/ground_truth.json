@@ -1,0 +1,11 @@
+[
+  {
+    "path": "include/bluetooth/audio/audio.h",
+    "line": 1064,
+    "original_line": 1064,
+    "review_comment": [
+      "Looks unrelated, thus I'd suggest to push this change it in another commit",
+      "It was missing from the callback, but the documentation added is specific for this as `bt_audio_capability_register` triggers the `bt_pacs_add_capability` function which in turn calls the callback with `conn == NULL`. So it is related to the change. "
+    ]
+  }
+]

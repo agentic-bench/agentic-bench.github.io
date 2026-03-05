@@ -1,0 +1,34 @@
+[
+  {
+    "path": "crates/ruff/src/rules/flake8_pie/rules/reimplemented_list_builtin.rs",
+    "line": 62,
+    "original_line": 62,
+    "review_comment": [
+      "Much better IMO."
+    ]
+  },
+  {
+    "path": "crates/ruff_python_codegen/src/generator.rs",
+    "line": 881,
+    "original_line": 881,
+    "review_comment": [
+      "Also much better."
+    ]
+  },
+  {
+    "path": "crates/ruff_python_formatter/src/comments/placement.rs",
+    "line": 167,
+    "original_line": 167,
+    "review_comment": [
+      "Calling `handle_bracketed_end_of_line_comment` here for lambda parameters (which are never parenthesized) triggered a debug assertion in that method. Similar to tuples, we should skip this check for unparenthesized cases."
+    ]
+  },
+  {
+    "path": "crates/ruff/src/checkers/ast/mod.rs",
+    "line": 877,
+    "original_line": 877,
+    "review_comment": [
+      "All the changes in `crates/ruff` are fairly mechanical -- just reacting to the fact that this field is now optional."
+    ]
+  }
+]

@@ -1,0 +1,107 @@
+diff --git a/examples/tensorflow/image-classification/run_image_classification.py b/examples/tensorflow/image-classification/run_image_classification.py
+index 7c16e572fe68..e43de8e82a0d 100644
+--- a/examples/tensorflow/image-classification/run_image_classification.py
++++ b/examples/tensorflow/image-classification/run_image_classification.py
+@@ -509,7 +509,7 @@ def compute_metrics(p):
+                 collate_fn=collate_fn,
+             ).with_options(dataset_options)
+         else:
+-            optimizer = None
++            optimizer = "sgd"  # Just write anything because we won't be using it
+ 
+         if training_args.do_eval:
+             eval_dataset = model.prepare_tf_dataset(
+diff --git a/examples/tensorflow/multiple-choice/run_swag.py b/examples/tensorflow/multiple-choice/run_swag.py
+index 1eb138eb511a..72f9c4992c4d 100644
+--- a/examples/tensorflow/multiple-choice/run_swag.py
++++ b/examples/tensorflow/multiple-choice/run_swag.py
+@@ -482,7 +482,7 @@ def preprocess_function(examples):
+                 adam_global_clipnorm=training_args.max_grad_norm,
+             )
+         else:
+-            optimizer = None
++            optimizer = "sgd"  # Just write anything because we won't be using it
+         # Transformers models compute the right loss for their task by default when labels are passed, and will
+         # use this for training unless you specify your own loss function in compile().
+         model.compile(optimizer=optimizer, metrics=["accuracy"], jit_compile=training_args.xla)
+diff --git a/examples/tensorflow/question-answering/run_qa.py b/examples/tensorflow/question-answering/run_qa.py
+index c1c052a33a42..22ce5d28a15b 100755
+--- a/examples/tensorflow/question-answering/run_qa.py
++++ b/examples/tensorflow/question-answering/run_qa.py
+@@ -706,7 +706,7 @@ def compute_metrics(p: EvalPrediction):
+             model.compile(optimizer=optimizer, jit_compile=training_args.xla, metrics=["accuracy"])
+ 
+         else:
+-            model.compile(optimizer=None, jit_compile=training_args.xla, metrics=["accuracy"])
++            model.compile(optimizer="sgd", jit_compile=training_args.xla, metrics=["accuracy"])
+             training_dataset = None
+ 
+         if training_args.do_eval:
+diff --git a/examples/tensorflow/summarization/run_summarization.py b/examples/tensorflow/summarization/run_summarization.py
+index a07b8e6dd989..0cbfd1ceddab 100644
+--- a/examples/tensorflow/summarization/run_summarization.py
++++ b/examples/tensorflow/summarization/run_summarization.py
+@@ -621,7 +621,7 @@ def postprocess_text(preds, labels):
+                 adam_global_clipnorm=training_args.max_grad_norm,
+             )
+         else:
+-            optimizer = None
++            optimizer = "sgd"  # Just write anything because we won't be using it
+ 
+         # endregion
+ 
+diff --git a/examples/tensorflow/text-classification/README.md b/examples/tensorflow/text-classification/README.md
+index b8bc0b367c4d..08d0324b51dd 100644
+--- a/examples/tensorflow/text-classification/README.md
++++ b/examples/tensorflow/text-classification/README.md
+@@ -75,7 +75,10 @@ python run_text_classification.py \
+ --train_file training_data.json \
+ --validation_file validation_data.json \
+ --output_dir output/ \
+---test_file data_to_predict.json
++--test_file data_to_predict.json \
++--do_train \
++--do_eval \
++--do_predict
+ ```
+ 
+ ## run_glue.py
+diff --git a/examples/tensorflow/text-classification/run_glue.py b/examples/tensorflow/text-classification/run_glue.py
+index 0e6f799e2271..f1d0c835b905 100644
+--- a/examples/tensorflow/text-classification/run_glue.py
++++ b/examples/tensorflow/text-classification/run_glue.py
+@@ -477,7 +477,7 @@ def compute_metrics(preds, label_ids):
+                 adam_global_clipnorm=training_args.max_grad_norm,
+             )
+         else:
+-            optimizer = "adam"  # Just write anything because we won't be using it
++            optimizer = "sgd"  # Just write anything because we won't be using it
+         if is_regression:
+             metrics = []
+         else:
+diff --git a/examples/tensorflow/text-classification/run_text_classification.py b/examples/tensorflow/text-classification/run_text_classification.py
+index bfa2c63dba60..47b8b768503b 100644
+--- a/examples/tensorflow/text-classification/run_text_classification.py
++++ b/examples/tensorflow/text-classification/run_text_classification.py
+@@ -526,7 +526,7 @@ def preprocess_function(examples):
+                 adam_global_clipnorm=training_args.max_grad_norm,
+             )
+         else:
+-            optimizer = None
++            optimizer = "sgd"  # Just use any default
+         if is_regression:
+             metrics = []
+         else:
+diff --git a/examples/tensorflow/translation/run_translation.py b/examples/tensorflow/translation/run_translation.py
+index 787e436a7cdb..7c5286cf1f52 100644
+--- a/examples/tensorflow/translation/run_translation.py
++++ b/examples/tensorflow/translation/run_translation.py
+@@ -584,7 +584,7 @@ def preprocess_function(examples):
+                 adam_global_clipnorm=training_args.max_grad_norm,
+             )
+         else:
+-            optimizer = None
++            optimizer = "sgd"  # Just write anything because we won't be using it
+         # endregion
+ 
+         # region Metric and postprocessing

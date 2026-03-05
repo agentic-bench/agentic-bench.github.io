@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "moby_issue_47822_pr_47821_sm_77a47dba"
+contextcrbench2_full_name = "moby/moby"
+contextcrbench2_lang = "go"
+contextcrbench2_issue_number = "47822"
+contextcrbench2_issue_title = "Internal network DNS fails to resolve"
+contextcrbench2_pr_number = "47821"
+contextcrbench2_pr_title = "Forward DNS requests into --internal networks"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "77a47dba3bb2f997e063a9174177b8670edfa865"
+contextcrbench2_commit_id = "77a47dba3bb2f997e063a9174177b8670edfa865"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2024-05-10T18:24:37Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

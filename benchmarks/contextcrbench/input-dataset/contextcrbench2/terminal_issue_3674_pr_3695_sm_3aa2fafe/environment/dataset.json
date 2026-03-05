@@ -1,0 +1,13 @@
+[
+  {
+    "id": 45670,
+    "full_name": "microsoft/terminal",
+    "lang": "cpp",
+    "issue_number": 3674,
+    "pr_number": 3695,
+    "diff_hunk": "@@ -748,6 +749,21 @@ namespace winrt::TerminalApp::implementation\n \n         // Add an event handler when the terminal wants to paste data from the Clipboard.\n         term.PasteFromClipboard({ this, &TerminalPage::_PasteFromClipboardHandler });\n+\n+        // Don't capture a strong ref to the tab. If the tab is removed as this\n+        // is called, we don't really care anymore about handling the event.\n+        std::weak_ptr<Tab> weakTabPtr = hostingTab;\n+        term.TitleChanged([this, weakTabPtr](auto newTitle) {\n+            auto tab = weakTabPtr.lock();\n+            if (!tab)\n+            {\n+                return;\n+            }\n+            // The title of the control changed, but not necessarily the title\n+            // of the tab. Get the title of the focused pane of the tab, and set\n+            // the tab's text to the focused panes' text.\n+            _UpdateTitle(tab);\n+        });\n     }\n \n     // Method Description:\n",
+    "diff_hunk_content_with_line_number": "[748][749]  \n[749][750]          // Add an event handler when the terminal wants to paste data from the Clipboard.\n[750][751]          term.PasteFromClipboard({ this, &TerminalPage::_PasteFromClipboardHandler });\n[][752] +\n[][753] +        // Don't capture a strong ref to the tab. If the tab is removed as this\n[][754] +        // is called, we don't really care anymore about handling the event.\n[][755] +        std::weak_ptr<Tab> weakTabPtr = hostingTab;\n[][756] +        term.TitleChanged([this, weakTabPtr](auto newTitle) {\n[][757] +            auto tab = weakTabPtr.lock();\n[][758] +            if (!tab)\n[][759] +            {\n[][760] +                return;\n[][761] +            }\n[][762] +            // The title of the control changed, but not necessarily the title\n[][763] +            // of the tab. Get the title of the focused pane of the tab, and set\n[][764] +            // the tab's text to the focused panes' text.\n[][765] +            _UpdateTitle(tab);\n[][766] +        });\n[751][767]      }\n[752][768]  \n[753][769]      // Method Description:",
+    "checked_commit_id": "3aa2fafe966a8198615fa241b653e65474901a94",
+    "pr_size": "sm"
+  }
+]

@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "core_issue_102230_pr_103349_sm_1bf46281"
+contextcrbench2_full_name = "home-assistant/core"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "102230"
+contextcrbench2_issue_title = "Weatherflow Sensors Stop Updating"
+contextcrbench2_pr_number = "103349"
+contextcrbench2_pr_title = "Handle null data in WeatherFlow sensors"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "1bf462816fd5669e20543cb6dfb88aff7c0a26a3"
+contextcrbench2_commit_id = "477dd51e7f65a68224406b7cb98b401fbe2f16bb"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2023-11-04T03:04:15Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

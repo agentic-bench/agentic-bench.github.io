@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "ruff_issue_8859_pr_9003_xl_9e0f147f"
+contextcrbench2_full_name = "astral-sh/ruff"
+contextcrbench2_lang = "rust"
+contextcrbench2_issue_number = "8859"
+contextcrbench2_issue_title = "docstring code formatter: add support for reStructuredText Python code snippets"
+contextcrbench2_pr_number = "9003"
+contextcrbench2_pr_title = "add support for formatting reStructuredText code snippets"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "9e0f147f59d1581fb88b99c9c4692dd0e5e49e8e"
+contextcrbench2_commit_id = "618e48d5c7f132fddd48f9d654bf212eea5385f2"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2023-12-05T03:33:15Z"
+contextcrbench2_entry_count = "3"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

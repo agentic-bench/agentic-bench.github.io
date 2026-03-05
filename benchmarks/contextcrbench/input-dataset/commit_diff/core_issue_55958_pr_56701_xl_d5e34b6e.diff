@@ -1,0 +1,3456 @@
+diff --git a/.coveragerc b/.coveragerc
+index 441d8ce000954e..0a54f15724cab0 100644
+--- a/.coveragerc
++++ b/.coveragerc
+@@ -1096,11 +1096,6 @@ omit =
+     homeassistant/components/totalconnect/binary_sensor.py
+     homeassistant/components/totalconnect/const.py
+     homeassistant/components/touchline/climate.py
+-    homeassistant/components/tplink/__init__.py
+-    homeassistant/components/tplink/common.py
+-    homeassistant/components/tplink/light.py
+-    homeassistant/components/tplink/sensor.py
+-    homeassistant/components/tplink/switch.py
+     homeassistant/components/tplink_lte/*
+     homeassistant/components/traccar/device_tracker.py
+     homeassistant/components/traccar/const.py
+diff --git a/.strict-typing b/.strict-typing
+index 78d6914764f7a7..2a982a16afcfc9 100644
+--- a/.strict-typing
++++ b/.strict-typing
+@@ -107,6 +107,7 @@ homeassistant.components.tag.*
+ homeassistant.components.tautulli.*
+ homeassistant.components.tcp.*
+ homeassistant.components.tile.*
++homeassistant.components.tplink.*
+ homeassistant.components.tradfri.*
+ homeassistant.components.tts.*
+ homeassistant.components.upcloud.*
+diff --git a/homeassistant/components/tplink/__init__.py b/homeassistant/components/tplink/__init__.py
+index 3596bd3128d69b..491a041f1dcbc9 100644
+--- a/homeassistant/components/tplink/__init__.py
++++ b/homeassistant/components/tplink/__init__.py
+@@ -1,152 +1,139 @@
+ """Component to embed TP-Link smart home devices."""
+ from __future__ import annotations
+ 
+-from datetime import timedelta
+-import logging
+ from typing import Any
+ 
+ from kasa import SmartDevice, SmartDeviceException
++from kasa.discover import Discover
+ import voluptuous as vol
+ 
+ from homeassistant import config_entries
+-from homeassistant.components.switch import ATTR_CURRENT_POWER_W, ATTR_TODAY_ENERGY_KWH
+-from homeassistant.config_entries import ConfigEntry
+-from homeassistant.const import ATTR_VOLTAGE, CONF_HOST
+-from homeassistant.core import HomeAssistant
+-from homeassistant.helpers import device_registry as dr
+-import homeassistant.helpers.config_validation as cv
++from homeassistant.config_entries import ConfigEntry, ConfigEntryNotReady
++from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME
++from homeassistant.core import HomeAssistant, callback
++from homeassistant.helpers import config_validation as cv, device_registry as dr
+ from homeassistant.helpers.typing import ConfigType
+-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+ 
+-from .common import SmartDevices, async_discover_devices, get_static_devices
+ from .const import (
+-    ATTR_CONFIG,
+-    ATTR_CURRENT_A,
+-    ATTR_TOTAL_ENERGY_KWH,
+     CONF_DIMMER,
+     CONF_DISCOVERY,
+-    CONF_EMETER_PARAMS,
+     CONF_LIGHT,
+     CONF_STRIP,
+     CONF_SWITCH,
+-    COORDINATORS,
++    DISCOVERED_DEVICES,
++    DOMAIN,
+     PLATFORMS,
+-    UNAVAILABLE_DEVICES,
+ )
+-
+-_LOGGER = logging.getLogger(__name__)
+-
+-DOMAIN = "tplink"
++from .coordinator import TPLinkDataUpdateCoordinator
++from .migration import (
++    async_migrate_entities_devices,
++    async_migrate_legacy_entries,
++    async_migrate_yaml_entries,
++)
++from .utils import async_entry_is_legacy
+ 
+ TPLINK_HOST_SCHEMA = vol.Schema({vol.Required(CONF_HOST): cv.string})
+ 
+ CONFIG_SCHEMA = vol.Schema(
+-    {
+-        DOMAIN: vol.Schema(
+-            {
+-                vol.Optional(CONF_LIGHT, default=[]): vol.All(
+-                    cv.ensure_list, [TPLINK_HOST_SCHEMA]
+-                ),
+-                vol.Optional(CONF_SWITCH, default=[]): vol.All(
+-                    cv.ensure_list, [TPLINK_HOST_SCHEMA]
+-                ),
+-                vol.Optional(CONF_STRIP, default=[]): vol.All(
+-                    cv.ensure_list, [TPLINK_HOST_SCHEMA]
+-                ),
+-                vol.Optional(CONF_DIMMER, default=[]): vol.All(
+-                    cv.ensure_list, [TPLINK_HOST_SCHEMA]
+-                ),
+-                vol.Optional(CONF_DISCOVERY, default=True): cv.boolean,
+-            }
+-        )
+-    },
++    vol.All(
++        cv.deprecated(DOMAIN),
++        {
++            DOMAIN: vol.Schema(
++                {
++                    vol.Optional(CONF_LIGHT, default=[]): vol.All(
++                        cv.ensure_list, [TPLINK_HOST_SCHEMA]
++                    ),
++                    vol.Optional(CONF_SWITCH, default=[]): vol.All(
++                        cv.ensure_list, [TPLINK_HOST_SCHEMA]
++                    ),
++                    vol.Optional(CONF_STRIP, default=[]): vol.All(
++                        cv.ensure_list, [TPLINK_HOST_SCHEMA]
++                    ),
++                    vol.Optional(CONF_DIMMER, default=[]): vol.All(
++                        cv.ensure_list, [TPLINK_HOST_SCHEMA]
++                    ),
++                    vol.Optional(CONF_DISCOVERY, default=True): cv.boolean,
++                }
++            )
++        },
++    ),
+     extra=vol.ALLOW_EXTRA,
+ )
+ 
+ 
++@callback
++def async_trigger_discovery(
++    hass: HomeAssistant,
++    discovered_devices: dict[str, SmartDevice],
++) -> None:
++    """Trigger config flows for discovered devices."""
++    for formatted_mac, device in discovered_devices.items():
++        hass.async_create_task(
++            hass.config_entries.flow.async_init(
++                DOMAIN,
++                context={"source": config_entries.SOURCE_DISCOVERY},
++                data={
++                    CONF_NAME: device.alias,
++                    CONF_HOST: device.host,
++                    CONF_MAC: formatted_mac,
++                },
++            )
++        )
++
++
+ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+     """Set up the TP-Link component."""
+     conf = config.get(DOMAIN)
++    domain_data = hass.data[DOMAIN] = {}
++
++    legacy_entry = None
++    config_entries_by_mac = {}
++    for entry in hass.config_entries.async_entries(DOMAIN):
++        if async_entry_is_legacy(entry):
++            legacy_entry = entry
++        elif entry.unique_id:
++            config_entries_by_mac[entry.unique_id] = entry
+ 
+-    hass.data[DOMAIN] = {}
+-    hass.data[DOMAIN][ATTR_CONFIG] = conf
++    domain_data[DISCOVERED_DEVICES] = {
++        dr.format_mac(device.mac): device
++        for device in (await Discover.discover()).values()
++    }
++
++    if legacy_entry:
++        async_migrate_legacy_entries(hass, config_entries_by_mac, legacy_entry)
+ 
+     if conf is not None:
+-        hass.async_create_task(
+-            hass.config_entries.flow.async_init(
+-                DOMAIN, context={"source": config_entries.SOURCE_IMPORT}
+-            )
+-        )
++        async_migrate_yaml_entries(hass, conf)
++
++    if domain_data[DISCOVERED_DEVICES]:
++        async_trigger_discovery(hass, domain_data[DISCOVERED_DEVICES])
+ 
+     return True
+ 
+ 
+ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+     """Set up TPLink from a config entry."""
+-    config_data = hass.data[DOMAIN].get(ATTR_CONFIG)
+-    if config_data is None and entry.data:
+-        config_data = entry.data
+-    elif config_data is not None:
+-        hass.config_entries.async_update_entry(entry, data=config_data)
+-
+-    device_registry = dr.async_get(hass)
+-    tplink_devices = dr.async_entries_for_config_entry(device_registry, entry.entry_id)
+-    device_count = len(tplink_devices)
+-    hass_data: dict[str, Any] = hass.data[DOMAIN]
+-
+-    # These will contain the initialized devices
+-    hass_data[CONF_LIGHT] = []
+-    hass_data[CONF_SWITCH] = []
+-    hass_data[UNAVAILABLE_DEVICES] = []
+-    lights: list[SmartDevice] = hass_data[CONF_LIGHT]
+-    switches: list[SmartDevice] = hass_data[CONF_SWITCH]
+-
+-    # Add static devices
+-    static_devices = SmartDevices()
+-    if config_data is not None:
+-        static_devices = await get_static_devices(config_data)
+-
+-        lights.extend(static_devices.lights)
+-        switches.extend(static_devices.switches)
+-
+-    # Add discovered devices
+-    if config_data is None or config_data[CONF_DISCOVERY]:
+-        discovered_devices = await async_discover_devices(
+-            hass, static_devices, device_count
+-        )
++    if async_entry_is_legacy(entry):
++        return True
+ 
+-        lights.extend(discovered_devices.lights)
+-        switches.extend(discovered_devices.switches)
++    legacy_entry: ConfigEntry | None = None
++    for config_entry in hass.config_entries.async_entries(DOMAIN):
++        if async_entry_is_legacy(config_entry):
++            legacy_entry = config_entry
++            break
+ 
+-    if lights:
+-        _LOGGER.debug(
+-            "Got %s lights: %s", len(lights), ", ".join(d.host for d in lights)
+-        )
++    if legacy_entry is not None:
++        await async_migrate_entities_devices(hass, legacy_entry.entry_id, entry)
+ 
+-    if switches:
+-        _LOGGER.debug(
+-            "Got %s switches: %s",
+-            len(switches),
+-            ", ".join(d.host for d in switches),
+-        )
++    try:
++        device: SmartDevice = await Discover.discover_single(entry.data[CONF_HOST])
++    except SmartDeviceException as ex:
++        raise ConfigEntryNotReady from ex
+ 
+-    # prepare DataUpdateCoordinators
+-    coordinators: dict[str, TPLinkDataUpdateCoordinator] = {}
+-    hass_data[COORDINATORS] = coordinators
+-    for device in switches + lights:
+-        coordinator = coordinators[device.device_id] = TPLinkDataUpdateCoordinator(
+-            hass, device
+-        )
+-
+-        try:
+-            await coordinator.async_refresh()
+-        except SmartDeviceException:
+-            _LOGGER.warning(
+-                "Device at '%s' not reachable during setup, retry not yet implemented",
+-                device.host,
+-            )
+-            continue
++    coordinator = TPLinkDataUpdateCoordinator(hass, device)
++    coordinator.data = coordinator.async_data_from_device()
+ 
++    hass.data[DOMAIN][entry.entry_id] = coordinator
+     hass.config_entries.async_setup_platforms(entry, PLATFORMS)
+ 
+     return True
+@@ -154,62 +141,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+ 
+ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+     """Unload a config entry."""
+-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+     hass_data: dict[str, Any] = hass.data[DOMAIN]
+-    if unload_ok:
+-        hass_data.clear()
+-
++    if entry.entry_id not in hass_data:
++        return True
++    if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
++        hass_data.pop(entry.entry_id)
+     return unload_ok
+-
+-
+-class TPLinkDataUpdateCoordinator(DataUpdateCoordinator):
+-    """DataUpdateCoordinator to gather data for specific SmartPlug."""
+-
+-    def __init__(
+-        self,
+-        hass: HomeAssistant,
+-        device: SmartDevice,
+-    ) -> None:
+-        """Initialize DataUpdateCoordinator to gather data for specific SmartPlug."""
+-        self.device = device
+-        self.update_children = True
+-        update_interval = timedelta(seconds=10)
+-        super().__init__(
+-            hass,
+-            _LOGGER,
+-            name=device.alias,
+-            update_interval=update_interval,
+-        )
+-
+-    async def _async_update_data(self) -> dict:
+-        """Fetch all device and sensor data from api."""
+-        try:
+-            await self.device.update(update_children=self.update_children)
+-        except SmartDeviceException as ex:
+-            raise UpdateFailed(ex) from ex
+-        else:
+-            self.update_children = True
+-
+-        self.name = self.device.alias
+-
+-        # Check if the device has emeter
+-        if not self.device.has_emeter:
+-            return {}
+-
+-        if (emeter_today := self.device.emeter_today) is not None:
+-            consumption_today = emeter_today
+-        else:
+-            # today's consumption not available, when device was off all the day
+-            # bulb's do not report this information, so filter it out
+-            consumption_today = None if self.device.is_bulb else 0.0
+-
+-        emeter_readings = self.device.emeter_realtime
+-        return {
+-            CONF_EMETER_PARAMS: {
+-                ATTR_CURRENT_POWER_W: emeter_readings.power,
+-                ATTR_TOTAL_ENERGY_KWH: emeter_readings.total,
+-                ATTR_VOLTAGE: emeter_readings.voltage,
+-                ATTR_CURRENT_A: emeter_readings.current,
+-                ATTR_TODAY_ENERGY_KWH: consumption_today,
+-            }
+-        }
+diff --git a/homeassistant/components/tplink/common.py b/homeassistant/components/tplink/common.py
+deleted file mode 100644
+index b8d0f49af9b70f..00000000000000
+--- a/homeassistant/components/tplink/common.py
++++ /dev/null
+@@ -1,175 +0,0 @@
+-"""Common code for tplink."""
+-from __future__ import annotations
+-
+-import logging
+-from typing import Any
+-
+-from kasa import Discover, SmartDevice, SmartDeviceException
+-
+-from homeassistant.core import HomeAssistant
+-import homeassistant.helpers.device_registry as dr
+-from homeassistant.helpers.entity import DeviceInfo
+-from homeassistant.helpers.update_coordinator import (
+-    CoordinatorEntity,
+-    DataUpdateCoordinator,
+-)
+-
+-from .const import (
+-    CONF_DIMMER,
+-    CONF_LIGHT,
+-    CONF_STRIP,
+-    CONF_SWITCH,
+-    MAX_DISCOVERY_RETRIES,
+-)
+-
+-_LOGGER = logging.getLogger(__name__)
+-
+-
+-class SmartDevices:
+-    """Hold different kinds of devices."""
+-
+-    def __init__(
+-        self, lights: list[SmartDevice] = None, switches: list[SmartDevice] = None
+-    ) -> None:
+-        """Initialize device holder."""
+-        self._lights = lights or []
+-        self._switches = switches or []
+-
+-    @property
+-    def lights(self) -> list[SmartDevice]:
+-        """Get the lights."""
+-        return self._lights
+-
+-    @property
+-    def switches(self) -> list[SmartDevice]:
+-        """Get the switches."""
+-        return self._switches
+-
+-    def has_device_with_host(self, host: str) -> bool:
+-        """Check if a devices exists with a specific host."""
+-        return any(device.host == host for device in self.lights + self.switches)
+-
+-
+-async def async_get_discoverable_devices(hass: HomeAssistant) -> dict[str, SmartDevice]:
+-    """Return if there are devices that can be discovered."""
+-    return await Discover.discover()
+-
+-
+-async def async_discover_devices(
+-    hass: HomeAssistant, existing_devices: SmartDevices, target_device_count: int
+-) -> SmartDevices:
+-    """Get devices through discovery."""
+-
+-    lights = []
+-    switches = []
+-
+-    # We do retries since UDP packets over wifi can get lost
+-    devices: dict[str, SmartDevice] = {}
+-    for attempt in range(1, MAX_DISCOVERY_RETRIES + 1):
+-        _LOGGER.debug(
+-            "Discovering tplink devices, attempt %s of %s",
+-            attempt,
+-            MAX_DISCOVERY_RETRIES,
+-        )
+-        discovered_devices = await async_get_discoverable_devices(hass)
+-        _LOGGER.debug(
+-            "Discovered %s TP-Link of expected %s smart home device(s)",
+-            len(discovered_devices),
+-            target_device_count,
+-        )
+-        for device_ip in discovered_devices:
+-            devices[device_ip] = discovered_devices[device_ip]
+-
+-        if len(discovered_devices) >= target_device_count:
+-            _LOGGER.debug(
+-                "Discovered at least as many devices on the network as exist in our device registry, no need to retry"
+-            )
+-            break
+-
+-    _LOGGER.debug(
+-        "Found %s unique TP-Link smart home device(s) after %s discovery attempts",
+-        len(devices),
+-        attempt,
+-    )
+-
+-    for device in devices.values():
+-        # If this device already exists, ignore dynamic setup.
+-        if existing_devices.has_device_with_host(device.host):
+-            continue
+-
+-        if device.is_strip or device.is_plug:
+-            switches.append(device)
+-        elif device.is_bulb or device.is_light_strip or device.is_dimmer:
+-            lights.append(device)
+-        else:
+-            _LOGGER.error("Unknown smart device type: %s", type(device))
+-
+-    return SmartDevices(lights, switches)
+-
+-
+-async def get_static_devices(config_data) -> SmartDevices:
+-    """Get statically defined devices in the config."""
+-    lights = []
+-    switches = []
+-
+-    for type_ in (CONF_LIGHT, CONF_SWITCH, CONF_STRIP, CONF_DIMMER):
+-        for entry in config_data[type_]:
+-            host = entry["host"]
+-            try:
+-                device: SmartDevice = await Discover.discover_single(host)
+-                if device.is_bulb or device.is_light_strip or device.is_dimmer:
+-                    _LOGGER.debug("Found static light: %s", device)
+-                    lights.append(device)
+-                elif device.is_plug or device.is_strip:
+-                    _LOGGER.debug("Found static switch: %s", device)
+-                    switches.append(device)
+-            except SmartDeviceException as sde:
+-                _LOGGER.error(
+-                    "Failed to setup device %s due to %s; not retrying", host, sde
+-                )
+-    return SmartDevices(lights, switches)
+-
+-
+-class CoordinatedTPLinkEntity(CoordinatorEntity):
+-    """Common base class for all coordinated tplink entities."""
+-
+-    def __init__(self, device: SmartDevice, coordinator: DataUpdateCoordinator) -> None:
+-        """Initialize the switch."""
+-        super().__init__(coordinator)
+-        self.device = device
+-
+-    @property
+-    def data(self) -> dict[str, Any]:
+-        """Return data from DataUpdateCoordinator."""
+-        return self.coordinator.data
+-
+-    @property
+-    def unique_id(self) -> str | None:
+-        """Return a unique ID."""
+-        return self.device.device_id
+-
+-    @property
+-    def name(self) -> str | None:
+-        """Return the name of the Smart Plug."""
+-        return self.device.alias
+-
+-    @property
+-    def device_info(self) -> DeviceInfo:
+-        """Return information about the device."""
+-        data = {
+-            "name": self.device.alias,
+-            "model": self.device.model,
+-            "manufacturer": "TP-Link",
+-            # Note: mac instead of device_id here to connect subdevices to the main device
+-            "connections": {(dr.CONNECTION_NETWORK_MAC, self.device.mac)},
+-            "sw_version": self.device.hw_info["sw_ver"],
+-        }
+-        if self.device.is_strip_socket:
+-            data["via_device"] = self.device.parent.device_id
+-
+-        return data
+-
+-    @property
+-    def is_on(self) -> bool | None:
+-        """Return true if switch is on."""
+-        return self.device.is_on
+diff --git a/homeassistant/components/tplink/config_flow.py b/homeassistant/components/tplink/config_flow.py
+index 033d80cf407d17..4036625244e098 100644
+--- a/homeassistant/components/tplink/config_flow.py
++++ b/homeassistant/components/tplink/config_flow.py
+@@ -1,11 +1,189 @@
+ """Config flow for TP-Link."""
+-from homeassistant.helpers import config_entry_flow
++from __future__ import annotations
+ 
+-from .common import async_get_discoverable_devices
+-from .const import DOMAIN
++import logging
++from typing import Any
+ 
+-config_entry_flow.register_discovery_flow(
+-    DOMAIN,
+-    "TP-Link Smart Home",
+-    async_get_discoverable_devices,
+-)
++from kasa import SmartDevice, SmartDeviceException
++from kasa.discover import Discover
++import voluptuous as vol
++
++from homeassistant import config_entries
++from homeassistant.components.dhcp import IP_ADDRESS, MAC_ADDRESS
++from homeassistant.const import CONF_DEVICE, CONF_HOST, CONF_MAC, CONF_NAME
++from homeassistant.core import callback
++from homeassistant.data_entry_flow import FlowResult
++from homeassistant.helpers import device_registry as dr
++from homeassistant.helpers.typing import DiscoveryInfoType
++
++from .const import DISCOVERED_DEVICES, DOMAIN
++from .utils import async_entry_is_legacy
++
++_LOGGER = logging.getLogger(__name__)
++
++
++class ConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
++    """Handle a config flow for tplink."""
++
++    VERSION = 1
++
++    def __init__(self) -> None:
++        """Initialize the config flow."""
++        self._discovered_devices: dict[str, SmartDevice] = {}
++        self._discovered_device: SmartDevice | None = None
++
++    async def async_step_dhcp(self, discovery_info: DiscoveryInfoType) -> FlowResult:
++        """Handle discovery via dhcp."""
++        return await self._async_handle_discovery(
++            discovery_info[IP_ADDRESS], discovery_info[MAC_ADDRESS]
++        )
++
++    async def async_step_discovery(
++        self, discovery_info: DiscoveryInfoType
++    ) -> FlowResult:
++        """Handle discovery."""
++        return await self._async_handle_discovery(
++            discovery_info[CONF_HOST], discovery_info[CONF_MAC]
++        )
++
++    async def _async_handle_discovery(self, host: str, mac: str) -> FlowResult:
++        """Handle any discovery."""
++        await self.async_set_unique_id(dr.format_mac(mac))
++        self._abort_if_unique_id_configured(updates={CONF_HOST: host})
++        self._async_abort_entries_match({CONF_HOST: host})
++        self.context[CONF_HOST] = host
++        for progress in self._async_in_progress():
++            if progress.get("context", {}).get(CONF_HOST) == host:
++                return self.async_abort(reason="already_in_progress")
++
++        try:
++            self._discovered_device = await self._async_try_connect(
++                host, raise_on_progress=True
++            )
++        except SmartDeviceException:
++            return self.async_abort(reason="cannot_connect")
++        return await self.async_step_discovery_confirm()
++
++    async def async_step_discovery_confirm(
++        self, user_input: dict[str, Any] | None = None
++    ) -> FlowResult:
++        """Confirm discovery."""
++        assert self._discovered_device is not None
++        if user_input is not None:
++            return self._async_create_entry_from_device(self._discovered_device)
++
++        self._set_confirm_only()
++        placeholders = {
++            "name": self._discovered_device.alias,
++            "model": self._discovered_device.model,
++            "host": self._discovered_device.host,
++        }
++        self.context["title_placeholders"] = placeholders
++        return self.async_show_form(
++            step_id="discovery_confirm", description_placeholders=placeholders
++        )
++
++    async def async_step_user(
++        self, user_input: dict[str, Any] | None = None
++    ) -> FlowResult:
++        """Handle the initial step."""
++        errors = {}
++        host = ""
++        if user_input is not None:
++            host = user_input.get(CONF_HOST, "")
++            if not host:
++                return await self.async_step_pick_device()
++            try:
++                device = await self._async_try_connect(
++                    user_input[CONF_HOST], raise_on_progress=False
++                )
++            except SmartDeviceException:
++                errors["base"] = "cannot_connect"
++            else:
++                return self._async_create_entry_from_device(device)
++
++        return self.async_show_form(
++            step_id="user",
++            data_schema=vol.Schema({vol.Optional(CONF_HOST, default=host): str}),
++            errors=errors,
++        )
++
++    async def async_step_pick_device(
++        self, user_input: dict[str, Any] | None = None
++    ) -> FlowResult:
++        """Handle the step to pick discovered device."""
++        if user_input is not None:
++            mac = user_input[CONF_DEVICE].split(" ")[-1]
++            await self.async_set_unique_id(mac, raise_on_progress=False)
++            return self._async_create_entry_from_device(self._discovered_devices[mac])
++
++        configured_devices = {
++            entry.unique_id
++            for entry in self._async_current_entries()
++            if not async_entry_is_legacy(entry)
++        }
++        self._discovered_devices = {
++            dr.format_mac(device.mac): device
++            for device in (await Discover.discover()).values()
++        }
++        devices_name = {
++            f"{device.alias} {device.model} ({device.host}) {formatted_mac}"
++            for formatted_mac, device in self._discovered_devices.items()
++            if formatted_mac not in configured_devices
++        }
++        # Check if there is at least one device
++        if not devices_name:
++            return self.async_abort(reason="no_devices_found")
++        return self.async_show_form(
++            step_id="pick_device",
++            data_schema=vol.Schema({vol.Required(CONF_DEVICE): vol.In(devices_name)}),
++        )
++
++    async def async_step_migration(self, migration_input: dict[str, Any]) -> FlowResult:
++        """Handle migration from legacy config entry to per device config entry."""
++        mac = migration_input[CONF_MAC]
++        name = migration_input[CONF_NAME]
++        discovered_devices = self.hass.data[DOMAIN][DISCOVERED_DEVICES]
++        host = None
++        if device := discovered_devices.get(mac):
++            host = device.host
++        await self.async_set_unique_id(dr.format_mac(mac), raise_on_progress=False)
++        self._abort_if_unique_id_configured()
++        return self.async_create_entry(
++            title=name,
++            data={
++                CONF_HOST: host,
++            },
++        )
++
++    @callback
++    def _async_create_entry_from_device(self, device: SmartDevice) -> FlowResult:
++        """Create a config entry from a smart device."""
++        self._abort_if_unique_id_configured(updates={CONF_HOST: device.host})
++        return self.async_create_entry(
++            title=f"{device.alias} {device.model}",
++            data={
++                CONF_HOST: device.host,
++            },
++        )
++
++    async def async_step_import(self, user_input: dict[str, Any]) -> FlowResult:
++        """Handle import step."""
++        host = user_input[CONF_HOST]
++        try:
++            device = await self._async_try_connect(host, raise_on_progress=False)
++        except SmartDeviceException:
++            _LOGGER.exception("Failed to import %s: cannot connect", host)
++            return self.async_abort(reason="cannot_connect")
++        return self._async_create_entry_from_device(device)
++
++    async def _async_try_connect(
++        self, host: str, raise_on_progress: bool = True
++    ) -> SmartDevice:
++        """Try to connect."""
++        self._async_abort_entries_match({CONF_HOST: host})
++        device: SmartDevice = await Discover.discover_single(host)
++        await self.async_set_unique_id(
++            dr.format_mac(device.mac), raise_on_progress=raise_on_progress
++        )
++        return device
+diff --git a/homeassistant/components/tplink/const.py b/homeassistant/components/tplink/const.py
+index 60e06fd1ffe564..fc115e57b98084 100644
+--- a/homeassistant/components/tplink/const.py
++++ b/homeassistant/components/tplink/const.py
+@@ -1,28 +1,23 @@
+ """Const for TP-Link."""
+ from __future__ import annotations
+ 
+-import datetime
++from typing import Final
+ 
+ DOMAIN = "tplink"
+-COORDINATORS = "coordinators"
+-UNAVAILABLE_DEVICES = "unavailable_devices"
+-UNAVAILABLE_RETRY_DELAY = datetime.timedelta(seconds=300)
+ 
+-MIN_TIME_BETWEEN_UPDATES = datetime.timedelta(seconds=8)
+-MAX_DISCOVERY_RETRIES = 4
++ATTR_CURRENT_A: Final = "current_a"
++ATTR_CURRENT_POWER_W: Final = "current_power_w"
++ATTR_TODAY_ENERGY_KWH: Final = "today_energy_kwh"
++ATTR_TOTAL_ENERGY_KWH: Final = "total_energy_kwh"
+ 
+-ATTR_CONFIG = "config"
+-ATTR_TOTAL_ENERGY_KWH = "total_energy_kwh"
+-ATTR_CURRENT_A = "current_a"
++DISCOVERED_DEVICES: Final = "discovered_devices"
+ 
+-CONF_MODEL = "model"
+-CONF_SW_VERSION = "sw_ver"
+-CONF_EMETER_PARAMS = "emeter_params"
+-CONF_DIMMER = "dimmer"
+-CONF_DISCOVERY = "discovery"
+-CONF_LIGHT = "light"
+-CONF_STRIP = "strip"
+-CONF_SWITCH = "switch"
+-CONF_SENSOR = "sensor"
++CONF_EMETER_PARAMS: Final = "emeter_params"
++CONF_DIMMER: Final = "dimmer"
++CONF_DISCOVERY: Final = "discovery"
++CONF_LIGHT: Final = "light"
++CONF_STRIP: Final = "strip"
++CONF_SWITCH: Final = "switch"
++CONF_SENSOR: Final = "sensor"
+ 
+-PLATFORMS = [CONF_LIGHT, CONF_SENSOR, CONF_SWITCH]
++PLATFORMS: Final = [CONF_LIGHT, CONF_SENSOR, CONF_SWITCH]
+diff --git a/homeassistant/components/tplink/coordinator.py b/homeassistant/components/tplink/coordinator.py
+new file mode 100644
+index 00000000000000..76cceb48ca2af3
+--- /dev/null
++++ b/homeassistant/components/tplink/coordinator.py
+@@ -0,0 +1,94 @@
++"""Component to embed TP-Link smart home devices."""
++from __future__ import annotations
++
++from datetime import timedelta
++import logging
++
++from kasa import SmartDevice, SmartDeviceException
++
++from homeassistant.const import ATTR_VOLTAGE
++from homeassistant.core import HomeAssistant, callback
++from homeassistant.helpers.debounce import Debouncer
++from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
++
++from .const import (
++    ATTR_CURRENT_A,
++    ATTR_CURRENT_POWER_W,
++    ATTR_TODAY_ENERGY_KWH,
++    ATTR_TOTAL_ENERGY_KWH,
++    CONF_EMETER_PARAMS,
++)
++
++_LOGGER = logging.getLogger(__name__)
++
++REQUEST_REFRESH_DELAY = 0.35
++
++
++class TPLinkDataUpdateCoordinator(DataUpdateCoordinator):
++    """DataUpdateCoordinator to gather data for a specific TPLink device."""
++
++    def __init__(
++        self,
++        hass: HomeAssistant,
++        device: SmartDevice,
++    ) -> None:
++        """Initialize DataUpdateCoordinator to gather data for specific SmartPlug."""
++        self.device = device
++        self.update_children = True
++        update_interval = timedelta(seconds=10)
++        super().__init__(
++            hass,
++            _LOGGER,
++            name=device.host,
++            update_interval=update_interval,
++            # We don't want an immediate refresh since the device and
++            # take a moment to reflect the state change
++            request_refresh_debouncer=Debouncer(
++                hass, _LOGGER, cooldown=REQUEST_REFRESH_DELAY, immediate=False
++            ),
++        )
++
++    async def async_request_refresh_without_children(self) -> None:
++        """Request a refresh without the children."""
++        # If the children do get updated this is ok as this is an
++        # optimization to reduce the number of requests on the device
++        # when we do not need it.
++        self.update_children = False
++        await self.async_request_refresh()
++
++    @callback
++    def async_data_from_device(self) -> dict:
++        """Build the coordinator data from the device."""
++        self.name = self.device.alias
++
++        # Check if the device has emeter
++        if not self.device.has_emeter:
++            return {}
++
++        if (emeter_today := self.device.emeter_today) is not None:
++            consumption_today = emeter_today
++        else:
++            # today's consumption not available, when device was off all the day
++            # bulb's do not report this information, so filter it out
++            consumption_today = None if self.device.is_bulb else 0.0
++
++        emeter_readings = self.device.emeter_realtime
++        return {
++            CONF_EMETER_PARAMS: {
++                ATTR_CURRENT_POWER_W: emeter_readings.power,
++                ATTR_TOTAL_ENERGY_KWH: emeter_readings.total,
++                ATTR_VOLTAGE: emeter_readings.voltage,
++                ATTR_CURRENT_A: emeter_readings.current,
++                ATTR_TODAY_ENERGY_KWH: consumption_today,
++            }
++        }
++
++    async def _async_update_data(self) -> dict:
++        """Fetch all device and sensor data from api."""
++        try:
++            await self.device.update(update_children=self.update_children)
++        except SmartDeviceException as ex:
++            raise UpdateFailed(ex) from ex
++        finally:
++            self.update_children = True
++        return self.async_data_from_device()
+diff --git a/homeassistant/components/tplink/entity.py b/homeassistant/components/tplink/entity.py
+new file mode 100644
+index 00000000000000..fa475c8df79ec0
+--- /dev/null
++++ b/homeassistant/components/tplink/entity.py
+@@ -0,0 +1,67 @@
++"""Common code for tplink."""
++from __future__ import annotations
++
++from typing import Any, Callable, cast
++
++from kasa import SmartDevice
++
++from homeassistant.helpers import device_registry as dr
++from homeassistant.helpers.entity import DeviceInfo
++from homeassistant.helpers.update_coordinator import CoordinatorEntity
++
++from .const import DOMAIN
++from .coordinator import TPLinkDataUpdateCoordinator
++
++
++def async_refresh_after(func: Callable) -> Callable:
++    """Define a wrapper to refresh after."""
++
++    async def _async_wrap(
++        self: CoordinatedTPLinkEntity, *args: Any, **kwargs: Any
++    ) -> None:
++        await func(self, *args, **kwargs)
++        await self.coordinator.async_request_refresh_without_children()
++
++    return _async_wrap
++
++
++class CoordinatedTPLinkEntity(CoordinatorEntity):
++    """Common base class for all coordinated tplink entities."""
++
++    coordinator: TPLinkDataUpdateCoordinator
++
++    def __init__(
++        self, device: SmartDevice, coordinator: TPLinkDataUpdateCoordinator
++    ) -> None:
++        """Initialize the switch."""
++        super().__init__(coordinator)
++        self.device: SmartDevice = device
++        self._attr_unique_id = self.device.device_id
++
++    @property
++    def data(self) -> dict[str, Any]:
++        """Return data from DataUpdateCoordinator."""
++        data: dict[str, Any] = self.coordinator.data
++        return data
++
++    @property
++    def name(self) -> str:
++        """Return the name of the Smart Plug."""
++        return cast(str, self.device.alias)
++
++    @property
++    def device_info(self) -> DeviceInfo:
++        """Return information about the device."""
++        return {
++            "name": self.device.alias,
++            "model": self.device.model,
++            "manufacturer": "TP-Link",
++            "identifiers": {(DOMAIN, str(self.device.device_id))},
++            "connections": {(dr.CONNECTION_NETWORK_MAC, self.device.mac)},
++            "sw_version": self.device.hw_info["sw_ver"],
++        }
++
++    @property
++    def is_on(self) -> bool:
++        """Return true if switch is on."""
++        return bool(self.device.is_on)
+diff --git a/homeassistant/components/tplink/light.py b/homeassistant/components/tplink/light.py
+index b47412fccdb3a6..cd229d1ec84714 100644
+--- a/homeassistant/components/tplink/light.py
++++ b/homeassistant/components/tplink/light.py
+@@ -1,12 +1,9 @@
+ """Support for TPLink lights."""
+ from __future__ import annotations
+ 
+-from datetime import timedelta
+ import logging
+ from typing import Any
+ 
+-from kasa import SmartBulb
+-
+ from homeassistant.components.light import (
+     ATTR_BRIGHTNESS,
+     ATTR_COLOR_TEMP,
+@@ -19,30 +16,22 @@
+     SUPPORT_TRANSITION,
+     LightEntity,
+ )
+-from homeassistant.components.tplink import TPLinkDataUpdateCoordinator
+ from homeassistant.config_entries import ConfigEntry
+ from homeassistant.core import HomeAssistant
+ from homeassistant.helpers.entity_platform import AddEntitiesCallback
+-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+ from homeassistant.util.color import (
+     color_temperature_kelvin_to_mired as kelvin_to_mired,
+     color_temperature_mired_to_kelvin as mired_to_kelvin,
+ )
+ 
+-from .common import CoordinatedTPLinkEntity
+-from .const import CONF_LIGHT, COORDINATORS, DOMAIN as TPLINK_DOMAIN
++from .const import DOMAIN
++from .coordinator import TPLinkDataUpdateCoordinator
++from .entity import CoordinatedTPLinkEntity, async_refresh_after
+ 
+ PARALLEL_UPDATES = 0
+-SCAN_INTERVAL = timedelta(seconds=5)
+-CURRENT_POWER_UPDATE_INTERVAL = timedelta(seconds=60)
+-HISTORICAL_POWER_UPDATE_INTERVAL = timedelta(minutes=60)
+ 
+ _LOGGER = logging.getLogger(__name__)
+ 
+-ATTR_CURRENT_POWER_W = "current_power_w"
+-ATTR_DAILY_ENERGY_KWH = "daily_energy_kwh"
+-ATTR_MONTHLY_ENERGY_KWH = "monthly_energy_kwh"
+-
+ 
+ async def async_setup_entry(
+     hass: HomeAssistant,
+@@ -50,49 +39,23 @@ async def async_setup_entry(
+     async_add_entities: AddEntitiesCallback,
+ ) -> None:
+     """Set up switches."""
+-    coordinators: dict[str, TPLinkDataUpdateCoordinator] = hass.data[TPLINK_DOMAIN][
+-        COORDINATORS
+-    ]
+-    async_add_entities(
+-        [
+-            TPLinkSmartBulb(device, coordinators[device.device_id])
+-            for device in hass.data[TPLINK_DOMAIN][CONF_LIGHT]
+-        ]
+-    )
+-
+-
+-def brightness_to_percentage(byt):
+-    """Convert brightness from absolute 0..255 to percentage."""
+-    return round((byt * 100.0) / 255.0)
+-
+-
+-def brightness_from_percentage(percent):
+-    """Convert percentage to absolute value 0..255."""
+-    return round((percent * 255.0) / 100.0)
++    coordinator: TPLinkDataUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
++    device = coordinator.device
++    if device.is_bulb or device.is_light_strip or device.is_dimmer:
++        async_add_entities([TPLinkSmartBulb(device, coordinator)])
+ 
+ 
+ class TPLinkSmartBulb(CoordinatedTPLinkEntity, LightEntity):
+     """Representation of a TPLink Smart Bulb."""
+ 
+-    def __init__(
+-        self, smartbulb: SmartBulb, coordinator: DataUpdateCoordinator
+-    ) -> None:
+-        """Initialize the bulb."""
+-        super().__init__(smartbulb, coordinator)
+-        self.device = smartbulb
++    coordinator: TPLinkDataUpdateCoordinator
+ 
++    @async_refresh_after
+     async def async_turn_on(self, **kwargs: Any) -> None:
+         """Turn the light on."""
+-        await self._async_turn_on(**kwargs)
+-        await self.coordinator.async_refresh()
+-
+-    async def _async_turn_on(self, **kwargs: Any) -> None:
+-        _LOGGER.debug("Turning on %s", kwargs)
+-
+         transition = kwargs.get(ATTR_TRANSITION)
+-        brightness = kwargs.get(ATTR_BRIGHTNESS)
+-        if brightness is not None:
+-            brightness = int(brightness_to_percentage(brightness))
++        if (brightness := kwargs.get(ATTR_BRIGHTNESS)) is not None:
++            brightness = round((brightness * 100.0) / 255.0)
+ 
+         # Handle turning to temp mode
+         if ATTR_COLOR_TEMP in kwargs:
+@@ -116,10 +79,10 @@ async def _async_turn_on(self, **kwargs: Any) -> None:
+         else:
+             await self.device.turn_on(transition=transition)
+ 
++    @async_refresh_after
+     async def async_turn_off(self, **kwargs: Any) -> None:
+         """Turn the light off."""
+         await self.device.turn_off(transition=kwargs.get(ATTR_TRANSITION))
+-        await self.coordinator.async_refresh()
+ 
+     @property
+     def min_mireds(self) -> int:
+@@ -139,7 +102,7 @@ def color_temp(self) -> int | None:
+     @property
+     def brightness(self) -> int | None:
+         """Return the brightness of this light between 0..255."""
+-        return brightness_from_percentage(self.device.brightness)
++        return round((self.device.brightness * 255.0) / 100.0)
+ 
+     @property
+     def hs_color(self) -> tuple[int, int] | None:
+diff --git a/homeassistant/components/tplink/migration.py b/homeassistant/components/tplink/migration.py
+new file mode 100644
+index 00000000000000..daa454392c8f03
+--- /dev/null
++++ b/homeassistant/components/tplink/migration.py
+@@ -0,0 +1,116 @@
++"""Component to embed TP-Link smart home devices."""
++from __future__ import annotations
++
++from datetime import datetime
++
++from homeassistant import config_entries
++from homeassistant.config_entries import ConfigEntry
++from homeassistant.const import CONF_HOST, CONF_MAC, CONF_NAME
++from homeassistant.core import HomeAssistant, callback
++from homeassistant.helpers import device_registry as dr, entity_registry as er
++from homeassistant.helpers.event import async_call_later
++from homeassistant.helpers.typing import ConfigType
++
++from .const import CONF_DIMMER, CONF_LIGHT, CONF_STRIP, CONF_SWITCH, DOMAIN
++
++MAC_ADDRESS_LEN = 17
++CLEANUP_DELAY = 60
++
++
++async def async_cleanup_legacy_entry(
++    hass: HomeAssistant,
++    legacy_entry_id: str,
++) -> None:
++    """Cleanup the legacy entry if the migration is successful."""
++    entity_registry = er.async_get(hass)
++    if not er.async_entries_for_config_entry(entity_registry, legacy_entry_id):
++        await hass.config_entries.async_remove(legacy_entry_id)
++
++
++@callback
++def async_migrate_legacy_entries(
++    hass: HomeAssistant,
++    config_entries_by_mac: dict[str, ConfigEntry],
++    legacy_entry: ConfigEntry,
++) -> None:
++    """Migrate the legacy config entries to have an entry per device."""
++    entity_registry = er.async_get(hass)
++    tplink_reg_entities = er.async_entries_for_config_entry(
++        entity_registry, legacy_entry.entry_id
++    )
++
++    for reg_entity in tplink_reg_entities:
++        # Only migrate entities with a mac address only
++        if len(reg_entity.unique_id) != MAC_ADDRESS_LEN:
++            continue
++        mac = dr.format_mac(reg_entity.unique_id)
++        if mac not in config_entries_by_mac and reg_entity.domain in (
++            "switch",
++            "light",
++        ):
++            hass.async_create_task(
++                hass.config_entries.flow.async_init(
++                    DOMAIN,
++                    context={"source": "migration"},
++                    data={
++                        CONF_MAC: mac,
++                        CONF_NAME: reg_entity.name
++                        or reg_entity.original_name
++                        or f"TP-Link device {mac}",
++                    },
++                )
++            )
++
++    async def _async_cleanup_legacy_entry(_now: datetime) -> None:
++        await async_cleanup_legacy_entry(hass, legacy_entry.entry_id)
++
++    async_call_later(hass, CLEANUP_DELAY, _async_cleanup_legacy_entry)
++
++
++@callback
++def async_migrate_yaml_entries(hass: HomeAssistant, conf: ConfigType) -> None:
++    """Migrate yaml to config entries."""
++    for device_type in (CONF_LIGHT, CONF_SWITCH, CONF_STRIP, CONF_DIMMER):
++        for device in conf.get(device_type, []):
++            hass.async_create_task(
++                hass.config_entries.flow.async_init(
++                    DOMAIN,
++                    context={"source": config_entries.SOURCE_IMPORT},
++                    data={
++                        CONF_HOST: device[CONF_HOST],
++                    },
++                )
++            )
++
++
++async def async_migrate_entities_devices(
++    hass: HomeAssistant, legacy_entry_id: str, new_entry: ConfigEntry
++) -> None:
++    """Move entities and devices to the new config entry."""
++    entity_registry = er.async_get(hass)
++    tplink_reg_entities = er.async_entries_for_config_entry(
++        entity_registry, legacy_entry_id
++    )
++
++    for reg_entity in tplink_reg_entities:
++        # Only migrate entities with a mac address only
++        if len(reg_entity.unique_id) < MAC_ADDRESS_LEN:
++            continue
++        if dr.format_mac(reg_entity.unique_id[:MAC_ADDRESS_LEN]) == new_entry.unique_id:
++            entity_registry.async_update_entity(
++                reg_entity.entity_id, config_entry_id=new_entry.entry_id
++            )
++
++    device_registry = dr.async_get(hass)
++    tplink_dev_entities = dr.async_entries_for_config_entry(
++        device_registry, legacy_entry_id
++    )
++    for dev_entry in tplink_dev_entities:
++        for connection_type, value in dev_entry.connections:
++            if (
++                connection_type == dr.CONNECTION_NETWORK_MAC
++                and value == new_entry.unique_id
++            ):
++                device_registry.async_update_device(
++                    dev_entry.id, add_config_entry_id=new_entry.entry_id
++                )
+diff --git a/homeassistant/components/tplink/sensor.py b/homeassistant/components/tplink/sensor.py
+index c070a2e6737df8..0f2b951d8c0c4f 100644
+--- a/homeassistant/components/tplink/sensor.py
++++ b/homeassistant/components/tplink/sensor.py
+@@ -1,7 +1,7 @@
+ """Support for TPLink HS100/HS110/HS200 smart switch energy sensors."""
+ from __future__ import annotations
+ 
+-from typing import Any, Final
++from typing import Final, cast
+ 
+ from kasa import SmartDevice
+ 
+@@ -11,7 +11,6 @@
+     SensorEntity,
+     SensorEntityDescription,
+ )
+-from homeassistant.components.tplink import TPLinkDataUpdateCoordinator
+ from homeassistant.config_entries import ConfigEntry
+ from homeassistant.const import (
+     ATTR_VOLTAGE,
+@@ -26,21 +25,17 @@
+ )
+ from homeassistant.core import HomeAssistant
+ from homeassistant.helpers.entity_platform import AddEntitiesCallback
+-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+ 
+-from .common import CoordinatedTPLinkEntity
+ from .const import (
++    ATTR_CURRENT_A,
++    ATTR_CURRENT_POWER_W,
++    ATTR_TODAY_ENERGY_KWH,
++    ATTR_TOTAL_ENERGY_KWH,
+     CONF_EMETER_PARAMS,
+-    CONF_LIGHT,
+-    CONF_SWITCH,
+-    COORDINATORS,
+-    DOMAIN as TPLINK_DOMAIN,
++    DOMAIN,
+ )
+-
+-ATTR_CURRENT_A = "current_a"
+-ATTR_CURRENT_POWER_W = "current_power_w"
+-ATTR_TODAY_ENERGY_KWH = "today_energy_kwh"
+-ATTR_TOTAL_ENERGY_KWH = "total_energy_kwh"
++from .coordinator import TPLinkDataUpdateCoordinator
++from .entity import CoordinatedTPLinkEntity
+ 
+ ENERGY_SENSORS: Final[list[SensorEntityDescription]] = [
+     SensorEntityDescription(
+@@ -86,40 +81,37 @@ async def async_setup_entry(
+     config_entry: ConfigEntry,
+     async_add_entities: AddEntitiesCallback,
+ ) -> None:
+-    """Set up switches."""
+-    entities: list[SmartPlugSensor] = []
+-    coordinators: dict[str, TPLinkDataUpdateCoordinator] = hass.data[TPLINK_DOMAIN][
+-        COORDINATORS
+-    ]
+-    switches: list[SmartDevice] = hass.data[TPLINK_DOMAIN][CONF_SWITCH]
+-    lights: list[SmartDevice] = hass.data[TPLINK_DOMAIN][CONF_LIGHT]
+-    for device in switches + lights:
+-        coordinator: TPLinkDataUpdateCoordinator = coordinators[device.device_id]
+-        if not device.has_emeter:
+-            continue
+-        for description in ENERGY_SENSORS:
+-            if coordinator.data[CONF_EMETER_PARAMS].get(description.key) is not None:
+-                entities.append(SmartPlugSensor(device, coordinator, description))
+-
+-    async_add_entities(entities)
++    """Set up sensors."""
++    coordinator: TPLinkDataUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
++    device = coordinator.device
++    async_add_entities(
++        [
++            SmartPlugSensor(device, coordinator, description)
++            for description in ENERGY_SENSORS
++            if device.has_emeter
++            and coordinator.data[CONF_EMETER_PARAMS].get(description.key) is not None
++        ]
++    )
+ 
+ 
+ class SmartPlugSensor(CoordinatedTPLinkEntity, SensorEntity):
+     """Representation of a TPLink Smart Plug energy sensor."""
+ 
++    coordinator: TPLinkDataUpdateCoordinator
++
+     def __init__(
+         self,
+         device: SmartDevice,
+-        coordinator: DataUpdateCoordinator,
++        coordinator: TPLinkDataUpdateCoordinator,
+         description: SensorEntityDescription,
+     ) -> None:
+         """Initialize the switch."""
+         super().__init__(device, coordinator)
+-        self.device = device
+         self.entity_description = description
++        self._attr_unique_id = f"{self.device.device_id}_{self.entity_description.key}"
+ 
+     @property
+-    def name(self) -> str | None:
++    def name(self) -> str:
+         """Return the name of the Smart Plug.
+ 
+         Overridden to include the description.
+@@ -127,16 +119,6 @@ def name(self) -> str | None:
+         return f"{self.device.alias} {self.entity_description.name}"
+ 
+     @property
+-    def data(self) -> dict[str, Any]:
+-        """Return data from DataUpdateCoordinator."""
+-        return self.coordinator.data
+-
+-    @property
+-    def native_value(self) -> float | None:
++    def native_value(self) -> float:
+         """Return the sensors state."""
+-        return self.data[CONF_EMETER_PARAMS][self.entity_description.key]
+-
+-    @property
+-    def unique_id(self) -> str | None:
+-        """Return a unique ID."""
+-        return f"{self.device.device_id}_{self.entity_description.key}"
++        return cast(float, self.data[CONF_EMETER_PARAMS][self.entity_description.key])
+diff --git a/homeassistant/components/tplink/strings.json b/homeassistant/components/tplink/strings.json
+index a10c44b925262c..4f3b34beb9c388 100644
+--- a/homeassistant/components/tplink/strings.json
++++ b/homeassistant/components/tplink/strings.json
+@@ -1,12 +1,27 @@
+ {
+   "config": {
++    "flow_title": "{name} {model} ({host})",
+     "step": {
+-      "confirm": {
+-        "description": "Do you want to setup TP-Link smart devices?"
++      "user": {
++        "description": "If you leave the host empty, discovery will be used to find devices.",
++        "data": {
++          "host": "[%key:common::config_flow::data::host%]"
++        }
++      },
++      "pick_device": {
++        "data": {
++          "device": "Device"
++        }
++      },
++      "discovery_confirm": {
++        "description": "Do you want to setup {name} {model} ({host})?"
+       }
+     },
++    "error": {
++      "cannot_connect": "[%key:common::config_flow::error::cannot_connect%]"
++    },
+     "abort": {
+-      "single_instance_allowed": "[%key:common::config_flow::abort::single_instance_allowed%]",
++      "already_configured": "[%key:common::config_flow::abort::already_configured_device%]",
+       "no_devices_found": "[%key:common::config_flow::abort::no_devices_found%]"
+     }
+   }
+diff --git a/homeassistant/components/tplink/switch.py b/homeassistant/components/tplink/switch.py
+index ca659be9c4643d..efce75f4121b70 100644
+--- a/homeassistant/components/tplink/switch.py
++++ b/homeassistant/components/tplink/switch.py
+@@ -1,20 +1,17 @@
+ """Support for TPLink HS100/HS110/HS200 smart switch."""
+ from __future__ import annotations
+ 
+-from asyncio import sleep
+ import logging
+ from typing import Any
+ 
+-from kasa import SmartDevice
+-
+ from homeassistant.components.switch import SwitchEntity
+-from homeassistant.components.tplink import TPLinkDataUpdateCoordinator
+ from homeassistant.config_entries import ConfigEntry
+ from homeassistant.core import HomeAssistant
+ from homeassistant.helpers.entity_platform import AddEntitiesCallback
+ 
+-from .common import CoordinatedTPLinkEntity
+-from .const import CONF_SWITCH, COORDINATORS, DOMAIN as TPLINK_DOMAIN
++from .const import DOMAIN
++from .coordinator import TPLinkDataUpdateCoordinator
++from .entity import CoordinatedTPLinkEntity, async_refresh_after
+ 
+ _LOGGER = logging.getLogger(__name__)
+ 
+@@ -25,18 +22,16 @@ async def async_setup_entry(
+     async_add_entities: AddEntitiesCallback,
+ ) -> None:
+     """Set up switches."""
+-    entities: list[SmartPlugSwitch] = []
+-    coordinators: dict[str, TPLinkDataUpdateCoordinator] = hass.data[TPLINK_DOMAIN][
+-        COORDINATORS
+-    ]
+-    switches: list[SmartDevice] = hass.data[TPLINK_DOMAIN][CONF_SWITCH]
+-    for switch in switches:
+-        coordinator = coordinators[switch.device_id]
+-        entities.append(SmartPlugSwitch(switch, coordinator))
+-        if switch.is_strip:
+-            _LOGGER.debug("Initializing strip with %s sockets", len(switch.children))
+-            for child in switch.children:
+-                entities.append(SmartPlugSwitch(child, coordinator))
++    coordinator: TPLinkDataUpdateCoordinator = hass.data[DOMAIN][config_entry.entry_id]
++    device = coordinator.device
++    if not device.is_plug and not device.is_strip:
++        return
++    entities = []
++    entities.append(SmartPlugSwitch(device, coordinator))
++    if device.is_strip:
++        _LOGGER.debug("Initializing strip with %s sockets", len(device.children))
++        for child in device.children:
++            entities.append(SmartPlugSwitch(child, coordinator))
+ 
+     async_add_entities(entities)
+ 
+@@ -44,23 +39,14 @@ async def async_setup_entry(
+ class SmartPlugSwitch(CoordinatedTPLinkEntity, SwitchEntity):
+     """Representation of a TPLink Smart Plug switch."""
+ 
++    coordinator: TPLinkDataUpdateCoordinator
++
++    @async_refresh_after
+     async def async_turn_on(self, **kwargs: Any) -> None:
+         """Turn the switch on."""
+         await self.device.turn_on()
+-        await self._async_device_workarounds()
+-        await self._async_refresh_with_children()
+ 
++    @async_refresh_after
+     async def async_turn_off(self, **kwargs: Any) -> None:
+         """Turn the switch off."""
+         await self.device.turn_off()
+-        await self._async_device_workarounds()
+-        await self._async_refresh_with_children()
+-
+-    async def _async_device_workarounds(self) -> None:
+-        # Workaround for delayed device state update on HS210: #55190
+-        if "HS210" in self.device.model:
+-            await sleep(0.5)
+-
+-    async def _async_refresh_with_children(self) -> None:
+-        self.coordinator.update_children = False
+-        await self.coordinator.async_refresh()
+diff --git a/homeassistant/components/tplink/translations/en.json b/homeassistant/components/tplink/translations/en.json
+index 1105f6a383bf27..0697974e70886f 100644
+--- a/homeassistant/components/tplink/translations/en.json
++++ b/homeassistant/components/tplink/translations/en.json
+@@ -1,12 +1,27 @@
+ {
+     "config": {
+         "abort": {
+-            "no_devices_found": "No devices found on the network",
+-            "single_instance_allowed": "Already configured. Only a single configuration possible."
++            "already_configured": "Device is already configured",
++            "no_devices_found": "No devices found on the network"
+         },
++        "error": {
++            "cannot_connect": "Failed to connect"
++        },
++        "flow_title": "{name} {model} ({host})",
+         "step": {
+-            "confirm": {
+-                "description": "Do you want to setup TP-Link smart devices?"
++            "discovery_confirm": {
++                "description": "Do you want to setup {name} {model} ({host})?"
++            },
++            "pick_device": {
++                "data": {
++                    "device": "Device"
++                }
++            },
++            "user": {
++                "data": {
++                    "host": "Host"
++                },
++                "description": "If you leave the host empty, discovery will be used to find devices."
+             }
+         }
+     }
+diff --git a/homeassistant/components/tplink/utils.py b/homeassistant/components/tplink/utils.py
+new file mode 100644
+index 00000000000000..c5b6d3f47bc231
+--- /dev/null
++++ b/homeassistant/components/tplink/utils.py
+@@ -0,0 +1,13 @@
++"""Common code for tplink."""
++from __future__ import annotations
++
++from homeassistant.config_entries import ConfigEntry
++from homeassistant.core import callback
++
++from .const import DOMAIN
++
++
++@callback
++def async_entry_is_legacy(entry: ConfigEntry) -> bool:
++    """Check if a config entry is the legacy shared one."""
++    return entry.unique_id is None or entry.unique_id == DOMAIN
+diff --git a/mypy.ini b/mypy.ini
+index 317ed1dbc3fdd6..53afb687afeb2b 100644
+--- a/mypy.ini
++++ b/mypy.ini
+@@ -1188,6 +1188,17 @@ no_implicit_optional = true
+ warn_return_any = true
+ warn_unreachable = true
+ 
++[mypy-homeassistant.components.tplink.*]
++check_untyped_defs = true
++disallow_incomplete_defs = true
++disallow_subclassing_any = true
++disallow_untyped_calls = true
++disallow_untyped_decorators = true
++disallow_untyped_defs = true
++no_implicit_optional = true
++warn_return_any = true
++warn_unreachable = true
++
+ [mypy-homeassistant.components.tradfri.*]
+ check_untyped_defs = true
+ disallow_incomplete_defs = true
+@@ -1689,9 +1700,6 @@ ignore_errors = true
+ [mypy-homeassistant.components.toon.*]
+ ignore_errors = true
+ 
+-[mypy-homeassistant.components.tplink.*]
+-ignore_errors = true
+-
+ [mypy-homeassistant.components.unifi.*]
+ ignore_errors = true
+ 
+diff --git a/script/hassfest/mypy_config.py b/script/hassfest/mypy_config.py
+index 6114030f2b22a6..375c55fe84b7f4 100644
+--- a/script/hassfest/mypy_config.py
++++ b/script/hassfest/mypy_config.py
+@@ -126,7 +126,6 @@
+     "homeassistant.components.telegram_bot.*",
+     "homeassistant.components.template.*",
+     "homeassistant.components.toon.*",
+-    "homeassistant.components.tplink.*",
+     "homeassistant.components.unifi.*",
+     "homeassistant.components.upnp.*",
+     "homeassistant.components.vera.*",
+diff --git a/tests/components/tplink/__init__.py b/tests/components/tplink/__init__.py
+index 865c6c1d97a6a5..f1e2b7c2181049 100644
+--- a/tests/components/tplink/__init__.py
++++ b/tests/components/tplink/__init__.py
+@@ -1 +1,98 @@
+ """Tests for the TP-Link component."""
++
++from unittest.mock import AsyncMock, MagicMock, patch
++
++from kasa import SmartBulb, SmartPlug, SmartStrip
++from kasa.exceptions import SmartDeviceException
++
++MODULE = "homeassistant.components.tplink"
++MODULE_CONFIG_FLOW = "homeassistant.components.tplink.config_flow"
++IP_ADDRESS = "127.0.0.1"
++ALIAS = "My Bulb"
++MODEL = "HS100"
++MAC_ADDRESS = "aa:bb:cc:dd:ee:ff"
++DEFAULT_ENTRY_TITLE = f"{ALIAS} {MODEL}"
++
++
++def _mocked_bulb() -> SmartBulb:
++    bulb = MagicMock(auto_spec=SmartBulb)
++    bulb.update = AsyncMock()
++    bulb.mac = MAC_ADDRESS
++    bulb.alias = ALIAS
++    bulb.model = MODEL
++    bulb.host = IP_ADDRESS
++    bulb.brightness = 50
++    bulb.color_temp = 4000
++    bulb.is_color = True
++    bulb.is_strip = False
++    bulb.is_plug = False
++    bulb.hsv = (10, 30, 5)
++    bulb.device_id = MAC_ADDRESS
++    bulb.valid_temperature_range.min = 4000
++    bulb.valid_temperature_range.max = 9000
++    bulb.hw_info = {"sw_ver": "1.0.0"}
++    bulb.turn_off = AsyncMock()
++    bulb.turn_on = AsyncMock()
++    bulb.set_brightness = AsyncMock()
++    bulb.set_hsv = AsyncMock()
++    bulb.set_color_temp = AsyncMock()
++    return bulb
++
++
++def _mocked_plug() -> SmartPlug:
++    plug = MagicMock(auto_spec=SmartPlug)
++    plug.update = AsyncMock()
++    plug.mac = MAC_ADDRESS
++    plug.alias = "My Plug"
++    plug.model = MODEL
++    plug.host = IP_ADDRESS
++    plug.is_light_strip = False
++    plug.is_bulb = False
++    plug.is_dimmer = False
++    plug.is_strip = False
++    plug.is_plug = True
++    plug.device_id = MAC_ADDRESS
++    plug.hw_info = {"sw_ver": "1.0.0"}
++    plug.turn_off = AsyncMock()
++    plug.turn_on = AsyncMock()
++    return plug
++
++
++def _mocked_strip() -> SmartStrip:
++    strip = MagicMock(auto_spec=SmartStrip)
++    strip.update = AsyncMock()
++    strip.mac = MAC_ADDRESS
++    strip.alias = "My Strip"
++    strip.model = MODEL
++    strip.host = IP_ADDRESS
++    strip.is_light_strip = False
++    strip.is_bulb = False
++    strip.is_dimmer = False
++    strip.is_strip = True
++    strip.is_plug = True
++    strip.device_id = MAC_ADDRESS
++    strip.hw_info = {"sw_ver": "1.0.0"}
++    strip.turn_off = AsyncMock()
++    strip.turn_on = AsyncMock()
++    strip.children = [_mocked_plug()]
++    return strip
++
++
++def _patch_discovery(device=None, no_device=False):
++    async def _discovery(*_):
++        if no_device:
++            return {}
++        return {IP_ADDRESS: _mocked_bulb()}
++
++    return patch("homeassistant.components.tplink.Discover.discover", new=_discovery)
++
++
++def _patch_single_discovery(device=None, no_device=False):
++    async def _discover_single(*_):
++        if no_device:
++            raise SmartDeviceException
++        return device if device else _mocked_bulb()
++
++    return patch(
++        "homeassistant.components.tplink.Discover.discover_single", new=_discover_single
++    )
+diff --git a/tests/components/tplink/conftest.py b/tests/components/tplink/conftest.py
+index 61b242c5d2e3e2..1963b5951760eb 100644
+--- a/tests/components/tplink/conftest.py
++++ b/tests/components/tplink/conftest.py
+@@ -1,2 +1,27 @@
+ """tplink conftest."""
+-from tests.components.light.conftest import mock_light_profiles  # noqa: F401
++
++import pytest
++
++from . import _patch_discovery
++
++from tests.common import mock_device_registry, mock_registry
++
++
++@pytest.fixture
++def mock_discovery():
++    """Mock python-kasa discovery."""
++    with _patch_discovery() as mock_discover:
++        mock_discover.return_value = {}
++        yield mock_discover
++
++
++@pytest.fixture(name="device_reg")
++def device_reg_fixture(hass):
++    """Return an empty, loaded, registry."""
++    return mock_device_registry(hass)
++
++
++@pytest.fixture(name="entity_reg")
++def entity_reg_fixture(hass):
++    """Return an empty, loaded, registry."""
++    return mock_registry(hass)
+diff --git a/tests/components/tplink/test_config_flow.py b/tests/components/tplink/test_config_flow.py
+new file mode 100644
+index 00000000000000..c1a7e5e492aa5b
+--- /dev/null
++++ b/tests/components/tplink/test_config_flow.py
+@@ -0,0 +1,486 @@
++"""Test the tplink config flow."""
++from unittest.mock import patch
++
++import pytest
++
++from homeassistant import config_entries, setup
++from homeassistant.components.tplink import DOMAIN
++from homeassistant.const import CONF_DEVICE, CONF_HOST, CONF_MAC, CONF_NAME
++from homeassistant.core import HomeAssistant
++from homeassistant.data_entry_flow import RESULT_TYPE_ABORT, RESULT_TYPE_FORM
++
++from . import (
++    ALIAS,
++    DEFAULT_ENTRY_TITLE,
++    IP_ADDRESS,
++    MAC_ADDRESS,
++    MODEL,
++    MODULE,
++    _patch_discovery,
++    _patch_single_discovery,
++)
++
++from tests.common import MockConfigEntry
++
++DEVICE_ID = f"{ALIAS} {MODEL} ({IP_ADDRESS}) {MAC_ADDRESS}"
++
++
++async def test_discovery(hass: HomeAssistant):
++    """Test setting up discovery."""
++    with _patch_discovery(), _patch_single_discovery():
++        result = await hass.config_entries.flow.async_init(
++            DOMAIN, context={"source": config_entries.SOURCE_USER}
++        )
++        await hass.async_block_till_done()
++        assert result["type"] == "form"
++        assert result["step_id"] == "user"
++        assert not result["errors"]
++
++        result2 = await hass.config_entries.flow.async_configure(result["flow_id"], {})
++        await hass.async_block_till_done()
++        assert result2["type"] == "form"
++        assert result2["step_id"] == "pick_device"
++        assert not result2["errors"]
++
++        # test we can try again
++        result = await hass.config_entries.flow.async_init(
++            DOMAIN, context={"source": config_entries.SOURCE_USER}
++        )
++        assert result["type"] == "form"
++        assert result["step_id"] == "user"
++        assert not result["errors"]
++
++        result2 = await hass.config_entries.flow.async_configure(result["flow_id"], {})
++        await hass.async_block_till_done()
++        assert result2["type"] == "form"
++        assert result2["step_id"] == "pick_device"
++        assert not result2["errors"]
++
++    with _patch_discovery(), _patch_single_discovery(), patch(
++        f"{MODULE}.async_setup", return_value=True
++    ) as mock_setup, patch(
++        f"{MODULE}.async_setup_entry", return_value=True
++    ) as mock_setup_entry:
++        result3 = await hass.config_entries.flow.async_configure(
++            result["flow_id"],
++            {CONF_DEVICE: DEVICE_ID},
++        )
++        await hass.async_block_till_done()
++
++    assert result3["type"] == "create_entry"
++    assert result3["title"] == DEFAULT_ENTRY_TITLE
++    assert result3["data"] == {CONF_HOST: IP_ADDRESS}
++    mock_setup.assert_called_once()
++    mock_setup_entry.assert_called_once()
++
++    # ignore configured devices
++    result = await hass.config_entries.flow.async_init(
++        DOMAIN, context={"source": config_entries.SOURCE_USER}
++    )
++    assert result["type"] == "form"
++    assert result["step_id"] == "user"
++    assert not result["errors"]
++
++    with _patch_discovery(), _patch_single_discovery():
++        result2 = await hass.config_entries.flow.async_configure(result["flow_id"], {})
++        await hass.async_block_till_done()
++
++    assert result2["type"] == "abort"
++    assert result2["reason"] == "no_devices_found"
++
++
++async def test_discovery_with_existing_device_present(hass: HomeAssistant):
++    """Test setting up discovery."""
++    config_entry = MockConfigEntry(
++        domain=DOMAIN, data={CONF_HOST: "127.0.0.2"}, unique_id="dd:dd:dd:dd:dd:dd"
++    )
++    config_entry.add_to_hass(hass)
++
++    with _patch_discovery(), _patch_single_discovery(no_device=True):
++        await hass.config_entries.async_setup(config_entry.entry_id)
++        await hass.async_block_till_done()
++
++    result = await hass.config_entries.flow.async_init(
++        DOMAIN, context={"source": config_entries.SOURCE_USER}
++    )
++    assert result["type"] == "form"
++    assert result["step_id"] == "user"
++    assert not result["errors"]
++
++    with _patch_discovery(), _patch_single_discovery():
++        result2 = await hass.config_entries.flow.async_configure(result["flow_id"], {})
++        await hass.async_block_till_done()
++
++    assert result2["type"] == "form"
++    assert result2["step_id"] == "pick_device"
++    assert not result2["errors"]
++
++    # Now abort and make sure we can start over
++
++    result = await hass.config_entries.flow.async_init(
++        DOMAIN, context={"source": config_entries.SOURCE_USER}
++    )
++    assert result["type"] == "form"
++    assert result["step_id"] == "user"
++    assert not result["errors"]
++
++    with _patch_discovery(), _patch_single_discovery():
++        result2 = await hass.config_entries.flow.async_configure(result["flow_id"], {})
++        await hass.async_block_till_done()
++
++    assert result2["type"] == "form"
++    assert result2["step_id"] == "pick_device"
++    assert not result2["errors"]
++
++    with _patch_discovery(), _patch_single_discovery(), patch(
++        f"{MODULE}.async_setup_entry", return_value=True
++    ) as mock_setup_entry:
++        result3 = await hass.config_entries.flow.async_configure(
++            result["flow_id"], {CONF_DEVICE: DEVICE_ID}
++        )
++        assert result3["type"] == "create_entry"
++        assert result3["title"] == DEFAULT_ENTRY_TITLE
++        assert result3["data"] == {
++            CONF_HOST: IP_ADDRESS,
++        }
++        await hass.async_block_till_done()
++
++    mock_setup_entry.assert_called_once()
++
++    # ignore configured devices
++    result = await hass.config_entries.flow.async_init(
++        DOMAIN, context={"source": config_entries.SOURCE_USER}
++    )
++    assert result["type"] == "form"
++    assert result["step_id"] == "user"
++    assert not result["errors"]
++
++    with _patch_discovery(), _patch_single_discovery():
++        result2 = await hass.config_entries.flow.async_configure(result["flow_id"], {})
++        await hass.async_block_till_done()
++
++    assert result2["type"] == "abort"
++    assert result2["reason"] == "no_devices_found"
++
++
++async def test_discovery_no_device(hass: HomeAssistant):
++    """Test discovery without device."""
++    result = await hass.config_entries.flow.async_init(
++        DOMAIN, context={"source": config_entries.SOURCE_USER}
++    )
++
++    with _patch_discovery(no_device=True), _patch_single_discovery():
++        result2 = await hass.config_entries.flow.async_configure(result["flow_id"], {})
++        await hass.async_block_till_done()
++
++    assert result2["type"] == "abort"
++    assert result2["reason"] == "no_devices_found"
++
++
++async def test_import(hass: HomeAssistant):
++    """Test import from yaml."""
++    config = {
++        CONF_HOST: IP_ADDRESS,
++    }
++
++    # Cannot connect
++    with _patch_discovery(no_device=True), _patch_single_discovery(no_device=True):
++        result = await hass.config_entries.flow.async_init(
++            DOMAIN, context={"source": config_entries.SOURCE_IMPORT}, data=config
++        )
++        await hass.async_block_till_done()
++
++    assert result["type"] == "abort"
++    assert result["reason"] == "cannot_connect"
++
++    # Success
++    with _patch_discovery(), _patch_single_discovery(), patch(
++        f"{MODULE}.async_setup", return_value=True
++    ) as mock_setup, patch(
++        f"{MODULE}.async_setup_entry", return_value=True
++    ) as mock_setup_entry:
++        result = await hass.config_entries.flow.async_init(
++            DOMAIN, context={"source": config_entries.SOURCE_IMPORT}, data=config
++        )
++        await hass.async_block_till_done()
++
++    assert result["type"] == "create_entry"
++    assert result["title"] == DEFAULT_ENTRY_TITLE
++    assert result["data"] == {
++        CONF_HOST: IP_ADDRESS,
++    }
++    mock_setup.assert_called_once()
++    mock_setup_entry.assert_called_once()
++
++    # Duplicate
++    with _patch_discovery(), _patch_single_discovery():
++        result = await hass.config_entries.flow.async_init(
++            DOMAIN, context={"source": config_entries.SOURCE_IMPORT}, data=config
++        )
++        await hass.async_block_till_done()
++
++    assert result["type"] == "abort"
++    assert result["reason"] == "already_configured"
++
++
++async def test_manual(hass: HomeAssistant):
++    """Test manually setup."""
++    result = await hass.config_entries.flow.async_init(
++        DOMAIN, context={"source": config_entries.SOURCE_USER}
++    )
++    assert result["type"] == "form"
++    assert result["step_id"] == "user"
++    assert not result["errors"]
++
++    # Cannot connect (timeout)
++    with _patch_discovery(no_device=True), _patch_single_discovery(no_device=True):
++        result2 = await hass.config_entries.flow.async_configure(
++            result["flow_id"], {CONF_HOST: IP_ADDRESS}
++        )
++        await hass.async_block_till_done()
++
++    assert result2["type"] == "form"
++    assert result2["step_id"] == "user"
++    assert result2["errors"] == {"base": "cannot_connect"}
++
++    # Success
++    with _patch_discovery(), _patch_single_discovery(), patch(
++        f"{MODULE}.async_setup", return_value=True
++    ), patch(f"{MODULE}.async_setup_entry", return_value=True):
++        result4 = await hass.config_entries.flow.async_configure(
++            result["flow_id"], {CONF_HOST: IP_ADDRESS}
++        )
++        await hass.async_block_till_done()
++    assert result4["type"] == "create_entry"
++    assert result4["title"] == DEFAULT_ENTRY_TITLE
++    assert result4["data"] == {
++        CONF_HOST: IP_ADDRESS,
++    }
++
++    # Duplicate
++    result = await hass.config_entries.flow.async_init(
++        DOMAIN, context={"source": config_entries.SOURCE_USER}
++    )
++    with _patch_discovery(no_device=True), _patch_single_discovery(no_device=True):
++        result2 = await hass.config_entries.flow.async_configure(
++            result["flow_id"], {CONF_HOST: IP_ADDRESS}
++        )
++        await hass.async_block_till_done()
++
++    assert result2["type"] == "abort"
++    assert result2["reason"] == "already_configured"
++
++
++async def test_manual_no_capabilities(hass: HomeAssistant):
++    """Test manually setup without successful get_capabilities."""
++    result = await hass.config_entries.flow.async_init(
++        DOMAIN, context={"source": config_entries.SOURCE_USER}
++    )
++    assert result["type"] == "form"
++    assert result["step_id"] == "user"
++    assert not result["errors"]
++
++    with _patch_discovery(no_device=True), _patch_single_discovery(), patch(
++        f"{MODULE}.async_setup", return_value=True
++    ), patch(f"{MODULE}.async_setup_entry", return_value=True):
++        result = await hass.config_entries.flow.async_configure(
++            result["flow_id"], {CONF_HOST: IP_ADDRESS}
++        )
++        await hass.async_block_till_done()
++
++    assert result["type"] == "create_entry"
++    assert result["data"] == {
++        CONF_HOST: IP_ADDRESS,
++    }
++
++
++async def test_discovered_by_discovery_and_dhcp(hass):
++    """Test we get the form with discovery and abort for dhcp source when we get both."""
++    await setup.async_setup_component(hass, "persistent_notification", {})
++
++    with _patch_discovery(), _patch_single_discovery():
++        result = await hass.config_entries.flow.async_init(
++            DOMAIN,
++            context={"source": config_entries.SOURCE_DISCOVERY},
++            data={CONF_HOST: IP_ADDRESS, CONF_MAC: MAC_ADDRESS, CONF_NAME: ALIAS},
++        )
++        await hass.async_block_till_done()
++    assert result["type"] == RESULT_TYPE_FORM
++    assert result["errors"] is None
++
++    with _patch_discovery(), _patch_single_discovery():
++        result2 = await hass.config_entries.flow.async_init(
++            DOMAIN,
++            context={"source": config_entries.SOURCE_DHCP},
++            data={"ip": IP_ADDRESS, "macaddress": MAC_ADDRESS, "hostname": ALIAS},
++        )
++        await hass.async_block_till_done()
++    assert result2["type"] == RESULT_TYPE_ABORT
++    assert result2["reason"] == "already_in_progress"
++
++    with _patch_discovery(), _patch_single_discovery():
++        result3 = await hass.config_entries.flow.async_init(
++            DOMAIN,
++            context={"source": config_entries.SOURCE_DHCP},
++            data={"ip": IP_ADDRESS, "macaddress": "00:00:00:00:00:00"},
++        )
++        await hass.async_block_till_done()
++    assert result3["type"] == RESULT_TYPE_ABORT
++    assert result3["reason"] == "already_in_progress"
++
++    with _patch_discovery(no_device=True), _patch_single_discovery(no_device=True):
++        result3 = await hass.config_entries.flow.async_init(
++            DOMAIN,
++            context={"source": config_entries.SOURCE_DHCP},
++            data={"ip": "1.2.3.5", "macaddress": "00:00:00:00:00:01"},
++        )
++        await hass.async_block_till_done()
++    assert result3["type"] == RESULT_TYPE_ABORT
++    assert result3["reason"] == "cannot_connect"
++
++
++@pytest.mark.parametrize(
++    "source, data",
++    [
++        (
++            config_entries.SOURCE_DHCP,
++            {"ip": IP_ADDRESS, "macaddress": MAC_ADDRESS, "hostname": ALIAS},
++        ),
++        (
++            config_entries.SOURCE_DISCOVERY,
++            {CONF_HOST: IP_ADDRESS, CONF_MAC: MAC_ADDRESS, CONF_NAME: ALIAS},
++        ),
++    ],
++)
++async def test_discovered_by_dhcp_or_discovery(hass, source, data):
++    """Test we can setup when discovered from dhcp or discovery."""
++    await setup.async_setup_component(hass, "persistent_notification", {})
++
++    with _patch_discovery(), _patch_single_discovery():
++        result = await hass.config_entries.flow.async_init(
++            DOMAIN, context={"source": source}, data=data
++        )
++        await hass.async_block_till_done()
++
++    assert result["type"] == RESULT_TYPE_FORM
++    assert result["errors"] is None
++
++    with _patch_discovery(), _patch_single_discovery(), patch(
++        f"{MODULE}.async_setup", return_value=True
++    ) as mock_async_setup, patch(
++        f"{MODULE}.async_setup_entry", return_value=True
++    ) as mock_async_setup_entry:
++        result2 = await hass.config_entries.flow.async_configure(result["flow_id"], {})
++        await hass.async_block_till_done()
++
++    assert result2["type"] == "create_entry"
++    assert result2["data"] == {
++        CONF_HOST: IP_ADDRESS,
++    }
++    assert mock_async_setup.called
++    assert mock_async_setup_entry.called
++
++
++@pytest.mark.parametrize(
++    "source, data",
++    [
++        (
++            config_entries.SOURCE_DHCP,
++            {"ip": IP_ADDRESS, "macaddress": MAC_ADDRESS, "hostname": ALIAS},
++        ),
++        (
++            config_entries.SOURCE_DISCOVERY,
++            {CONF_HOST: IP_ADDRESS, CONF_MAC: MAC_ADDRESS, CONF_NAME: ALIAS},
++        ),
++    ],
++)
++async def test_discovered_by_dhcp_or_discovery_failed_to_get_device(hass, source, data):
++    """Test we abort if we cannot get the unique id when discovered from dhcp."""
++    await setup.async_setup_component(hass, "persistent_notification", {})
++
++    with _patch_discovery(no_device=True), _patch_single_discovery(no_device=True):
++        result = await hass.config_entries.flow.async_init(
++            DOMAIN, context={"source": source}, data=data
++        )
++        await hass.async_block_till_done()
++    assert result["type"] == RESULT_TYPE_ABORT
++    assert result["reason"] == "cannot_connect"
++
++
++async def test_migration_device_online(hass: HomeAssistant):
++    """Test migration from single config entry."""
++    config_entry = MockConfigEntry(domain=DOMAIN, data={}, unique_id=DOMAIN)
++    config_entry.add_to_hass(hass)
++    config = {
++        CONF_MAC: MAC_ADDRESS,
++        CONF_NAME: ALIAS,
++    }
++
++    with _patch_discovery(), _patch_single_discovery(), patch(
++        f"{MODULE}.async_setup_entry", return_value=True
++    ) as mock_setup_entry:
++        await setup.async_setup_component(hass, DOMAIN, {})
++        await hass.async_block_till_done()
++        result = await hass.config_entries.flow.async_init(
++            DOMAIN, context={"source": "migration"}, data=config
++        )
++        await hass.async_block_till_done()
++
++    assert result["type"] == "create_entry"
++    assert result["title"] == ALIAS
++    assert result["data"] == {
++        CONF_HOST: IP_ADDRESS,
++    }
++    assert len(mock_setup_entry.mock_calls) == 2
++
++    # Duplicate
++    with _patch_discovery(), _patch_single_discovery():
++        await setup.async_setup_component(hass, DOMAIN, {})
++        await hass.async_block_till_done()
++        result = await hass.config_entries.flow.async_init(
++            DOMAIN, context={"source": "migration"}, data=config
++        )
++        await hass.async_block_till_done()
++
++    assert result["type"] == "abort"
++    assert result["reason"] == "already_configured"
++
++
++async def test_migration_device_offline(hass: HomeAssistant):
++    """Test migration from single config entry."""
++    config_entry = MockConfigEntry(domain=DOMAIN, data={}, unique_id=DOMAIN)
++    config_entry.add_to_hass(hass)
++    config = {
++        CONF_MAC: MAC_ADDRESS,
++        CONF_NAME: ALIAS,
++    }
++
++    with _patch_discovery(no_device=True), _patch_single_discovery(
++        no_device=True
++    ), patch(f"{MODULE}.async_setup_entry", return_value=True) as mock_setup_entry:
++        await setup.async_setup_component(hass, DOMAIN, {})
++        await hass.async_block_till_done()
++        result = await hass.config_entries.flow.async_init(
++            DOMAIN, context={"source": "migration"}, data=config
++        )
++        await hass.async_block_till_done()
++
++    assert result["type"] == "create_entry"
++    assert result["title"] == ALIAS
++    new_entry = result["result"]
++    assert result["data"] == {
++        CONF_HOST: None,
++    }
++    assert len(mock_setup_entry.mock_calls) == 2
++
++    # Ensure a manual import updates the missing host
++    config = {CONF_HOST: IP_ADDRESS}
++    with _patch_discovery(no_device=True), _patch_single_discovery():
++        result = await hass.config_entries.flow.async_init(
++            DOMAIN, context={"source": config_entries.SOURCE_IMPORT}, data=config
++        )
++        await hass.async_block_till_done()
++
++    assert result["type"] == "abort"
++    assert result["reason"] == "already_configured"
++    assert new_entry.data[CONF_HOST] == IP_ADDRESS
+diff --git a/tests/components/tplink/test_init.py b/tests/components/tplink/test_init.py
+index 73425547e26942..c3f7e814ed605d 100644
+--- a/tests/components/tplink/test_init.py
++++ b/tests/components/tplink/test_init.py
+@@ -1,45 +1,22 @@
+ """Tests for the TP-Link component."""
+ from __future__ import annotations
+ 
+-from typing import Any
+ from unittest.mock import patch
+ 
+-from kasa import SmartDevice
+-
+-from homeassistant import config_entries, data_entry_flow
+ from homeassistant.components import tplink
++from homeassistant.components.tplink.const import DOMAIN
++from homeassistant.config_entries import ConfigEntryState
++from homeassistant.const import CONF_HOST
+ from homeassistant.setup import async_setup_component
+ 
+-from tests.common import mock_coro
+-
+-
+-async def test_creating_entry_tries_discover(hass):
+-    """Test setting up does discovery."""
+-    with patch(
+-        "homeassistant.components.tplink.async_setup_entry",
+-        return_value=mock_coro(True),
+-    ) as mock_setup, patch(
+-        "homeassistant.components.tplink.common.Discover.discover",
+-        return_value={"host": 1234},
+-    ):
+-        result = await hass.config_entries.flow.async_init(
+-            tplink.DOMAIN, context={"source": config_entries.SOURCE_USER}
+-        )
+-
+-        # Confirmation form
+-        assert result["type"] == data_entry_flow.RESULT_TYPE_FORM
+-
+-        result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+-        assert result["type"] == data_entry_flow.RESULT_TYPE_CREATE_ENTRY
++from . import IP_ADDRESS, MAC_ADDRESS, _patch_discovery, _patch_single_discovery
+ 
+-        await hass.async_block_till_done()
+-
+-    assert len(mock_setup.mock_calls) == 1
++from tests.common import MockConfigEntry
+ 
+ 
+ async def test_configuring_tplink_causes_discovery(hass):
+     """Test that specifying empty config does discovery."""
+-    with patch("homeassistant.components.tplink.common.Discover.discover") as discover:
++    with patch("homeassistant.components.tplink.Discover.discover") as discover:
+         discover.return_value = {"host": 1234}
+         await async_setup_component(hass, tplink.DOMAIN, {tplink.DOMAIN: {}})
+         await hass.async_block_till_done()
+@@ -47,52 +24,28 @@ async def test_configuring_tplink_causes_discovery(hass):
+     assert len(discover.mock_calls) == 1
+ 
+ 
+-class UnknownSmartDevice(SmartDevice):
+-    """Dummy class for testing."""
+-
+-    @property
+-    def has_emeter(self) -> bool:
+-        """Do nothing."""
+-
+-    def turn_off(self) -> None:
+-        """Do nothing."""
+-
+-    def turn_on(self) -> None:
+-        """Do nothing."""
+-
+-    @property
+-    def is_on(self) -> bool:
+-        """Do nothing."""
+-
+-    @property
+-    def state_information(self) -> dict[str, Any]:
+-        """Do nothing."""
+-
+-
+-async def test_configuring_discovery_disabled(hass):
+-    """Test that discover does not get called when disabled."""
+-    with patch(
+-        "homeassistant.components.tplink.async_setup_entry",
+-        return_value=mock_coro(True),
+-    ) as mock_setup, patch(
+-        "homeassistant.components.tplink.common.Discover.discover", return_value=[]
+-    ) as discover:
+-        await async_setup_component(
+-            hass, tplink.DOMAIN, {tplink.DOMAIN: {tplink.CONF_DISCOVERY: False}}
+-        )
++async def test_config_entry_reload(hass):
++    """Test that a config entry can be reloaded."""
++    already_migrated_config_entry = MockConfigEntry(
++        domain=DOMAIN, data={}, unique_id=MAC_ADDRESS
++    )
++    already_migrated_config_entry.add_to_hass(hass)
++    with _patch_discovery(), _patch_single_discovery():
++        await async_setup_component(hass, tplink.DOMAIN, {tplink.DOMAIN: {}})
+         await hass.async_block_till_done()
+-
+-    assert discover.call_count == 0
+-    assert mock_setup.call_count == 1
++        assert already_migrated_config_entry.state == ConfigEntryState.LOADED
++        await hass.config_entries.async_unload(already_migrated_config_entry.entry_id)
++        await hass.async_block_till_done()
++        assert already_migrated_config_entry.state == ConfigEntryState.NOT_LOADED
+ 
+ 
+-async def test_no_config_creates_no_entry(hass):
+-    """Test for when there is no tplink in config."""
+-    with patch(
+-        "homeassistant.components.tplink.async_setup_entry",
+-        return_value=mock_coro(True),
+-    ) as mock_setup:
+-        await async_setup_component(hass, tplink.DOMAIN, {})
++async def test_config_entry_retry(hass):
++    """Test that a config entry can be retried."""
++    already_migrated_config_entry = MockConfigEntry(
++        domain=DOMAIN, data={CONF_HOST: IP_ADDRESS}, unique_id=MAC_ADDRESS
++    )
++    already_migrated_config_entry.add_to_hass(hass)
++    with _patch_discovery(no_device=True), _patch_single_discovery(no_device=True):
++        await async_setup_component(hass, tplink.DOMAIN, {tplink.DOMAIN: {}})
+         await hass.async_block_till_done()
+-
+-    assert mock_setup.call_count == 0
++        assert already_migrated_config_entry.state == ConfigEntryState.SETUP_RETRY
+diff --git a/tests/components/tplink/test_light.py b/tests/components/tplink/test_light.py
+index 7c92ed3642a510..1a9580f1714f80 100644
+--- a/tests/components/tplink/test_light.py
++++ b/tests/components/tplink/test_light.py
+@@ -1,429 +1,271 @@
+ """Tests for light platform."""
+-from datetime import timedelta
+-import logging
+-from typing import Callable, NamedTuple
+-from unittest.mock import AsyncMock, Mock, PropertyMock, patch
+ 
+-from kasa import SmartDeviceException
+ import pytest
+ 
+ from homeassistant.components import tplink
+-from homeassistant.components.homeassistant import DOMAIN as HA_DOMAIN
+-from homeassistant.components.tplink.const import CONF_DISCOVERY, CONF_LIGHT
+-from homeassistant.const import CONF_HOST, STATE_ON, STATE_UNAVAILABLE
++from homeassistant.components.light import (
++    ATTR_BRIGHTNESS,
++    ATTR_COLOR_MODE,
++    ATTR_COLOR_TEMP,
++    ATTR_HS_COLOR,
++    ATTR_MAX_MIREDS,
++    ATTR_MIN_MIREDS,
++    ATTR_RGB_COLOR,
++    ATTR_SUPPORTED_COLOR_MODES,
++    ATTR_XY_COLOR,
++    DOMAIN as LIGHT_DOMAIN,
++)
++from homeassistant.components.tplink.const import DOMAIN
++from homeassistant.const import ATTR_ENTITY_ID
+ from homeassistant.core import HomeAssistant
+ from homeassistant.setup import async_setup_component
+-from homeassistant.util.dt import utcnow
+-
+-from tests.common import async_fire_time_changed
+-
+-MOCK_ENERGY_DATA = {
+-    "smartlife.iot.common.emeter": {
+-        "get_daystat": {
+-            "day_list": [
+-                {"day": 23, "energy_wh": 2, "month": 9, "year": 2021},
+-                {"day": 24, "energy_wh": 66, "month": 9, "year": 2021},
+-            ],
+-            "err_code": 0,
+-        },
+-        "get_monthstat": {
+-            "err_code": 0,
+-            "month_list": [{"energy_wh": 68, "month": 9, "year": 2021}],
+-        },
+-        "get_realtime": {"err_code": 0, "power_mw": 10800},
+-    }
+-}
+-
+-
+-class LightMockData(NamedTuple):
+-    """Mock light data."""
+-
+-    query_mock: AsyncMock
+-    sys_info: dict
+-    light_state: dict
+-    set_light_state: Callable[[dict], None]
+-    set_light_state_mock: Mock
+-    get_light_state_mock: Mock
+-    current_consumption_mock: Mock
+-    sys_info_mock: Mock
+-    get_emeter_daily_mock: Mock
+-    get_emeter_monthly_mock: Mock
+-
+-
+-class SmartSwitchMockData(NamedTuple):
+-    """Mock smart switch data."""
+-
+-    query_mock: AsyncMock
+-    sys_info: dict
+-    is_on_mock: Mock
+-    brightness_mock: Mock
+-    sys_info_mock: Mock
+-
+-
+-@pytest.fixture(name="unknown_light_mock_data")
+-def unknown_light_mock_data_fixture() -> None:
+-    """Create light mock data."""
+-    light_state = {
+-        "on_off": True,
+-        "dft_on_state": {
+-            "brightness": 12,
+-            "color_temp": 3200,
+-            "hue": 110,
+-            "saturation": 90,
+-        },
+-        "brightness": 13,
+-        "color_temp": 3300,
+-        "hue": 110,
+-        "saturation": 90,
+-    }
+-    sys_info = {
+-        "sw_ver": "1.2.3",
+-        "type": "smartbulb",
+-        "hw_ver": "2.3.4",
+-        "mac": "aa:bb:cc:dd:ee:ff",
+-        "mic_mac": "00:11:22:33:44",
+-        "hwId": "1234",
+-        "fwId": "4567",
+-        "oemId": "891011",
+-        "dev_name": "light1",
+-        "rssi": 11,
+-        "latitude": "0",
+-        "longitude": "0",
+-        "is_color": True,
+-        "is_dimmable": True,
+-        "is_variable_color_temp": True,
+-        "model": "Foo",
+-        "alias": "light1",
+-        "light_state": light_state,
+-    }
+-
+-    def set_light_state(state) -> None:
+-        nonlocal light_state
+-        drt_on_state = light_state["dft_on_state"]
+-        drt_on_state.update(state.get("dft_on_state", {}))
+-
+-        light_state.update(state)
+-        light_state["dft_on_state"] = drt_on_state
+-        return light_state
+-
+-    set_light_state_patch = patch(
+-        "kasa.smartbulb.SmartBulb.set_light_state",
+-        side_effect=set_light_state,
++
++from . import MAC_ADDRESS, _mocked_bulb, _patch_discovery, _patch_single_discovery
++
++from tests.common import MockConfigEntry
++
++
++async def test_color_light(hass: HomeAssistant) -> None:
++    """Test a light."""
++    already_migrated_config_entry = MockConfigEntry(
++        domain=DOMAIN, data={}, unique_id=MAC_ADDRESS
+     )
+-    get_light_state_patch = patch(
+-        "kasa.smartbulb.SmartBulb.get_light_state",
+-        return_value=light_state,
++    already_migrated_config_entry.add_to_hass(hass)
++    bulb = _mocked_bulb()
++    bulb.color_temp = None
++    with _patch_discovery(device=bulb), _patch_single_discovery(device=bulb):
++        await async_setup_component(hass, tplink.DOMAIN, {tplink.DOMAIN: {}})
++        await hass.async_block_till_done()
++        await hass.async_block_till_done()
++
++    entity_id = "light.my_bulb"
++
++    state = hass.states.get(entity_id)
++    assert state.state == "on"
++    attributes = state.attributes
++    assert attributes[ATTR_BRIGHTNESS] == 128
++    assert attributes[ATTR_COLOR_MODE] == "hs"
++    assert attributes[ATTR_SUPPORTED_COLOR_MODES] == ["brightness", "color_temp", "hs"]
++    assert attributes[ATTR_MIN_MIREDS] == 111
++    assert attributes[ATTR_MAX_MIREDS] == 250
++    assert attributes[ATTR_HS_COLOR] == (10, 30)
++    assert attributes[ATTR_RGB_COLOR] == (255, 191, 178)
++    assert attributes[ATTR_XY_COLOR] == (0.42, 0.336)
++
++    await hass.services.async_call(
++        LIGHT_DOMAIN, "turn_off", {ATTR_ENTITY_ID: entity_id}, blocking=True
+     )
+-    current_consumption_patch = patch(
+-        "kasa.smartdevice.SmartDevice.current_consumption",
+-        return_value=3.23,
++    bulb.turn_off.assert_called_once()
++
++    await hass.services.async_call(
++        LIGHT_DOMAIN, "turn_on", {ATTR_ENTITY_ID: entity_id}, blocking=True
+     )
+-    sys_info_patch = patch(
+-        "kasa.smartdevice.SmartDevice.sys_info",
+-        sys_info,
++    bulb.turn_on.assert_called_once()
++    bulb.turn_on.reset_mock()
++
++    await hass.services.async_call(
++        LIGHT_DOMAIN,
++        "turn_on",
++        {ATTR_ENTITY_ID: entity_id, ATTR_BRIGHTNESS: 100},
++        blocking=True,
+     )
+-    get_emeter_daily_patch = patch(
+-        "kasa.smartdevice.SmartDevice.get_emeter_daily",
+-        return_value={
+-            1: 1.01,
+-            2: 1.02,
+-            3: 1.03,
+-            4: 1.04,
+-            5: 1.05,
+-            6: 1.06,
+-            7: 1.07,
+-            8: 1.08,
+-            9: 1.09,
+-            10: 1.10,
+-            11: 1.11,
+-            12: 1.12,
+-        },
++    bulb.set_brightness.assert_called_with(39, transition=None)
++    bulb.set_brightness.reset_mock()
++
++    await hass.services.async_call(
++        LIGHT_DOMAIN,
++        "turn_on",
++        {ATTR_ENTITY_ID: entity_id, ATTR_COLOR_TEMP: 150},
++        blocking=True,
+     )
+-    get_emeter_monthly_patch = patch(
+-        "kasa.smartdevice.SmartDevice.get_emeter_monthly",
+-        return_value={
+-            1: 2.01,
+-            2: 2.02,
+-            3: 2.03,
+-            4: 2.04,
+-            5: 2.05,
+-            6: 2.06,
+-            7: 2.07,
+-            8: 2.08,
+-            9: 2.09,
+-            10: 2.10,
+-            11: 2.11,
+-            12: 2.12,
+-        },
++    bulb.set_color_temp.assert_called_with(6666, brightness=None, transition=None)
++    bulb.set_color_temp.reset_mock()
++
++    await hass.services.async_call(
++        LIGHT_DOMAIN,
++        "turn_on",
++        {ATTR_ENTITY_ID: entity_id, ATTR_COLOR_TEMP: 150},
++        blocking=True,
+     )
+-    query_patch = patch(
+-        "kasa.smartdevice.TPLinkSmartHomeProtocol.query",
+-        return_value={"system": {"get_sysinfo": sys_info}, **MOCK_ENERGY_DATA},
++    bulb.set_color_temp.assert_called_with(6666, brightness=None, transition=None)
++    bulb.set_color_temp.reset_mock()
++
++    await hass.services.async_call(
++        LIGHT_DOMAIN,
++        "turn_on",
++        {ATTR_ENTITY_ID: entity_id, ATTR_HS_COLOR: (10, 30)},
++        blocking=True,
+     )
+-    with query_patch as query_mock, set_light_state_patch as set_light_state_mock, get_light_state_patch as get_light_state_mock, current_consumption_patch as current_consumption_mock, sys_info_patch as sys_info_mock, get_emeter_daily_patch as get_emeter_daily_mock, get_emeter_monthly_patch as get_emeter_monthly_mock:
+-        yield LightMockData(
+-            query_mock=query_mock,
+-            sys_info=sys_info,
+-            light_state=light_state,
+-            set_light_state=set_light_state,
+-            set_light_state_mock=set_light_state_mock,
+-            get_light_state_mock=get_light_state_mock,
+-            current_consumption_mock=current_consumption_mock,
+-            sys_info_mock=sys_info_mock,
+-            get_emeter_daily_mock=get_emeter_daily_mock,
+-            get_emeter_monthly_mock=get_emeter_monthly_mock,
+-        )
+-
+-
+-@pytest.fixture(name="light_mock_data")
+-def light_mock_data_fixture() -> None:
+-    """Create light mock data."""
+-    light_state = {
+-        "on_off": True,
+-        "dft_on_state": {
+-            "brightness": 12,
+-            "color_temp": 3200,
+-            "hue": 110,
+-            "saturation": 90,
+-        },
+-        "brightness": 13,
+-        "color_temp": 3300,
+-        "hue": 110,
+-        "saturation": 90,
+-    }
+-    sys_info = {
+-        "sw_ver": "1.2.3",
+-        "hw_ver": "2.3.4",
+-        "mac": "aa:bb:cc:dd:ee:ff",
+-        "mic_mac": "00:11:22:33:44",
+-        "type": "smartbulb",
+-        "hwId": "1234",
+-        "fwId": "4567",
+-        "oemId": "891011",
+-        "dev_name": "light1",
+-        "rssi": 11,
+-        "latitude": "0",
+-        "longitude": "0",
+-        "is_color": True,
+-        "is_dimmable": True,
+-        "is_variable_color_temp": True,
+-        "model": "LB120",
+-        "alias": "light1",
+-        "light_state": light_state,
+-    }
+-
+-    def set_light_state(state) -> None:
+-        nonlocal light_state
+-        drt_on_state = light_state["dft_on_state"]
+-        drt_on_state.update(state.get("dft_on_state", {}))
+-
+-        light_state.update(state)
+-        light_state["dft_on_state"] = drt_on_state
+-        return light_state
+-
+-    set_light_state_patch = patch(
+-        "kasa.smartbulb.SmartBulb.set_light_state",
+-        side_effect=set_light_state,
++    bulb.set_hsv.assert_called_with(10, 30, None, transition=None)
++    bulb.set_hsv.reset_mock()
++
++
++@pytest.mark.parametrize("is_color", [True, False])
++async def test_color_temp_light(hass: HomeAssistant, is_color: bool) -> None:
++    """Test a light."""
++    already_migrated_config_entry = MockConfigEntry(
++        domain=DOMAIN, data={}, unique_id=MAC_ADDRESS
+     )
+-    get_light_state_patch = patch(
+-        "kasa.smartbulb.SmartBulb.get_light_state",
+-        return_value=light_state,
++    already_migrated_config_entry.add_to_hass(hass)
++    bulb = _mocked_bulb()
++    bulb.is_color = is_color
++    bulb.color_temp = 4000
++    bulb.is_variable_color_temp = True
++
++    with _patch_discovery(device=bulb), _patch_single_discovery(device=bulb):
++        await async_setup_component(hass, tplink.DOMAIN, {tplink.DOMAIN: {}})
++        await hass.async_block_till_done()
++        await hass.async_block_till_done()
++
++    entity_id = "light.my_bulb"
++
++    state = hass.states.get(entity_id)
++    assert state.state == "on"
++    attributes = state.attributes
++    assert attributes[ATTR_BRIGHTNESS] == 128
++    assert attributes[ATTR_COLOR_MODE] == "color_temp"
++    if bulb.is_color:
++        assert attributes[ATTR_SUPPORTED_COLOR_MODES] == [
++            "brightness",
++            "color_temp",
++            "hs",
++        ]
++    else:
++        assert attributes[ATTR_SUPPORTED_COLOR_MODES] == ["brightness", "color_temp"]
++    assert attributes[ATTR_MIN_MIREDS] == 111
++    assert attributes[ATTR_MAX_MIREDS] == 250
++    assert attributes[ATTR_COLOR_TEMP] == 250
++
++    await hass.services.async_call(
++        LIGHT_DOMAIN, "turn_off", {ATTR_ENTITY_ID: entity_id}, blocking=True
+     )
+-    current_consumption_patch = patch(
+-        "kasa.smartdevice.SmartDevice.current_consumption",
+-        return_value=3.23,
++    bulb.turn_off.assert_called_once()
++
++    await hass.services.async_call(
++        LIGHT_DOMAIN, "turn_on", {ATTR_ENTITY_ID: entity_id}, blocking=True
+     )
+-    sys_info_patch = patch(
+-        "kasa.smartdevice.SmartDevice.sys_info",
+-        sys_info,
++    bulb.turn_on.assert_called_once()
++    bulb.turn_on.reset_mock()
++
++    await hass.services.async_call(
++        LIGHT_DOMAIN,
++        "turn_on",
++        {ATTR_ENTITY_ID: entity_id, ATTR_BRIGHTNESS: 100},
++        blocking=True,
+     )
+-    get_emeter_daily_patch = patch(
+-        "kasa.smartdevice.SmartDevice.get_emeter_daily",
+-        return_value={
+-            1: 1.01,
+-            2: 1.02,
+-            3: 1.03,
+-            4: 1.04,
+-            5: 1.05,
+-            6: 1.06,
+-            7: 1.07,
+-            8: 1.08,
+-            9: 1.09,
+-            10: 1.10,
+-            11: 1.11,
+-            12: 1.12,
+-        },
++    bulb.set_brightness.assert_called_with(39, transition=None)
++    bulb.set_brightness.reset_mock()
++
++    await hass.services.async_call(
++        LIGHT_DOMAIN,
++        "turn_on",
++        {ATTR_ENTITY_ID: entity_id, ATTR_COLOR_TEMP: 150},
++        blocking=True,
+     )
+-    get_emeter_monthly_patch = patch(
+-        "kasa.smartdevice.SmartDevice.get_emeter_monthly",
+-        return_value={
+-            1: 2.01,
+-            2: 2.02,
+-            3: 2.03,
+-            4: 2.04,
+-            5: 2.05,
+-            6: 2.06,
+-            7: 2.07,
+-            8: 2.08,
+-            9: 2.09,
+-            10: 2.10,
+-            11: 2.11,
+-            12: 2.12,
+-        },
++    bulb.set_color_temp.assert_called_with(6666, brightness=None, transition=None)
++    bulb.set_color_temp.reset_mock()
++
++
++async def test_brightness_only_light(hass: HomeAssistant) -> None:
++    """Test a light."""
++    already_migrated_config_entry = MockConfigEntry(
++        domain=DOMAIN, data={}, unique_id=MAC_ADDRESS
+     )
+-    query_patch = patch(
+-        "kasa.smartdevice.TPLinkSmartHomeProtocol.query",
+-        return_value={"system": {"get_sysinfo": sys_info}, **MOCK_ENERGY_DATA},
++    already_migrated_config_entry.add_to_hass(hass)
++    bulb = _mocked_bulb()
++    bulb.is_color = False
++    bulb.is_variable_color_temp = False
++
++    with _patch_discovery(device=bulb), _patch_single_discovery(device=bulb):
++        await async_setup_component(hass, tplink.DOMAIN, {tplink.DOMAIN: {}})
++        await hass.async_block_till_done()
++        await hass.async_block_till_done()
++
++    entity_id = "light.my_bulb"
++
++    state = hass.states.get(entity_id)
++    assert state.state == "on"
++    attributes = state.attributes
++    assert attributes[ATTR_BRIGHTNESS] == 128
++    assert attributes[ATTR_COLOR_MODE] == "brightness"
++    assert attributes[ATTR_SUPPORTED_COLOR_MODES] == ["brightness"]
++
++    await hass.services.async_call(
++        LIGHT_DOMAIN, "turn_off", {ATTR_ENTITY_ID: entity_id}, blocking=True
+     )
+-    with query_patch as query_mock, set_light_state_patch as set_light_state_mock, get_light_state_patch as get_light_state_mock, current_consumption_patch as current_consumption_mock, sys_info_patch as sys_info_mock, get_emeter_daily_patch as get_emeter_daily_mock, get_emeter_monthly_patch as get_emeter_monthly_mock:
+-        yield LightMockData(
+-            query_mock=query_mock,
+-            sys_info=sys_info,
+-            light_state=light_state,
+-            set_light_state=set_light_state,
+-            set_light_state_mock=set_light_state_mock,
+-            get_light_state_mock=get_light_state_mock,
+-            current_consumption_mock=current_consumption_mock,
+-            sys_info_mock=sys_info_mock,
+-            get_emeter_daily_mock=get_emeter_daily_mock,
+-            get_emeter_monthly_mock=get_emeter_monthly_mock,
+-        )
+-
+-
+-@pytest.fixture(name="dimmer_switch_mock_data")
+-def dimmer_switch_mock_data_fixture() -> None:
+-    """Create dimmer switch mock data."""
+-    sys_info = {
+-        "sw_ver": "1.2.3",
+-        "hw_ver": "2.3.4",
+-        "mac": "aa:bb:cc:dd:ee:ff",
+-        "mic_mac": "00:11:22:33:44",
+-        "type": "smartplug",
+-        "hwId": "1234",
+-        "fwId": "4567",
+-        "oemId": "891011",
+-        "dev_name": "dimmer1",
+-        "led_off": 1,
+-        "rssi": 11,
+-        "latitude": "0",
+-        "longitude": "0",
+-        "is_color": False,
+-        "is_dimmable": True,
+-        "is_variable_color_temp": False,
+-        "model": "HS220",
+-        "alias": "dimmer1",
+-        "feature": ":",
+-        "relay_state": 1,
+-        "brightness": 13,
+-    }
+-
+-    def is_on(*args, **kwargs):
+-        nonlocal sys_info
+-        if len(args) == 0:
+-            return sys_info["relay_state"]
+-        if args[0] == "ON":
+-            sys_info["relay_state"] = 1
+-        else:
+-            sys_info["relay_state"] = 0
+-
+-    def brightness(*args, **kwargs):
+-        nonlocal sys_info
+-        if len(args) == 0:
+-            return sys_info["brightness"]
+-        if sys_info["brightness"] == 0:
+-            sys_info["relay_state"] = 0
+-        else:
+-            sys_info["relay_state"] = 1
+-            sys_info["brightness"] = args[0]
+-
+-    sys_info_patch = patch(
+-        "kasa.smartdevice.SmartDevice.sys_info",
+-        sys_info,
++    bulb.turn_off.assert_called_once()
++
++    await hass.services.async_call(
++        LIGHT_DOMAIN, "turn_on", {ATTR_ENTITY_ID: entity_id}, blocking=True
+     )
+-    is_on_patch = patch(
+-        "kasa.smartdimmer.SmartDimmer.is_on",
+-        new_callable=PropertyMock,
+-        side_effect=is_on,
++    bulb.turn_on.assert_called_once()
++    bulb.turn_on.reset_mock()
++
++    await hass.services.async_call(
++        LIGHT_DOMAIN,
++        "turn_on",
++        {ATTR_ENTITY_ID: entity_id, ATTR_BRIGHTNESS: 100},
++        blocking=True,
+     )
+-    brightness_patch = patch(
+-        "kasa.smartdimmer.SmartDimmer.brightness",
+-        new_callable=PropertyMock,
+-        side_effect=brightness,
++    bulb.set_brightness.assert_called_with(39, transition=None)
++    bulb.set_brightness.reset_mock()
++
++
++async def test_on_off_light(hass: HomeAssistant) -> None:
++    """Test a light."""
++    already_migrated_config_entry = MockConfigEntry(
++        domain=DOMAIN, data={}, unique_id=MAC_ADDRESS
+     )
+-    query_patch = patch(
+-        "kasa.smartdevice.TPLinkSmartHomeProtocol.query",
+-        return_value={"system": {"get_sysinfo": sys_info}, **MOCK_ENERGY_DATA},
++    already_migrated_config_entry.add_to_hass(hass)
++    bulb = _mocked_bulb()
++    bulb.is_color = False
++    bulb.is_variable_color_temp = False
++    bulb.is_dimmable = False
++
++    with _patch_discovery(device=bulb), _patch_single_discovery(device=bulb):
++        await async_setup_component(hass, tplink.DOMAIN, {tplink.DOMAIN: {}})
++        await hass.async_block_till_done()
++        await hass.async_block_till_done()
++
++    entity_id = "light.my_bulb"
++
++    state = hass.states.get(entity_id)
++    assert state.state == "on"
++    attributes = state.attributes
++    assert attributes[ATTR_SUPPORTED_COLOR_MODES] == ["onoff"]
++
++    await hass.services.async_call(
++        LIGHT_DOMAIN, "turn_off", {ATTR_ENTITY_ID: entity_id}, blocking=True
+     )
+-    with query_patch as query_mock, brightness_patch as brightness_mock, is_on_patch as is_on_mock, sys_info_patch as sys_info_mock:
+-        yield SmartSwitchMockData(
+-            query=query_mock,
+-            sys_info=sys_info,
+-            brightness_mock=brightness_mock,
+-            is_on_mock=is_on_mock,
+-            sys_info_mock=sys_info_mock,
+-        )
+-
+-
+-async def update_entity(hass: HomeAssistant, entity_id: str) -> None:
+-    """Run an update action for an entity."""
+-    future = utcnow() + timedelta(seconds=30)
+-    async_fire_time_changed(hass, future)
+-    await hass.async_block_till_done()
+-
+-
+-async def test_unknown_light(
+-    hass: HomeAssistant, unknown_light_mock_data: LightMockData
+-) -> None:
+-    """Test function."""
+-    await async_setup_component(hass, HA_DOMAIN, {})
+-    await hass.async_block_till_done()
+-
+-    await async_setup_component(
+-        hass,
+-        tplink.DOMAIN,
+-        {
+-            tplink.DOMAIN: {
+-                CONF_DISCOVERY: False,
+-                CONF_LIGHT: [{CONF_HOST: "123.123.123.123"}],
+-            }
+-        },
++    bulb.turn_off.assert_called_once()
++
++    await hass.services.async_call(
++        LIGHT_DOMAIN, "turn_on", {ATTR_ENTITY_ID: entity_id}, blocking=True
+     )
+-    await hass.async_block_till_done()
++    bulb.turn_on.assert_called_once()
++    bulb.turn_on.reset_mock()
+ 
+-    state = hass.states.get("light.light1")
+-    assert state.state == "on"
+-    assert state.attributes["min_mireds"] == 200
+-    assert state.attributes["max_mireds"] == 370
+-
+-
+-async def test_update_failure(
+-    hass: HomeAssistant, light_mock_data: LightMockData, caplog
+-):
+-    """Test that update failures are logged."""
+-
+-    await hass.async_block_till_done()
+-
+-    await async_setup_component(
+-        hass,
+-        tplink.DOMAIN,
+-        {
+-            tplink.DOMAIN: {
+-                CONF_DISCOVERY: False,
+-                CONF_LIGHT: [{CONF_HOST: "123.123.123.123"}],
+-            }
+-        },
++
++async def test_off_at_start_light(hass: HomeAssistant) -> None:
++    """Test a light."""
++    already_migrated_config_entry = MockConfigEntry(
++        domain=DOMAIN, data={}, unique_id=MAC_ADDRESS
+     )
+-    await hass.async_block_till_done()
+-    assert hass.states.get("light.light1").state == STATE_ON
+-
+-    caplog.clear()
+-    caplog.set_level(logging.WARNING)
+-    await update_entity(hass, "light.light1")
+-    assert caplog.text == ""
+-    assert hass.states.get("light.light1").state == STATE_ON
+-
+-    light_mock_data.query_mock.side_effect = SmartDeviceException
+-    caplog.clear()
+-    caplog.set_level(logging.WARNING)
+-    await update_entity(hass, "light.light1")
+-    assert hass.states.get("light.light1").state == STATE_UNAVAILABLE
++    already_migrated_config_entry.add_to_hass(hass)
++    bulb = _mocked_bulb()
++    bulb.is_color = False
++    bulb.is_variable_color_temp = False
++    bulb.is_dimmable = False
++    bulb.is_on = False
++
++    with _patch_discovery(device=bulb), _patch_single_discovery(device=bulb):
++        await async_setup_component(hass, tplink.DOMAIN, {tplink.DOMAIN: {}})
++        await hass.async_block_till_done()
++        await hass.async_block_till_done()
++
++    entity_id = "light.my_bulb"
++
++    state = hass.states.get(entity_id)
++    assert state.state == "off"
++    attributes = state.attributes
++    assert attributes[ATTR_SUPPORTED_COLOR_MODES] == ["onoff"]
+diff --git a/tests/components/tplink/test_migration.py b/tests/components/tplink/test_migration.py
+new file mode 100644
+index 00000000000000..c49ce2a32bc329
+--- /dev/null
++++ b/tests/components/tplink/test_migration.py
+@@ -0,0 +1,240 @@
++"""Test the tplink config flow."""
++from datetime import timedelta
++
++from homeassistant import setup
++from homeassistant.components.tplink import CONF_DISCOVERY, CONF_SWITCH, DOMAIN
++from homeassistant.components.tplink.migration import CLEANUP_DELAY
++from homeassistant.const import CONF_HOST
++from homeassistant.core import HomeAssistant
++from homeassistant.helpers import device_registry as dr, entity_registry as er
++from homeassistant.helpers.device_registry import DeviceRegistry
++from homeassistant.helpers.entity_registry import EntityRegistry
++from homeassistant.util import dt as dt_util
++
++from . import (
++    ALIAS,
++    IP_ADDRESS,
++    MAC_ADDRESS,
++    MODEL,
++    _patch_discovery,
++    _patch_single_discovery,
++)
++
++from tests.common import MockConfigEntry, async_fire_time_changed
++
++DEVICE_ID = f"{ALIAS} {MODEL} ({IP_ADDRESS}) {MAC_ADDRESS}"
++
++
++async def test_migration_device_online_end_to_end(
++    hass: HomeAssistant, device_reg: DeviceRegistry, entity_reg: EntityRegistry
++):
++    """Test migration from single config entry."""
++    config_entry = MockConfigEntry(domain=DOMAIN, data={}, unique_id=DOMAIN)
++    config_entry.add_to_hass(hass)
++    device = device_reg.async_get_or_create(
++        config_entry_id=config_entry.entry_id,
++        connections={(dr.CONNECTION_NETWORK_MAC, MAC_ADDRESS)},
++        name=ALIAS,
++    )
++    light_entity_reg = entity_reg.async_get_or_create(
++        config_entry=config_entry,
++        platform=DOMAIN,
++        domain="light",
++        unique_id=MAC_ADDRESS,
++        original_name=ALIAS,
++        device_id=device.id,
++    )
++    power_sensor_entity_reg = entity_reg.async_get_or_create(
++        config_entry=config_entry,
++        platform=DOMAIN,
++        domain="sensor",
++        unique_id=f"{MAC_ADDRESS}_sensor",
++        original_name=ALIAS,
++        device_id=device.id,
++    )
++
++    with _patch_discovery(), _patch_single_discovery():
++        await setup.async_setup_component(hass, DOMAIN, {})
++        await hass.async_block_till_done()
++
++        migrated_entry = None
++        for entry in hass.config_entries.async_entries(DOMAIN):
++            if entry.unique_id == DOMAIN:
++                migrated_entry = entry
++                break
++
++        assert migrated_entry is not None
++
++        assert device.config_entries == {migrated_entry.entry_id}
++        assert light_entity_reg.config_entry_id == migrated_entry.entry_id
++        assert power_sensor_entity_reg.config_entry_id == migrated_entry.entry_id
++        assert er.async_entries_for_config_entry(entity_reg, config_entry) == []
++
++        async_fire_time_changed(
++            hass, dt_util.utcnow() + timedelta(seconds=CLEANUP_DELAY + 5)
++        )
++        await hass.async_block_till_done()
++
++        legacy_entry = None
++        for entry in hass.config_entries.async_entries(DOMAIN):
++            if entry.unique_id == DOMAIN:
++                legacy_entry = entry
++                break
++
++        assert legacy_entry is None
++
++
++async def test_migration_device_online_end_to_end_after_downgrade(
++    hass: HomeAssistant, device_reg: DeviceRegistry, entity_reg: EntityRegistry
++):
++    """Test migration from single config entry can happen again after a downgrade."""
++    config_entry = MockConfigEntry(domain=DOMAIN, data={}, unique_id=DOMAIN)
++    config_entry.add_to_hass(hass)
++
++    already_migrated_config_entry = MockConfigEntry(
++        domain=DOMAIN, data={CONF_HOST: IP_ADDRESS}, unique_id=MAC_ADDRESS
++    )
++    already_migrated_config_entry.add_to_hass(hass)
++    device = device_reg.async_get_or_create(
++        config_entry_id=config_entry.entry_id,
++        connections={(dr.CONNECTION_NETWORK_MAC, MAC_ADDRESS)},
++        name=ALIAS,
++    )
++    light_entity_reg = entity_reg.async_get_or_create(
++        config_entry=config_entry,
++        platform=DOMAIN,
++        domain="light",
++        unique_id=MAC_ADDRESS,
++        original_name=ALIAS,
++        device_id=device.id,
++    )
++    power_sensor_entity_reg = entity_reg.async_get_or_create(
++        config_entry=config_entry,
++        platform=DOMAIN,
++        domain="sensor",
++        unique_id=f"{MAC_ADDRESS}_sensor",
++        original_name=ALIAS,
++        device_id=device.id,
++    )
++
++    with _patch_discovery(), _patch_single_discovery():
++        await setup.async_setup_component(hass, DOMAIN, {})
++        await hass.async_block_till_done()
++
++        assert device.config_entries == {config_entry.entry_id}
++        assert light_entity_reg.config_entry_id == config_entry.entry_id
++        assert power_sensor_entity_reg.config_entry_id == config_entry.entry_id
++        assert er.async_entries_for_config_entry(entity_reg, config_entry) == []
++
++        async_fire_time_changed(
++            hass, dt_util.utcnow() + timedelta(seconds=CLEANUP_DELAY + 5)
++        )
++        await hass.async_block_till_done()
++
++        legacy_entry = None
++        for entry in hass.config_entries.async_entries(DOMAIN):
++            if entry.unique_id == DOMAIN:
++                legacy_entry = entry
++                break
++
++        assert legacy_entry is None
++
++
++async def test_migration_device_online_end_to_end_ignores_other_devices(
++    hass: HomeAssistant, device_reg: DeviceRegistry, entity_reg: EntityRegistry
++):
++    """Test migration from single config entry."""
++    config_entry = MockConfigEntry(domain=DOMAIN, data={}, unique_id=DOMAIN)
++    config_entry.add_to_hass(hass)
++    device = device_reg.async_get_or_create(
++        config_entry_id=config_entry.entry_id,
++        connections={(dr.CONNECTION_NETWORK_MAC, MAC_ADDRESS)},
++        name=ALIAS,
++    )
++    light_entity_reg = entity_reg.async_get_or_create(
++        config_entry=config_entry,
++        platform=DOMAIN,
++        domain="light",
++        unique_id=MAC_ADDRESS,
++        original_name=ALIAS,
++        device_id=device.id,
++    )
++    power_sensor_entity_reg = entity_reg.async_get_or_create(
++        config_entry=config_entry,
++        platform=DOMAIN,
++        domain="sensor",
++        unique_id=f"{MAC_ADDRESS}_sensor",
++        original_name=ALIAS,
++        device_id=device.id,
++    )
++    ignored_entity_reg = entity_reg.async_get_or_create(
++        config_entry=config_entry,
++        platform=DOMAIN,
++        domain="sensor",
++        unique_id="00:00:00:00:00:00_sensor",
++        original_name=ALIAS,
++        device_id=device.id,
++    )
++    garbage_entity_reg = entity_reg.async_get_or_create(
++        config_entry=config_entry,
++        platform=DOMAIN,
++        domain="sensor",
++        unique_id="garbage",
++        original_name=ALIAS,
++        device_id=device.id,
++    )
++
++    with _patch_discovery(), _patch_single_discovery():
++        await setup.async_setup_component(hass, DOMAIN, {})
++        await hass.async_block_till_done()
++
++        migrated_entry = None
++        for entry in hass.config_entries.async_entries(DOMAIN):
++            if entry.unique_id == DOMAIN:
++                migrated_entry = entry
++                break
++
++        assert migrated_entry is not None
++
++        assert device.config_entries == {migrated_entry.entry_id}
++        assert light_entity_reg.config_entry_id == migrated_entry.entry_id
++        assert power_sensor_entity_reg.config_entry_id == migrated_entry.entry_id
++        assert ignored_entity_reg.config_entry_id == config_entry.entry_id
++        assert garbage_entity_reg.config_entry_id == config_entry.entry_id
++
++        assert er.async_entries_for_config_entry(entity_reg, config_entry) == []
++
++        async_fire_time_changed(
++            hass, dt_util.utcnow() + timedelta(seconds=CLEANUP_DELAY + 5)
++        )
++        await hass.async_block_till_done()
++
++        legacy_entry = None
++        for entry in hass.config_entries.async_entries(DOMAIN):
++            if entry.unique_id == DOMAIN:
++                legacy_entry = entry
++                break
++
++        assert legacy_entry is not None
++
++
++async def test_migrate_from_yaml(hass: HomeAssistant):
++    """Test migrate from yaml."""
++    config = {
++        DOMAIN: {
++            CONF_DISCOVERY: False,
++            CONF_SWITCH: [{CONF_HOST: IP_ADDRESS}],
++        }
++    }
++    with _patch_discovery(), _patch_single_discovery():
++        await setup.async_setup_component(hass, DOMAIN, config)
++        await hass.async_block_till_done()
++
++    migrated_entry = None
++    for entry in hass.config_entries.async_entries(DOMAIN):
++        if entry.unique_id == MAC_ADDRESS:
++            migrated_entry = entry
++            break
++
++    assert migrated_entry is not None
++    assert migrated_entry.data[CONF_HOST] == IP_ADDRESS
+diff --git a/tests/components/tplink/test_sensor.py b/tests/components/tplink/test_sensor.py
+new file mode 100644
+index 00000000000000..d99432e472f0ec
+--- /dev/null
++++ b/tests/components/tplink/test_sensor.py
+@@ -0,0 +1,117 @@
++"""Tests for light platform."""
++
++from unittest.mock import Mock
++
++from homeassistant.components import tplink
++from homeassistant.components.tplink.const import DOMAIN
++from homeassistant.core import HomeAssistant
++from homeassistant.setup import async_setup_component
++
++from . import (
++    MAC_ADDRESS,
++    _mocked_bulb,
++    _mocked_plug,
++    _patch_discovery,
++    _patch_single_discovery,
++)
++
++from tests.common import MockConfigEntry
++
++
++async def test_color_light_with_an_emeter(hass: HomeAssistant) -> None:
++    """Test a light with an emeter."""
++    already_migrated_config_entry = MockConfigEntry(
++        domain=DOMAIN, data={}, unique_id=MAC_ADDRESS
++    )
++    already_migrated_config_entry.add_to_hass(hass)
++    bulb = _mocked_bulb()
++    bulb.color_temp = None
++    bulb.has_emeter = True
++    bulb.emeter_realtime = Mock(
++        power=100,
++        total=30,
++        voltage=121,
++        current=5,
++    )
++    bulb.emeter_today = 5000
++    with _patch_discovery(device=bulb), _patch_single_discovery(device=bulb):
++        await async_setup_component(hass, tplink.DOMAIN, {tplink.DOMAIN: {}})
++        await hass.async_block_till_done()
++        await hass.async_block_till_done()
++
++    expected = {
++        "sensor.my_bulb_current_consumption": 100,
++        "sensor.my_bulb_total_consumption": 30,
++        "sensor.my_bulb_today_s_consumption": 5000,
++        "sensor.my_bulb_voltage": 121,
++        "sensor.my_bulb_current": 5,
++    }
++    entity_id = "light.my_bulb"
++    state = hass.states.get(entity_id)
++    assert state.state == "on"
++    for sensor_entity_id, value in expected.items():
++        assert hass.states.get(sensor_entity_id).state == str(value)
++
++
++async def test_plug_with_an_emeter(hass: HomeAssistant) -> None:
++    """Test a plug with an emeter."""
++    already_migrated_config_entry = MockConfigEntry(
++        domain=DOMAIN, data={}, unique_id=MAC_ADDRESS
++    )
++    already_migrated_config_entry.add_to_hass(hass)
++    plug = _mocked_plug()
++    plug.color_temp = None
++    plug.has_emeter = True
++    plug.emeter_realtime = Mock(
++        power=100,
++        total=30,
++        voltage=121,
++        current=5,
++    )
++    plug.emeter_today = None
++    with _patch_discovery(device=plug), _patch_single_discovery(device=plug):
++        await async_setup_component(hass, tplink.DOMAIN, {tplink.DOMAIN: {}})
++        await hass.async_block_till_done()
++        await hass.async_block_till_done()
++
++    expected = {
++        "sensor.my_plug_current_consumption": 100,
++        "sensor.my_plug_total_consumption": 30,
++        "sensor.my_plug_today_s_consumption": 0.0,
++        "sensor.my_plug_voltage": 121,
++        "sensor.my_plug_current": 5,
++    }
++    entity_id = "switch.my_plug"
++    state = hass.states.get(entity_id)
++    assert state.state == "on"
++    for sensor_entity_id, value in expected.items():
++        assert hass.states.get(sensor_entity_id).state == str(value)
++
++
++async def test_color_light_no_emeter(hass: HomeAssistant) -> None:
++    """Test a light without an emeter."""
++    already_migrated_config_entry = MockConfigEntry(
++        domain=DOMAIN, data={}, unique_id=MAC_ADDRESS
++    )
++    already_migrated_config_entry.add_to_hass(hass)
++    bulb = _mocked_bulb()
++    bulb.color_temp = None
++    bulb.has_emeter = False
++    with _patch_discovery(device=bulb), _patch_single_discovery(device=bulb):
++        await async_setup_component(hass, tplink.DOMAIN, {tplink.DOMAIN: {}})
++        await hass.async_block_till_done()
++        await hass.async_block_till_done()
++
++    entity_id = "light.my_bulb"
++    state = hass.states.get(entity_id)
++    assert state.state == "on"
++
++    not_expected = [
++        "sensor.my_bulb_current_consumption"
++        "sensor.my_bulb_total_consumption"
++        "sensor.my_bulb_today_s_consumption"
++        "sensor.my_bulb_voltage"
++        "sensor.my_bulb_current"
++    ]
++    for sensor_entity_id in not_expected:
++        assert hass.states.get(sensor_entity_id) is None
+diff --git a/tests/components/tplink/test_switch.py b/tests/components/tplink/test_switch.py
+new file mode 100644
+index 00000000000000..38fb0536f4f995
+--- /dev/null
++++ b/tests/components/tplink/test_switch.py
+@@ -0,0 +1,102 @@
++"""Tests for switch platform."""
++
++from datetime import timedelta
++from unittest.mock import AsyncMock
++
++from kasa import SmartDeviceException
++
++from homeassistant.components import tplink
++from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
++from homeassistant.components.tplink.const import DOMAIN
++from homeassistant.const import ATTR_ENTITY_ID, STATE_ON, STATE_UNAVAILABLE
++from homeassistant.core import HomeAssistant
++from homeassistant.setup import async_setup_component
++from homeassistant.util import dt as dt_util
++
++from . import (
++    MAC_ADDRESS,
++    _mocked_plug,
++    _mocked_strip,
++    _patch_discovery,
++    _patch_single_discovery,
++)
++
++from tests.common import MockConfigEntry, async_fire_time_changed
++
++
++async def test_plug(hass: HomeAssistant) -> None:
++    """Test a smart plug."""
++    already_migrated_config_entry = MockConfigEntry(
++        domain=DOMAIN, data={}, unique_id=MAC_ADDRESS
++    )
++    already_migrated_config_entry.add_to_hass(hass)
++    plug = _mocked_plug()
++    with _patch_discovery(device=plug), _patch_single_discovery(device=plug):
++        await async_setup_component(hass, tplink.DOMAIN, {tplink.DOMAIN: {}})
++        await hass.async_block_till_done()
++
++    entity_id = "switch.my_plug"
++    state = hass.states.get(entity_id)
++    assert state.state == STATE_ON
++
++    await hass.services.async_call(
++        SWITCH_DOMAIN, "turn_off", {ATTR_ENTITY_ID: entity_id}, blocking=True
++    )
++    plug.turn_off.assert_called_once()
++    plug.turn_off.reset_mock()
++
++    await hass.services.async_call(
++        SWITCH_DOMAIN, "turn_on", {ATTR_ENTITY_ID: entity_id}, blocking=True
++    )
++    plug.turn_on.assert_called_once()
++    plug.turn_on.reset_mock()
++
++
++async def test_plug_update_fails(hass: HomeAssistant) -> None:
++    """Test a smart plug update failure."""
++    already_migrated_config_entry = MockConfigEntry(
++        domain=DOMAIN, data={}, unique_id=MAC_ADDRESS
++    )
++    already_migrated_config_entry.add_to_hass(hass)
++    plug = _mocked_plug()
++    with _patch_discovery(device=plug), _patch_single_discovery(device=plug):
++        await async_setup_component(hass, tplink.DOMAIN, {tplink.DOMAIN: {}})
++        await hass.async_block_till_done()
++
++    entity_id = "switch.my_plug"
++    state = hass.states.get(entity_id)
++    assert state.state == STATE_ON
++    plug.update = AsyncMock(side_effect=SmartDeviceException)
++
++    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=30))
++    await hass.async_block_till_done()
++    state = hass.states.get(entity_id)
++    assert state.state == STATE_UNAVAILABLE
++
++
++async def test_strip(hass: HomeAssistant) -> None:
++    """Test a smart strip."""
++    already_migrated_config_entry = MockConfigEntry(
++        domain=DOMAIN, data={}, unique_id=MAC_ADDRESS
++    )
++    already_migrated_config_entry.add_to_hass(hass)
++    plug = _mocked_strip()
++    with _patch_discovery(device=plug), _patch_single_discovery(device=plug):
++        await async_setup_component(hass, tplink.DOMAIN, {tplink.DOMAIN: {}})
++        await hass.async_block_till_done()
++
++    entity_id = "switch.my_strip"
++    state = hass.states.get(entity_id)
++    assert state.state == STATE_ON
++
++    await hass.services.async_call(
++        SWITCH_DOMAIN, "turn_off", {ATTR_ENTITY_ID: entity_id}, blocking=True
++    )
++    plug.turn_off.assert_called_once()
++    plug.turn_off.reset_mock()
++
++    await hass.services.async_call(
++        SWITCH_DOMAIN, "turn_on", {ATTR_ENTITY_ID: entity_id}, blocking=True
++    )
++    plug.turn_on.assert_called_once()
++    plug.turn_on.reset_mock()

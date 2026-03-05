@@ -1,0 +1,18 @@
+[
+  {
+    "path": "spring-boot-project/spring-boot-autoconfigure/src/test/java/org/springframework/boot/autoconfigure/security/servlet/SecurityAutoConfigurationTests.java",
+    "line": 174,
+    "original_line": 174,
+    "review_comment": [
+      "I think we could use AssertJ\u2019s extracting here and we prefer to do so where possible."
+    ]
+  },
+  {
+    "path": "spring-boot-project/spring-boot-autoconfigure/src/test/java/org/springframework/boot/autoconfigure/session/SessionAutoConfigurationTests.java",
+    "line": 151,
+    "original_line": 151,
+    "review_comment": [
+      "I think this could use AssertJ\u2019s extracting too."
+    ]
+  }
+]

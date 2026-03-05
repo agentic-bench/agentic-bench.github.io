@@ -1,0 +1,13 @@
+[
+  {
+    "id": 24617,
+    "full_name": "typeorm/typeorm",
+    "lang": "typescript",
+    "issue_number": 9974,
+    "pr_number": 9976,
+    "diff_hunk": "@@ -234,9 +234,11 @@ export class Subject {\n     /**\n      * Creates a value set needs to be inserted / updated in the database.\n      * Value set is based on the entity and change maps of the subject.\n-     * Important note: this method pops data from this subject's change maps.\n      */\n-    createValueSetAndPopChangeMap(): ObjectLiteral {\n+    createValueSetAndChangeMapsWithoutValues(): [\n+        ObjectLiteral,\n+        SubjectChangeMap[],\n+    ] {\n         const changeMapsWithoutValues: SubjectChangeMap[] = []\n         const changeSet = this.changeMaps.reduce((updateMap, changeMap) => {\n             let value = changeMap.value",
+    "diff_hunk_content_with_line_number": "[234][234]      /**\n[235][235]       * Creates a value set needs to be inserted / updated in the database.\n[236][236]       * Value set is based on the entity and change maps of the subject.\n[237][] -     * Important note: this method pops data from this subject's change maps.\n[238][237]       */\n[239][] -    createValueSetAndPopChangeMap(): ObjectLiteral {\n[][238] +    createValueSetAndChangeMapsWithoutValues(): [\n[][239] +        ObjectLiteral,\n[][240] +        SubjectChangeMap[],\n[][241] +    ] {\n[240][242]          const changeMapsWithoutValues: SubjectChangeMap[] = []\n[241][243]          const changeSet = this.changeMaps.reduce((updateMap, changeMap) => {\n[242][244]              let value = changeMap.value",
+    "checked_commit_id": "2981e9af5a0421021a49100d67ad32efacf27eca",
+    "pr_size": "l"
+  }
+]

@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "core_issue_55234_pr_55251_sm_c33799e4"
+contextcrbench2_full_name = "home-assistant/core"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "55234"
+contextcrbench2_issue_title = "Entities with 'state_class: total_increasing' generate a warning if they get a non-numeric state like \"unknown\" or \"unavailable\""
+contextcrbench2_pr_number = "55251"
+contextcrbench2_pr_title = "Warn if a sensor with state_class_total has a decreasing value twice"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "c33799e494a9d23fb3c09d8d1808fa8024da620e"
+contextcrbench2_commit_id = "c33799e494a9d23fb3c09d8d1808fa8024da620e"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2021-08-26T07:59:19Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

@@ -1,0 +1,6 @@
+{
+  "issue_title": "systemd-cryptsetup: Support keys other than RSA to pkcs11 enrollment",
+  "issue_body": "### Component\n\nsystemd-cryptsetup\n\n### Is your feature request related to a problem? Please describe\n\nYubikey 5 supports ECC P-256 keys for the PIV certificates. I would like to be able to enroll that key with systemd-cryptenroll to unlock my luks volume.\n\n### Describe the solution you'd like\n\n[Checking the source](https://github.com/systemd/systemd/blob/main/src/cryptenroll/cryptenroll-pkcs11.c#L44-L46) I can see that the assumption is that all enrolled keys are RSA. There're quite a few alternatives out there now and HSMs are starting to support them. It'd be great if support for e.g. P256 and ed22519 were added.\n\n### Describe alternatives you've considered\n\nFor now I'll either enroll an RSA key in a different slot or switch the PIV cert key to RSA.\n\n### The systemd version you checked that didn't have the feature you are asking for\n\n252",
+  "pr_title": "cryptsetup: Add support for EC keys in PKCS#11 tokens",
+  "pr_body": "Resumes https://github.com/systemd/systemd/pull/23209.\r\n\r\nCloses #27331\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n<!-- devel-freezer = {\"comment-id\":\"1796977139\",\"freezing-tag\":\"v255-rc3\"} -->"
+}

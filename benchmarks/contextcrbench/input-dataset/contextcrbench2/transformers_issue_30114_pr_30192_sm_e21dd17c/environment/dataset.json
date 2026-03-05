@@ -1,0 +1,13 @@
+[
+  {
+    "id": 67666,
+    "full_name": "huggingface/transformers",
+    "lang": "python",
+    "issue_number": 30114,
+    "pr_number": 30192,
+    "diff_hunk": "@@ -320,7 +320,7 @@ def load_image(image: Union[str, \"PIL.Image.Image\"], timeout: Optional[float] =\n \n             # Try to load as base64\n             try:\n-                b64 = base64.b64decode(image, validate=True)\n+                b64 = base64.decodebytes(image.encode())\n                 image = PIL.Image.open(BytesIO(b64))\n             except Exception as e:\n                 raise ValueError(\n",
+    "diff_hunk_content_with_line_number": "[320][320]  \n[321][321]              # Try to load as base64\n[322][322]              try:\n[323][] -                b64 = base64.b64decode(image, validate=True)\n[][323] +                b64 = base64.decodebytes(image.encode())\n[324][324]                  image = PIL.Image.open(BytesIO(b64))\n[325][325]              except Exception as e:\n[326][326]                  raise ValueError(",
+    "checked_commit_id": "e21dd17c43681407a5582977af237b1797220027",
+    "pr_size": "sm"
+  }
+]

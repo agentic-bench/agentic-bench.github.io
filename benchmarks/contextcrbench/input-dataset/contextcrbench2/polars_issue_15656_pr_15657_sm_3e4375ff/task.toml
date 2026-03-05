@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "polars_issue_15656_pr_15657_sm_3e4375ff"
+contextcrbench2_full_name = "pola-rs/polars"
+contextcrbench2_lang = "rust"
+contextcrbench2_issue_number = "15656"
+contextcrbench2_issue_title = "rolling_* aggs behave as if they return scalars in group-by"
+contextcrbench2_pr_number = "15657"
+contextcrbench2_pr_title = "fix: rolling_* aggs were behaving as if they return scalars in group-by"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "3e4375ff87f3e052984d0e1f3ad113ac00ee5533"
+contextcrbench2_commit_id = "3e4375ff87f3e052984d0e1f3ad113ac00ee5533"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2024-04-15T10:22:36Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

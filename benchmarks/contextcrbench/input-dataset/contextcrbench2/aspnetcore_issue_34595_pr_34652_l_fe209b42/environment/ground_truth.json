@@ -1,0 +1,30 @@
+[
+  {
+    "path": "src/Middleware/HttpLogging/test/FileLoggerProcessorTests.cs",
+    "line": 280,
+    "original_line": 280,
+    "review_comment": [
+      ":/ we should fix this at some point, i.e. have an interface for the clock so we can test without actual date times.",
+      "Completely agreed. This also stops us from testing the `_fileNumber` resetting to zero when moving to the next day. This is being tracked as part of https://github.com/dotnet/aspnetcore/issues/33945 but it's in the backlog. I wonder if we shouldn't split that up and mark it `help-wanted`.",
+      "Good idea: https://github.com/dotnet/aspnetcore/issues/34807"
+    ]
+  },
+  {
+    "path": "src/Middleware/HttpLogging/test/FileLoggerProcessorTests.cs",
+    "line": 275,
+    "original_line": 275,
+    "review_comment": [
+      "Shouldn't there be another test for changing the field options while the logger is still running?",
+      "Added"
+    ]
+  },
+  {
+    "path": "src/Middleware/HttpLogging/test/FileLoggerProcessorTests.cs",
+    "line": 368,
+    "original_line": 367,
+    "review_comment": [
+      "Is there any potential race between \"Message one\" being written and the option being updated?",
+      "Good call, I'll add a wait for the first file to be written"
+    ]
+  }
+]

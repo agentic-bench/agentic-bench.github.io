@@ -1,0 +1,10 @@
+[
+  {
+    "path": "crates/uv-resolver/src/resolver/mod.rs",
+    "line": 600,
+    "original_line": 600,
+    "review_comment": [
+      "We have to get rid of this \"fast path\", because we now need the `Requires-Python` here.\r\n\r\nAlternatively, we could move the `Requires-Python` check into `get_dependencies` for URL dependencies."
+    ]
+  }
+]

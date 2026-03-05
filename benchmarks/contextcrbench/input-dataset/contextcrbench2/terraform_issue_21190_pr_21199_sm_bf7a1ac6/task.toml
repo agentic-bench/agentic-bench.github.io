@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "terraform_issue_21190_pr_21199_sm_bf7a1ac6"
+contextcrbench2_full_name = "hashicorp/terraform"
+contextcrbench2_lang = "go"
+contextcrbench2_issue_number = "21190"
+contextcrbench2_issue_title = "terraform 0.11.13 crash on init when remote backend was previously configured with 0.12"
+contextcrbench2_pr_number = "21199"
+contextcrbench2_pr_title = "backend/remote: fix panic when loading a 0.12 cached backend"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "bf7a1ac6a91fc8f7c3bc8b8dfd8e2ce009127739"
+contextcrbench2_commit_id = "1d5c6cc5d4aa3dd7e9e72d0047651aa819045da1"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2019-05-03T16:46:25Z"
+contextcrbench2_entry_count = "2"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

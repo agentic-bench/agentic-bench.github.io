@@ -1,0 +1,13 @@
+[
+  {
+    "id": 16169,
+    "full_name": "redisson/redisson",
+    "lang": "java",
+    "issue_number": 2086,
+    "pr_number": 2983,
+    "diff_hunk": "@@ -123,14 +137,14 @@ public RedissonClient redisson() throws IOException {\n         } else if (redisProperties.getSentinel() != null) {\n             Method nodesMethod = ReflectionUtils.findMethod(Sentinel.class, \"getNodes\");\n             Object nodesValue = ReflectionUtils.invokeMethod(nodesMethod, redisProperties.getSentinel());\n-            \n+\n             String[] nodes;\n             if (nodesValue instanceof String) {\n                 nodes = convert(Arrays.asList(((String)nodesValue).split(\",\")));\n             } else {\n                 nodes = convert((List<String>)nodesValue);\n             }\n-            \n+\n             config = new Config();\n             config.useSentinelServers()\n                 .setMasterName(redisProperties.getSentinel().getMaster())",
+    "diff_hunk_content_with_line_number": "[123][137]          } else if (redisProperties.getSentinel() != null) {\n[124][138]              Method nodesMethod = ReflectionUtils.findMethod(Sentinel.class, \"getNodes\");\n[125][139]              Object nodesValue = ReflectionUtils.invokeMethod(nodesMethod, redisProperties.getSentinel());\n[126][] -            \n[][140] +\n[127][141]              String[] nodes;\n[128][142]              if (nodesValue instanceof String) {\n[129][143]                  nodes = convert(Arrays.asList(((String)nodesValue).split(\",\")));\n[130][144]              } else {\n[131][145]                  nodes = convert((List<String>)nodesValue);\n[132][146]              }\n[133][] -            \n[][147] +\n[134][148]              config = new Config();\n[135][149]              config.useSentinelServers()\n[136][150]                  .setMasterName(redisProperties.getSentinel().getMaster())",
+    "checked_commit_id": "2c88b84472a9e92e595cbae5173e362bc827dd98",
+    "pr_size": "sm"
+  }
+]

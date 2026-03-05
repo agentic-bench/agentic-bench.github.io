@@ -1,0 +1,12 @@
+[
+  {
+    "path": "activerecord/lib/active_record/migration/compatibility.rb",
+    "line": 187,
+    "original_line": 187,
+    "review_comment": [
+      "What do you think about extracting this logic into a helper method that can be shared between the `add_column' and `change_column' methods?",
+      "Thanks for the review! I do think there's an opportunity for a refactor here, but I'm not 100% sure what it should be yet (maybe we want to use this new method in all of the `V6_1` column methods?). Going through these tests it appears that coverage isn't great so I think I would prefer to fix those issues first and ensure everything is working as expected before refactoring. How does that sound?",
+      "That makes sense."
+    ]
+  }
+]

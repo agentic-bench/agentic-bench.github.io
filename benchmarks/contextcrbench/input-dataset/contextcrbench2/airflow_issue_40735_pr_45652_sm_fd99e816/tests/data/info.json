@@ -1,0 +1,8 @@
+{
+    "task_id": "airflow_issue_40735_pr_45652_sm_fd99e816",
+    "repo": "airflow",
+    "issue_number": 40735,
+    "pr_number": 45652,
+    "checked_commit_id": "fd99e816700c1a15db09121e1b2b036f9ae7ad3c",
+    "entry_count": 1
+}

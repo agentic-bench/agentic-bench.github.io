@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "terminal_issue_17165_pr_17170_sm_97c31801"
+contextcrbench2_full_name = "microsoft/terminal"
+contextcrbench2_lang = "cpp"
+contextcrbench2_issue_number = "17165"
+contextcrbench2_issue_title = "Double-click word selection picks up the RPROMPT from the previous line because word wrapping is hard"
+contextcrbench2_pr_number = "17170"
+contextcrbench2_pr_title = "Take wrapping into account when expanding wordwise selections"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "97c3180151594ece200f2705e7530c56be738e97"
+contextcrbench2_commit_id = "175d669344250010fd1844059dc43cf4ccb4134e"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2024-05-01T16:35:19Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

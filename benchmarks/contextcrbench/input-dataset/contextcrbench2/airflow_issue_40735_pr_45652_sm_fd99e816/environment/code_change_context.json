@@ -1,0 +1,6 @@
+{
+  "issue_title": "Emit OL `FAIL` event when manually marking a DAG as failed",
+  "issue_body": "### Apache Airflow version\n\n2.9.2\n\n### If \"Other Airflow 2 version\" selected, which one?\n\n_No response_\n\n### What happened?\n\nManually marking a DAG as _failed_ doesn't not emit an OL `FAIL` event.\n\n### What you think should happen instead?\n\nAn OL `FAIL` event would be emitted when manually marking a DAG as _failed_.\n\n### How to reproduce\n\nTo reproduce, start a DAG, then manually mark the DAG as _failed_. Then, view the DAG logs, no OL logs are observed.\n\n### Operating System\n\nN/A\n\n### Versions of Apache Airflow Providers\n\n_No response_\n\n### Deployment\n\nAstronomer\n\n### Deployment details\n\n_No response_\n\n### Anything else?\n\n_No response_\n\n### Are you willing to submit PR?\n\n- [ ] Yes I am willing to submit a PR!\n\n### Code of Conduct\n\n- [X] I agree to follow this project's [Code of Conduct](https://github.com/apache/airflow/blob/main/CODE_OF_CONDUCT.md)\n",
+  "pr_title": "dag run state change endpoints notify listeners about state change",
+  "pr_body": "When DagRun state changes due to manual or API based actions, listeners are not notified about those. This PR fixes this.\r\n\r\nSolves https://github.com/apache/airflow/issues/40735"
+}

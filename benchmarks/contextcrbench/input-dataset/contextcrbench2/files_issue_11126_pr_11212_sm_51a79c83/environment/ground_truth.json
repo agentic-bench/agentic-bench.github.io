@@ -1,0 +1,13 @@
+[
+  {
+    "path": "src/Files.App/Filesystem/FilesystemOperations/Helpers/FilesystemHelpers.cs",
+    "line": 129,
+    "original_line": 129,
+    "review_comment": [
+      "```suggestion\r\n\t\t\t\t|| showDialog is DeleteConfirmationPolicies.PermanentOnly &&\r\n\t\t\t\t(permanently || !canBeSentToBin))\r\n```",
+      "I don't think it is better to separate this line because `(permanently || !canBeSentToBin))` is integral to `showDialog is DeleteConfirmationPolicies.PermanentOnly`",
+      "Okay, feel free to revert the change",
+      "I will revert. Thank you. "
+    ]
+  }
+]

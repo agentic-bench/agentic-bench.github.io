@@ -1,0 +1,11 @@
+[
+  {
+    "path": "util/chunk/row_container_test.go",
+    "line": 358,
+    "original_line": 353,
+    "review_comment": [
+      "What the test means?   seems the same as the last one?",
+      "It only reads 8.5 chunks, but doesn't drain out the whole row container. It tests whether the reader can be closed successfully (and no goroutine leaks) when it doesn't reach the end."
+    ]
+  }
+]

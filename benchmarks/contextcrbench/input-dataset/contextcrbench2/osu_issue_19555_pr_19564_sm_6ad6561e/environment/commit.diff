@@ -1,0 +1,30 @@
+diff --git a/osu.Game/Screens/Play/HUD/DefaultSongProgress.cs b/osu.Game/Screens/Play/HUD/DefaultSongProgress.cs
+index 96a6c56860fd..659984682ed9 100644
+--- a/osu.Game/Screens/Play/HUD/DefaultSongProgress.cs
++++ b/osu.Game/Screens/Play/HUD/DefaultSongProgress.cs
+@@ -40,8 +40,6 @@ public class DefaultSongProgress : SongProgress
+         public override bool HandleNonPositionalInput => AllowSeeking.Value;
+         public override bool HandlePositionalInput => AllowSeeking.Value;
+ 
+-        protected override bool BlockScrollInput => false;
+-
+         [Resolved]
+         private Player? player { get; set; }
+ 
+diff --git a/osu.Game/Screens/Play/HUD/SongProgress.cs b/osu.Game/Screens/Play/HUD/SongProgress.cs
+index 702d2f7c6f4b..09afd7a9d38f 100644
+--- a/osu.Game/Screens/Play/HUD/SongProgress.cs
++++ b/osu.Game/Screens/Play/HUD/SongProgress.cs
+@@ -14,6 +14,12 @@ namespace osu.Game.Screens.Play.HUD
+ {
+     public abstract class SongProgress : OverlayContainer, ISkinnableDrawable
+     {
++        // Some implementations of this element allow seeking during gameplay playback.
++        // Set a sane default of never handling input to override the behaviour provided by OverlayContainer.
++        public override bool HandleNonPositionalInput => false;
++        public override bool HandlePositionalInput => false;
++        protected override bool BlockScrollInput => false;
++
+         public bool UsesFixedAnchor { get; set; }
+ 
+         [Resolved]

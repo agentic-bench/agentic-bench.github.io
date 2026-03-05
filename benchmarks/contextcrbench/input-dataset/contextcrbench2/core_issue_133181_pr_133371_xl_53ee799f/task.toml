@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "core_issue_133181_pr_133371_xl_53ee799f"
+contextcrbench2_full_name = "home-assistant/core"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "133181"
+contextcrbench2_issue_title = "At midnight NordPool integration sensors fails.."
+contextcrbench2_pr_number = "133371"
+contextcrbench2_pr_title = "Load data for multiple days in Nord Pool"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "53ee799fb71b0b748459db49a3d08122bc4861de"
+contextcrbench2_commit_id = "872919d598a5bd0307d9cf98a874f0e649011a45"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2024-12-17T20:47:57Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

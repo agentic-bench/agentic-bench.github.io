@@ -1,0 +1,225 @@
+diff --git a/drivers/bluetooth/hci/h4.c b/drivers/bluetooth/hci/h4.c
+index 5ad3e1c79e1f0..12f1c3a409301 100644
+--- a/drivers/bluetooth/hci/h4.c
++++ b/drivers/bluetooth/hci/h4.c
+@@ -154,8 +154,7 @@ static inline void get_evt_hdr(void)
+ 
+ 	if (!rx.remaining) {
+ 		if (rx.evt.evt == BT_HCI_EVT_LE_META_EVENT &&
+-		    (rx.hdr[sizeof(*hdr)] == BT_HCI_EVT_LE_ADVERTISING_REPORT ||
+-		     rx.hdr[sizeof(*hdr)] == BT_HCI_EVT_LE_EXT_ADVERTISING_REPORT)) {
++		    (rx.hdr[sizeof(*hdr)] == BT_HCI_EVT_LE_ADVERTISING_REPORT)) {
+ 			BT_DBG("Marking adv report as discardable");
+ 			rx.discardable = true;
+ 		}
+diff --git a/drivers/bluetooth/hci/hci_esp32.c b/drivers/bluetooth/hci/hci_esp32.c
+index ca5f8b46b0d14..61e74d0b15ece 100644
+--- a/drivers/bluetooth/hci/hci_esp32.c
++++ b/drivers/bluetooth/hci/hci_esp32.c
+@@ -40,8 +40,6 @@ static bool is_hci_event_discardable(const uint8_t *evt_data)
+ 		switch (subevt_type) {
+ 		case BT_HCI_EVT_LE_ADVERTISING_REPORT:
+ 			return true;
+-		case BT_HCI_EVT_LE_EXT_ADVERTISING_REPORT:
+-			return true;
+ 		default:
+ 			return false;
+ 		}
+diff --git a/drivers/bluetooth/hci/ipm_stm32wb.c b/drivers/bluetooth/hci/ipm_stm32wb.c
+index 5a918fffade9e..4a802da8477ec 100644
+--- a/drivers/bluetooth/hci/ipm_stm32wb.c
++++ b/drivers/bluetooth/hci/ipm_stm32wb.c
+@@ -179,8 +179,7 @@ static void bt_ipm_rx_thread(void)
+ 			default:
+ 				mev = (void *)&hcievt->evtserial.evt.payload;
+ 				if (hcievt->evtserial.evt.evtcode == BT_HCI_EVT_LE_META_EVENT &&
+-				    (mev->subevent == BT_HCI_EVT_LE_ADVERTISING_REPORT ||
+-				     mev->subevent == BT_HCI_EVT_LE_EXT_ADVERTISING_REPORT)) {
++				    (mev->subevent == BT_HCI_EVT_LE_ADVERTISING_REPORT)) {
+ 					discardable = true;
+ 					timeout = K_NO_WAIT;
+ 				}
+diff --git a/drivers/bluetooth/hci/rpmsg.c b/drivers/bluetooth/hci/rpmsg.c
+index d679af6cce1d2..5a64abc30cb39 100644
+--- a/drivers/bluetooth/hci/rpmsg.c
++++ b/drivers/bluetooth/hci/rpmsg.c
+@@ -41,8 +41,6 @@ static bool is_hci_event_discardable(const uint8_t *evt_data)
+ 		switch (subevt_type) {
+ 		case BT_HCI_EVT_LE_ADVERTISING_REPORT:
+ 			return true;
+-		case BT_HCI_EVT_LE_EXT_ADVERTISING_REPORT:
+-			return true;
+ 		default:
+ 			return false;
+ 		}
+diff --git a/drivers/bluetooth/hci/spi.c b/drivers/bluetooth/hci/spi.c
+index 5983e58dff981..ddb71dfa3738d 100644
+--- a/drivers/bluetooth/hci/spi.c
++++ b/drivers/bluetooth/hci/spi.c
+@@ -370,8 +370,7 @@ static void bt_spi_rx_thread(void)
+ 					continue;
+ 				default:
+ 					if (rxmsg[1] == BT_HCI_EVT_LE_META_EVENT &&
+-					    (rxmsg[3] == BT_HCI_EVT_LE_ADVERTISING_REPORT ||
+-					     rxmsg[3] == BT_HCI_EVT_LE_EXT_ADVERTISING_REPORT)) {
++					    (rxmsg[3] == BT_HCI_EVT_LE_ADVERTISING_REPORT)) {
+ 						discardable = true;
+ 						timeout = K_NO_WAIT;
+ 					}
+diff --git a/drivers/bluetooth/hci/userchan.c b/drivers/bluetooth/hci/userchan.c
+index 275ab5d29e286..19e498cb937fe 100644
+--- a/drivers/bluetooth/hci/userchan.c
++++ b/drivers/bluetooth/hci/userchan.c
+@@ -64,8 +64,7 @@ static struct net_buf *get_rx(const uint8_t *buf)
+ 	switch (buf[0]) {
+ 	case H4_EVT:
+ 		if (buf[1] == BT_HCI_EVT_LE_META_EVENT &&
+-		    (buf[3] == BT_HCI_EVT_LE_ADVERTISING_REPORT ||
+-		     buf[3] == BT_HCI_EVT_LE_EXT_ADVERTISING_REPORT)) {
++		    (buf[3] == BT_HCI_EVT_LE_ADVERTISING_REPORT)) {
+ 			discardable = true;
+ 			timeout = K_NO_WAIT;
+ 		}
+diff --git a/include/bluetooth/gap.h b/include/bluetooth/gap.h
+index f2adc29867b96..48e0fd5dc191f 100644
+--- a/include/bluetooth/gap.h
++++ b/include/bluetooth/gap.h
+@@ -118,6 +118,13 @@ enum {
+ 	BT_GAP_ADV_PROP_SCAN_RESPONSE         = BIT(3),
+ 	/** Extended advertising. */
+ 	BT_GAP_ADV_PROP_EXT_ADV               = BIT(4),
++	/** The reported data is a truncated.
++	 *
++	 * Either the controller or the host
++	 * was not able to receive or store
++	 * the complete advertisement.
++	 */
++	BT_GAP_ADV_PROP_REPORT_TRUNCATED      = BIT(5),
+ };
+ 
+ /** Maximum advertising data length. */
+diff --git a/subsys/bluetooth/host/Kconfig b/subsys/bluetooth/host/Kconfig
+index 90cdc8a4f6eef..06bbc9eacc7c3 100644
+--- a/subsys/bluetooth/host/Kconfig
++++ b/subsys/bluetooth/host/Kconfig
+@@ -492,6 +492,18 @@ config BT_BACKGROUND_SCAN_WINDOW
+ 	int "Scan window used for background scanning in 0.625 ms units"
+ 	default 18
+ 	range 4 16384
++
++if BT_EXT_ADV
++config BT_EXT_SCAN_BUF_SIZE
++	int "Maximum advertisement report size"
++	range 1 1650
++	default 255
++	help
++	  Maximum size of an advertisement report. If the advertisement
++	  provided by the controller is larger than this buffer size,
++	  the remaining data will be discarded.
++endif # BT_EXT_ADV
++
+ endif # BT_OBSERVER
+ 
+ config BT_SCAN_WITH_IDENTITY
+diff --git a/subsys/bluetooth/host/scan.c b/subsys/bluetooth/host/scan.c
+index 4303904c06fe8..3c7cac65af01b 100644
+--- a/subsys/bluetooth/host/scan.c
++++ b/subsys/bluetooth/host/scan.c
+@@ -27,6 +27,10 @@ static bt_le_scan_cb_t *scan_dev_found_cb;
+ static sys_slist_t scan_cbs = SYS_SLIST_STATIC_INIT(&scan_cbs);
+ 
+ #if defined(CONFIG_BT_EXT_ADV)
++/* A buffer pool used to reassemble advertisement data from the controller. */
++NET_BUF_POOL_FIXED_DEFINE(ext_scan_buf_pool, 1, CONFIG_BT_EXT_SCAN_BUF_SIZE, NULL);
++static struct net_buf *ext_scan_buf;
++
+ #if defined(CONFIG_BT_PER_ADV_SYNC)
+ static struct bt_le_per_adv_sync *get_pending_per_adv_sync(void);
+ static struct bt_le_per_adv_sync per_adv_sync_pool[CONFIG_BT_PER_ADV_SYNC_MAX];
+@@ -37,6 +41,14 @@ static sys_slist_t pa_sync_cbs = SYS_SLIST_STATIC_INIT(&pa_sync_cbs);
+ void bt_scan_reset(void)
+ {
+ 	scan_dev_found_cb = NULL;
++#if defined(CONFIG_BT_EXT_ADV)
++	if (ext_scan_buf) {
++		net_buf_reset(ext_scan_buf);
++	} else {
++		ext_scan_buf = net_buf_alloc(&ext_scan_buf_pool, K_NO_WAIT);
++		__ASSERT_NO_MSG(ext_scan_buf);
++	}
++#endif
+ }
+ 
+ static int set_le_ext_scan_enable(uint8_t enable, uint16_t duration)
+@@ -516,6 +528,8 @@ void bt_hci_le_adv_ext_report(struct net_buf *buf)
+ 	while (num_reports--) {
+ 		struct bt_hci_evt_le_ext_advertising_info *evt;
+ 		struct bt_le_scan_recv_info adv_info;
++		uint8_t size_to_copy;
++		bool truncate;
+ 
+ 		if (buf->len < sizeof(*evt)) {
+ 			BT_ERR("Unexpected end of buffer");
+@@ -524,6 +538,36 @@ void bt_hci_le_adv_ext_report(struct net_buf *buf)
+ 
+ 		evt = net_buf_pull_mem(buf, sizeof(*evt));
+ 
++		if (!ext_scan_buf) {
++			/* The previous report was truncated in the host.
++			 * Discard all remaining reports for that advertisement.
++			 */
++
++			if (!(evt->evt_type & BIT(5))) {
++				/* This event is the last event to be discarded.
++				 */
++				ext_scan_buf = net_buf_alloc(&ext_scan_buf_pool,
++							     K_NO_WAIT);
++				__ASSERT_NO_MSG(ext_scan_buf);
++			}
++
++			continue;
++		}
++
++		if (evt->length + ext_scan_buf->len > net_buf_max_len(ext_scan_buf)) {
++			size_to_copy = net_buf_max_len(ext_scan_buf) - evt->length;
++			truncate = true;
++		} else {
++			size_to_copy = evt->length;
++			truncate = false;
++		}
++
++		net_buf_add_mem(ext_scan_buf, buf->data, size_to_copy);
++		if (!truncate && (evt->evt_type & BIT(5))) {
++			/* More data to come. */
++			continue;
++		}
++
+ 		adv_info.primary_phy = bt_get_phy(evt->prim_phy);
+ 		adv_info.secondary_phy = bt_get_phy(evt->sec_phy);
+ 		adv_info.tx_power = evt->tx_power;
+@@ -534,8 +578,24 @@ void bt_hci_le_adv_ext_report(struct net_buf *buf)
+ 		adv_info.adv_type = get_adv_type(evt->evt_type);
+ 		/* Convert "Legacy" property to Extended property. */
+ 		adv_info.adv_props = evt->evt_type ^ BT_HCI_LE_ADV_PROP_LEGACY;
++		adv_info.adv_props &= BIT_MASK(5);
+ 
+-		le_adv_recv(&evt->addr, &adv_info, buf, evt->length);
++		if (truncate || (evt->evt_type & BIT(6))) {
++			adv_info.adv_props |= BT_GAP_ADV_PROP_REPORT_TRUNCATED;
++		}
++
++		le_adv_recv(&evt->addr, &adv_info, ext_scan_buf, ext_scan_buf->len);
++		net_buf_reset(ext_scan_buf);
++
++		if (truncate && !(evt->evt_type & BIT(5))) {
++			/* We have truncated the data and the controller
++			 * will provide more data.
++			 * Therefore we must discard the remaining part of the
++			 * advertisement.
++			 */
++			net_buf_unref(ext_scan_buf);
++			ext_scan_buf = NULL;
++		}
+ 
+ 		net_buf_pull(buf, evt->length);
+ 	}

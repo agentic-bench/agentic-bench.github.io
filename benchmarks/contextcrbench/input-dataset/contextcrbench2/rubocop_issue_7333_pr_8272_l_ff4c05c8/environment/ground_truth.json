@@ -1,0 +1,10 @@
+[
+  {
+    "path": "lib/rubocop/cop/style/redundant_file_extension_in_require.rb",
+    "line": 24,
+    "original_line": 24,
+    "review_comment": [
+      "I'd give the other supported extensions as `good` examples here."
+    ]
+  }
+]

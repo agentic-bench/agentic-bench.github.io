@@ -1,0 +1,10 @@
+[
+  {
+    "path": "activesupport/test/log_subscriber_test.rb",
+    "line": 150,
+    "original_line": 150,
+    "review_comment": [
+      "use an `ensure` statement so that this line happens even if the test fails "
+    ]
+  }
+]

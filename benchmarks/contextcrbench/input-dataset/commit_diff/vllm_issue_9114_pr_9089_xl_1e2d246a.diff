@@ -1,0 +1,15 @@
+diff --git a/vllm/worker/cpu_model_runner.py b/vllm/worker/cpu_model_runner.py
+index 923467a8d241..a03c56253217 100644
+--- a/vllm/worker/cpu_model_runner.py
++++ b/vllm/worker/cpu_model_runner.py
+@@ -455,8 +455,8 @@ def load_model(self) -> None:
+     def make_model_input_from_broadcasted_tensor_dict(
+         self,
+         tensor_dict: Dict[str, Any],
+-    ) -> ModelInputForCPU:
+-        return ModelInputForCPU.from_broadcasted_tensor_dict(
++    ) -> ModelInputForCPUWithSamplingMetadata:
++        return ModelInputForCPUWithSamplingMetadata.from_broadcasted_tensor_dict(  # noqa: E501
+             tensor_dict,
+             attn_backend=self.attn_backend,
+         )

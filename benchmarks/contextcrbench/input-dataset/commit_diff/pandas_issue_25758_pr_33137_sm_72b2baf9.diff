@@ -1,0 +1,63 @@
+diff --git a/doc/source/whatsnew/v1.1.0.rst b/doc/source/whatsnew/v1.1.0.rst
+index 58ac2b4cba3b7..b6525f7d8636e 100644
+--- a/doc/source/whatsnew/v1.1.0.rst
++++ b/doc/source/whatsnew/v1.1.0.rst
+@@ -421,7 +421,7 @@ Groupby/resample/rolling
+ - Bug in :meth:`GroupBy.apply` raises ``ValueError`` when the ``by`` axis is not sorted and has duplicates and the applied ``func`` does not mutate passed in objects (:issue:`30667`)
+ - Bug in :meth:`DataFrameGroupby.transform` produces incorrect result with transformation functions (:issue:`30918`)
+ - Bug in :meth:`DataFrame.groupby` and :meth:`Series.groupby` produces inconsistent type when aggregating Boolean series (:issue:`32894`)
+-
++- Bug in :meth:`DataFrame.resample` where an ``AmbiguousTimeError`` would raise when the resulting timezone aware :class:`DatetimeIndex` had a DST transition at midnight (:issue:`25758`)
+ 
+ Reshaping
+ ^^^^^^^^^
+diff --git a/pandas/core/resample.py b/pandas/core/resample.py
+index 9e3318db3cfb9..2e1dcf8da5bd4 100644
+--- a/pandas/core/resample.py
++++ b/pandas/core/resample.py
+@@ -1422,13 +1422,15 @@ def _get_time_bins(self, ax):
+         # because replace() will swallow the nanosecond part
+         # thus last bin maybe slightly before the end if the end contains
+         # nanosecond part and lead to `Values falls after last bin` error
++        # GH 25758: If DST lands at midnight (e.g. 'America/Havana'), user feedback
++        # has noted that ambiguous=True provides the most sensible result
+         binner = labels = date_range(
+             freq=self.freq,
+             start=first,
+             end=last,
+             tz=ax.tz,
+             name=ax.name,
+-            ambiguous="infer",
++            ambiguous=True,
+             nonexistent="shift_forward",
+         )
+ 
+diff --git a/pandas/tests/resample/test_datetime_index.py b/pandas/tests/resample/test_datetime_index.py
+index 3ad82b9e075a8..bbb294bc109c1 100644
+--- a/pandas/tests/resample/test_datetime_index.py
++++ b/pandas/tests/resample/test_datetime_index.py
+@@ -1440,6 +1440,24 @@ def test_downsample_across_dst_weekly():
+     tm.assert_series_equal(result, expected)
+ 
+ 
++def test_downsample_dst_at_midnight():
++    # GH 25758
++    start = datetime(2018, 11, 3, 12)
++    end = datetime(2018, 11, 5, 12)
++    index = pd.date_range(start, end, freq="1H")
++    index = index.tz_localize("UTC").tz_convert("America/Havana")
++    data = list(range(len(index)))
++    dataframe = pd.DataFrame(data, index=index)
++    result = dataframe.groupby(pd.Grouper(freq="1D")).mean()
++    expected = DataFrame(
++        [7.5, 28.0, 44.5],
++        index=date_range("2018-11-03", periods=3).tz_localize(
++            "America/Havana", ambiguous=True
++        ),
++    )
++    tm.assert_frame_equal(result, expected)
++
++
+ def test_resample_with_nat():
+     # GH 13020
+     index = DatetimeIndex(

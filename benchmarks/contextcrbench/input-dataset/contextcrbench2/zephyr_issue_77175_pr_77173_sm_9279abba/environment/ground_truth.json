@@ -1,0 +1,11 @@
+[
+  {
+    "path": "subsys/disk/disk_access.c",
+    "line": 210,
+    "original_line": 210,
+    "review_comment": [
+      "Just a nitpick, we could move it above the LOG_DBG.",
+      "Done"
+    ]
+  }
+]

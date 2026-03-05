@@ -1,0 +1,13 @@
+[
+  {
+    "id": 60430,
+    "full_name": "hashicorp/vagrant",
+    "lang": "ruby",
+    "issue_number": 11790,
+    "pr_number": 11791,
+    "diff_hunk": "@@ -0,0 +1,23 @@\n+module VagrantPlugins\n+  module GuestOpenWrt\n+    class Guest\n+      # Name used for guest detection\n+      GUEST_DETECTION_NAME = \"openwrt\".freeze\n+\n+      def detect?(machine)\n+        machine.communicate.test <<~EOH\n+          if test -e /etc/openwrt_release; then\n+            exit\n+          fi\n+          if test -r /etc/os-release; then\n+            source /etc/os-release && test 'x#{self.class.const_get(:GUEST_DETECTION_NAME)}' = \"x$ID\" && exit\n+          fi\n+          if test -r /etc/banner; then\n+            cat /etc/banner | grep -qi '#{self.class.const_get(:GUEST_DETECTION_NAME)}' && exit\n+          fi\n+          exit 1\n+        EOH\n+      end\n+    end\n+  end\n+end\n",
+    "diff_hunk_content_with_line_number": "[][1] +module VagrantPlugins\n[][2] +  module GuestOpenWrt\n[][3] +    class Guest\n[][4] +      # Name used for guest detection\n[][5] +      GUEST_DETECTION_NAME = \"openwrt\".freeze\n[][6] +\n[][7] +      def detect?(machine)\n[][8] +        machine.communicate.test <<~EOH\n[][9] +          if test -e /etc/openwrt_release; then\n[][10] +            exit\n[][11] +          fi\n[][12] +          if test -r /etc/os-release; then\n[][13] +            source /etc/os-release && test 'x#{self.class.const_get(:GUEST_DETECTION_NAME)}' = \"x$ID\" && exit\n[][14] +          fi\n[][15] +          if test -r /etc/banner; then\n[][16] +            cat /etc/banner | grep -qi '#{self.class.const_get(:GUEST_DETECTION_NAME)}' && exit\n[][17] +          fi\n[][18] +          exit 1\n[][19] +        EOH\n[][20] +      end\n[][21] +    end\n[][22] +  end\n[][23] +end",
+    "checked_commit_id": "862399905f3b878e73d5b04707cf8cf948693447",
+    "pr_size": "l"
+  }
+]

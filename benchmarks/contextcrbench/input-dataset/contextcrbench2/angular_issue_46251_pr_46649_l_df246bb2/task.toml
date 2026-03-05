@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "angular_issue_46251_pr_46649_l_df246bb2"
+contextcrbench2_full_name = "angular/angular"
+contextcrbench2_lang = "typescript"
+contextcrbench2_issue_number = "46251"
+contextcrbench2_issue_title = "Invalid `inject()` function typing"
+contextcrbench2_pr_number = "46649"
+contextcrbench2_pr_title = "feat(core): options object to supersede bit flags for `inject()`"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "df246bb2358794e3aad53870f1554d84bbe390b2"
+contextcrbench2_commit_id = "df246bb2358794e3aad53870f1554d84bbe390b2"
+contextcrbench2_created_at = "2022-06-30T20:31:21Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

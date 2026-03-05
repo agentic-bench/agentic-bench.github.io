@@ -1,0 +1,8 @@
+{
+    "task_id": "tidb_issue_54565_pr_54553_xl_a6eb501b",
+    "repo": "tidb",
+    "issue_number": 54565,
+    "pr_number": 54553,
+    "checked_commit_id": "a6eb501b47fa8864e917175fa62f0f7d576f0390",
+    "entry_count": 4
+}

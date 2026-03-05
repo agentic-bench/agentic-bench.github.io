@@ -1,0 +1,13 @@
+[
+  {
+    "id": 62050,
+    "full_name": "pandas-dev/pandas",
+    "lang": "python",
+    "issue_number": 25758,
+    "pr_number": 33137,
+    "diff_hunk": "@@ -1440,6 +1440,24 @@ def test_downsample_across_dst_weekly():\n     tm.assert_series_equal(result, expected)\n \n \n+def test_downsample_dst_at_midnight():\n+    # GH 25758\n+    start = datetime(2018, 11, 3, 12)\n+    end = datetime(2018, 11, 5, 12)\n+    index = pd.date_range(start, end, freq=\"1H\")\n+    index = index.tz_localize(\"UTC\").tz_convert(\"America/Havana\")\n+    data = list(range(len(index)))\n+    dataframe = pd.DataFrame(data, index=index)\n+    result = dataframe.groupby(pd.Grouper(freq=\"1D\")).mean()\n+    expected = DataFrame(\n+        [7.5, 28.0, 44.5],\n+        index=date_range(\"2018-11-03\", periods=3).tz_localize(\n+            \"America/Havana\", ambiguous=True\n+        ),\n+    )\n+    tm.assert_frame_equal(result, expected)\n+\n+\n def test_resample_with_nat():\n     # GH 13020\n     index = DatetimeIndex(\n",
+    "diff_hunk_content_with_line_number": "[1440][1440]      tm.assert_series_equal(result, expected)\n[1441][1441]  \n[1442][1442]  \n[][1443] +def test_downsample_dst_at_midnight():\n[][1444] +    # GH 25758\n[][1445] +    start = datetime(2018, 11, 3, 12)\n[][1446] +    end = datetime(2018, 11, 5, 12)\n[][1447] +    index = pd.date_range(start, end, freq=\"1H\")\n[][1448] +    index = index.tz_localize(\"UTC\").tz_convert(\"America/Havana\")\n[][1449] +    data = list(range(len(index)))\n[][1450] +    dataframe = pd.DataFrame(data, index=index)\n[][1451] +    result = dataframe.groupby(pd.Grouper(freq=\"1D\")).mean()\n[][1452] +    expected = DataFrame(\n[][1453] +        [7.5, 28.0, 44.5],\n[][1454] +        index=date_range(\"2018-11-03\", periods=3).tz_localize(\n[][1455] +            \"America/Havana\", ambiguous=True\n[][1456] +        ),\n[][1457] +    )\n[][1458] +    tm.assert_frame_equal(result, expected)\n[][1459] +\n[][1460] +\n[1443][1461]  def test_resample_with_nat():\n[1444][1462]      # GH 13020\n[1445][1463]      index = DatetimeIndex(",
+    "checked_commit_id": "72b2baf9f468664351cd7c37e77d692daa4f8d11",
+    "pr_size": "sm"
+  }
+]

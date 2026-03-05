@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "tidb_issue_26873_pr_28478_l_8e62b66d"
+contextcrbench2_full_name = "pingcap/tidb"
+contextcrbench2_lang = "go"
+contextcrbench2_issue_number = "26873"
+contextcrbench2_issue_title = "Prepared plan cache doesn't work"
+contextcrbench2_pr_number = "28478"
+contextcrbench2_pr_title = "planner: fix the issue that some PointGet plans generated in physical-stage cannot be cached"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "8e62b66d3a6bf82653075410979bfde10abe5859"
+contextcrbench2_commit_id = "98c8b33c9a4cd37004ce4d6d40ba52a0ed236cd4"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2021-09-30T03:53:40Z"
+contextcrbench2_entry_count = "3"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

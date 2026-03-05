@@ -1,0 +1,102 @@
+[
+  {
+    "path": "homeassistant/components/toon/coordinator.py",
+    "line": 72,
+    "original_line": 72,
+    "review_comment": [
+      "For the future: This seems like a pattern that should be handled by an external module as its repeated in a few integrations.\r\n ",
+      "Correct. We plan to create helpers for this, just like we did with `get_url` recently. However, that is currently not there yet (and quite of out scope for this PR)."
+    ]
+  },
+  {
+    "path": "homeassistant/components/toon/coordinator.py",
+    "line": 97,
+    "original_line": 97,
+    "review_comment": [
+      "Is there any validation we can add to make sure the caller is the expected one?",
+      "Uuh... Maybe, will check, good point.",
+      "There is no match to that. The webhook IDs are considered unique and only can change data (which will be updated again automatically). If t a request doesn't provide any matching data, it will simply be ignored.",
+      "I've added additional validation to the data received. Unfortunately, it does not provide actual checksums or the signing of data. At least I've added checks to see if the required fields are there and the data received is from the Toon display we are tracking (by name)."
+    ]
+  },
+  {
+    "path": "homeassistant/components/toon/__init__.py",
+    "line": 45,
+    "original_line": 45,
+    "review_comment": [
+      "Shouldn't you still accept `CONF_SCAN_INTERVAL` in your schema or else it will be marked invalid."
+    ]
+  },
+  {
+    "path": "homeassistant/components/toon/coordinator.py",
+    "line": 42,
+    "original_line": 42,
+    "review_comment": [
+      "Oh no, you didn't use our guide \ud83d\ude09  https://developers.home-assistant.io/docs/api_lib_auth",
+      "Right... I found this to be a more elegant from a library perspective personally, but that is a taste I guess.\r\n\r\nIs it a problem?",
+      "Nah, just an observation."
+    ]
+  },
+  {
+    "path": "homeassistant/components/toon/oauth2.py",
+    "line": 131,
+    "original_line": 133,
+    "review_comment": [
+      "lol what are they even doing. ",
+      "The worst part is... it is not documented as a header in their documentation. Thanks to the open-source part of Homey I was able to figure out is should have been a header additionally... :("
+    ]
+  },
+  {
+    "path": "homeassistant/components/toon/switch.py",
+    "line": 40,
+    "original_line": 40,
+    "review_comment": [
+      "Why are these not climate presets ? ",
+      "The program is a schedule, a preset may override the schedule.\r\nHoliday mode is some kind of preset for Toon (it is hidden in the API as preset as well), and from Home Assistant perspective, it makes sense. However, it does act differently (turns of the display, disables a bunch of features, presets become unresponsive).\r\n\r\nTurning it on/off needs different API calls as well. Hence, I've split it into a switch. I think the nice part of it, is that it becomes a nice switch for HA itself as well to know when it is holiday mode (as a general broader use case).\r\n"
+    ]
+  },
+  {
+    "path": "homeassistant/components/toon/switch.py",
+    "line": 91,
+    "original_line": 91,
+    "review_comment": [
+      "Are we setting away mode here ? Or \"program\" ? ",
+      "Both \ud83e\udd12 \r\n\r\nTurning off just the program/schedule state of the thermostat doesn't do anything, it has to be accompanied by a preset. This mimics their app, which just sets the present to away at that point."
+    ]
+  },
+  {
+    "path": "homeassistant/components/toon/__init__.py",
+    "line": 149,
+    "original_line": 149,
+    "review_comment": [
+      "We normally return the return value of the forward unload."
+    ]
+  },
+  {
+    "path": "homeassistant/components/toon/config_flow.py",
+    "line": 86,
+    "original_line": 86,
+    "review_comment": [
+      "If we use a dictionary as the target for `vol.In` the values will be shown to the user in the form while we get the corresponding key from the selected value as result.",
+      "I honestly tried, could not get it to work reliably, so I must be doing it wrong. Next, I started searching how others did it... well this is it :)\r\n\r\nI've made a note for later to look at it, as it is not a high prio (and have some more stuff to address in this integration).\r\n"
+    ]
+  },
+  {
+    "path": "homeassistant/components/toon/const.py",
+    "line": 46,
+    "original_line": 46,
+    "review_comment": [
+      "We don't set custom icons when setting device class.",
+      "Why not? Device classes, have different meanings and values compared to an icon?\r\nNice there are default icons, but in a lot of cases, they make no sense, to be honest. Furthermore, it doesn't impact anything, as it is still customizable.\r\n\r\nIn this case, the icons, device classes, units and unique ID are the same as the previous version of the integration.",
+      "I think we want to have the device classes homogeneous and not add unnecessary customization that really is a frontend concern.\r\n\r\nIt's our standard at the moment."
+    ]
+  },
+  {
+    "path": "homeassistant/components/toon/switch.py",
+    "line": 62,
+    "original_line": 62,
+    "review_comment": [
+      "This is a new platform so we don't need to add the not needed info."
+    ]
+  }
+]

@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "orleans_issue_3619_pr_3624_l_48e61d51"
+contextcrbench2_full_name = "dotnet/orleans"
+contextcrbench2_lang = "c_sharp"
+contextcrbench2_issue_number = "3619"
+contextcrbench2_issue_title = "BadImageFormatException on codegeneration in 2.0.0-beta1, targetting netstandard2.0 win7-x64"
+contextcrbench2_pr_number = "3624"
+contextcrbench2_pr_title = "Enhance error handling on GetDefinedTypes"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "48e61d51e4df7b1a0afa544400f358d397e3657c"
+contextcrbench2_commit_id = "1a562f1ebbc11f8da467ba617b81234eb9002194"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2017-10-31T19:41:35Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

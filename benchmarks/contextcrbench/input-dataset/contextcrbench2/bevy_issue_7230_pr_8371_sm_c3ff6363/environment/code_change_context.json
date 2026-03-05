@@ -1,0 +1,6 @@
+{
+  "issue_title": "Improve `ChildBuilder` documentation to ensure a consistent style",
+  "issue_body": "## How can Bevy's documentation be improved?\r\n\r\nThe documentation added in #6035 is not great (see the suggestions at the bottom of the thread), but I decided to merge this relatively optimistically to help unblock an old PR.\r\n\r\nWe should clean up that documentation, and do a pass on all of the methods in that trait for consistency and clarity.",
+  "pr_title": "ChildBuilder docs improvement",
+  "pr_body": "# Objective\r\n\r\nFixes #7230 \r\n\r\n## Solution\r\n\r\nDocumented some side-effects"
+}

@@ -1,0 +1,13 @@
+[
+  {
+    "id": 64903,
+    "full_name": "files-community/Files",
+    "lang": "c_sharp",
+    "issue_number": 11126,
+    "pr_number": 11212,
+    "diff_hunk": "@@ -125,7 +125,8 @@ public async Task<ReturnResult> DeleteItemsAsync(IEnumerable<IStorageItemWithPat\n \t\t\tvar deleteFromRecycleBin = source.Select(item => item.Path).Any(path => RecycleBinHelpers.IsPathUnderRecycleBin(path));\n \t\t\tvar canBeSentToBin = !deleteFromRecycleBin && await RecycleBinHelpers.HasRecycleBin(source.FirstOrDefault()?.Path);\n \n-\t\t\tif (showDialog)\n+\t\t\tif (showDialog is DeleteConfirmationPolicies.Always\n+\t\t\t\t|| showDialog is DeleteConfirmationPolicies.PermanentOnly && (permanently || !canBeSentToBin))\n \t\t\t{\n \t\t\t\tvar incomingItems = new List<BaseFileSystemDialogItemViewModel>();\n \t\t\t\tList<ShellFileItem>? binItems = null;",
+    "diff_hunk_content_with_line_number": "[125][125]  \t\t\tvar deleteFromRecycleBin = source.Select(item => item.Path).Any(path => RecycleBinHelpers.IsPathUnderRecycleBin(path));\n[126][126]  \t\t\tvar canBeSentToBin = !deleteFromRecycleBin && await RecycleBinHelpers.HasRecycleBin(source.FirstOrDefault()?.Path);\n[127][127]  \n[128][] -\t\t\tif (showDialog)\n[][128] +\t\t\tif (showDialog is DeleteConfirmationPolicies.Always\n[][129] +\t\t\t\t|| showDialog is DeleteConfirmationPolicies.PermanentOnly && (permanently || !canBeSentToBin))\n[129][130]  \t\t\t{\n[130][131]  \t\t\t\tvar incomingItems = new List<BaseFileSystemDialogItemViewModel>();\n[131][132]  \t\t\t\tList<ShellFileItem>? binItems = null;",
+    "checked_commit_id": "51a79c83f122f645bf3f2ffeeea17be1f07bc5e0",
+    "pr_size": "sm"
+  }
+]

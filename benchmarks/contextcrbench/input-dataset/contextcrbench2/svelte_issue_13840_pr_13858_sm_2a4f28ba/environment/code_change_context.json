@@ -1,0 +1,6 @@
+{
+  "issue_title": "Svelte 5: state_unsafe_mutation on trying to mix stores with runes",
+  "issue_body": "### Describe the bug\n\nIt throws an error when set the value of a rune inside the start notifier of a writable store:\r\n\r\n> state_unsafe_mutation Updating state inside a derived or a template expression is forbidden. If the value should not be reactive, declare it without `$state` in {expression} in App.svelte\n\n### Reproduction\n\nhttps://svelte.dev/playground/hello-world?version=5.0.5#H4sIAAAAAAAACm2OwWrDMAyGX0UThSQQFno1jmG3vcO8g9Mq1ODYxlbaDeN3H-7W7bLj_-nXJxVcraOM4q0gf0ZCcQc4ojdbSy8xPucrOW5sMZn-46fgmTxnFCjzKdnISnvNdoshMRS4JctmcQQV1hQ26L43p8whUad9KztiuGeY4ZDZMPWrcZmGx7AdhvnX1Xe3kNy5G6EfYFZQWk_zQ8Fpp0bqoL2c_p7y8nJUr-RcgHJoyvokp8tRaS-tjzvDYv1ZXI3baf4pKByR6YNRNGl9r18XIK7LNQEAAA==\n\n### Logs\n\n_No response_\n\n### System Info\n\n```shell\nNot relevant\n```\n\n\n### Severity\n\nblocking an upgrade",
+  "pr_title": "fix: internally wrap store subscribe in untrack",
+  "pr_body": "Closes https://github.com/sveltejs/svelte/issues/13840. This issue keeps coming up time and time again. I think we can make the process of migration smoother by just internally wrapping the `subscribe` function in an `untrack` internally \u2013 which is what people would have had to have done in their functions anyway."
+}

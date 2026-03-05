@@ -1,0 +1,70 @@
+diff --git a/packages/vite/src/node/__tests__/config.spec.ts b/packages/vite/src/node/__tests__/config.spec.ts
+index f730e94b472caa..f249a06fa23e56 100644
+--- a/packages/vite/src/node/__tests__/config.spec.ts
++++ b/packages/vite/src/node/__tests__/config.spec.ts
+@@ -481,3 +481,35 @@ test('config compat 2', async () => {
+     ]
+   `)
+ })
++
++test('config compat 3', async () => {
++  const config = await resolveConfig({}, 'serve')
++  expect(config.resolve.conditions).toMatchInlineSnapshot(`
++    [
++      "module",
++      "browser",
++      "development|production",
++    ]
++  `)
++  expect(config.environments.client.resolve.conditions).toMatchInlineSnapshot(`
++    [
++      "module",
++      "browser",
++      "development|production",
++    ]
++  `)
++  expect(config.ssr.resolve?.conditions).toMatchInlineSnapshot(`
++    [
++      "module",
++      "node",
++      "development|production",
++    ]
++  `)
++  expect(config.environments.ssr.resolve?.conditions).toMatchInlineSnapshot(`
++    [
++      "module",
++      "node",
++      "development|production",
++    ]
++  `)
++})
+diff --git a/packages/vite/src/node/config.ts b/packages/vite/src/node/config.ts
+index d396990ba75425..507c580800325a 100644
+--- a/packages/vite/src/node/config.ts
++++ b/packages/vite/src/node/config.ts
+@@ -867,6 +867,7 @@ function resolveEnvironmentResolveOptions(
+   alias: Alias[],
+   preserveSymlinks: boolean,
+   logger: Logger,
++  /** undefined when resolving the top-level resolve options */
+   consumer: 'client' | 'server' | undefined,
+   // Backward compatibility
+   isSsrTargetWebworkerEnvironment?: boolean,
+@@ -875,11 +876,15 @@ function resolveEnvironmentResolveOptions(
+     {
+       ...configDefaults.resolve,
+       mainFields:
+-        consumer === 'client' || isSsrTargetWebworkerEnvironment
++        consumer === undefined ||
++        consumer === 'client' ||
++        isSsrTargetWebworkerEnvironment
+           ? DEFAULT_CLIENT_MAIN_FIELDS
+           : DEFAULT_SERVER_MAIN_FIELDS,
+       conditions:
+-        consumer === 'client' || isSsrTargetWebworkerEnvironment
++        consumer === undefined ||
++        consumer === 'client' ||
++        isSsrTargetWebworkerEnvironment
+           ? DEFAULT_CLIENT_CONDITIONS
+           : DEFAULT_SERVER_CONDITIONS.filter((c) => c !== 'browser'),
+       enableBuiltinNoExternalCheck: !!isSsrTargetWebworkerEnvironment,

@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "core_issue_79737_pr_80719_sm_cbc1bb9b"
+contextcrbench2_full_name = "home-assistant/core"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "79737"
+contextcrbench2_issue_title = "bluesound_group attribute disappears if more than 2 devices are grouped"
+contextcrbench2_pr_number = "80719"
+contextcrbench2_pr_title = "Add core mediaplayer grouping to bluesound"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "cbc1bb9bd6e3624a3b3792c62d9e42b2671c3eb2"
+contextcrbench2_commit_id = "cbc1bb9bd6e3624a3b3792c62d9e42b2671c3eb2"
+contextcrbench2_created_at = "2022-10-21T10:47:06Z"
+contextcrbench2_entry_count = "3"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

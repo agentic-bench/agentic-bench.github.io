@@ -1,0 +1,13 @@
+[
+  {
+    "id": 24127,
+    "full_name": "ppy/osu",
+    "lang": "c_sharp",
+    "issue_number": 19555,
+    "pr_number": 19564,
+    "diff_hunk": "@@ -14,6 +14,12 @@ namespace osu.Game.Screens.Play.HUD\n {\n     public abstract class SongProgress : OverlayContainer, ISkinnableDrawable\n     {\n+        // Some implementations of this element allow seeking during gameplay playback.\n+        // Set a sane default of never handling input to override the behaviour provided by OverlayContainer.\n+        public override bool HandleNonPositionalInput => false;\n+        public override bool HandlePositionalInput => false;\n+        protected override bool BlockScrollInput => false;\n+\n         public bool UsesFixedAnchor { get; set; }\n \n         [Resolved]\n",
+    "diff_hunk_content_with_line_number": "[14][14]  {\n[15][15]      public abstract class SongProgress : OverlayContainer, ISkinnableDrawable\n[16][16]      {\n[][17] +        // Some implementations of this element allow seeking during gameplay playback.\n[][18] +        // Set a sane default of never handling input to override the behaviour provided by OverlayContainer.\n[][19] +        public override bool HandleNonPositionalInput => false;\n[][20] +        public override bool HandlePositionalInput => false;\n[][21] +        protected override bool BlockScrollInput => false;\n[][22] +\n[17][23]          public bool UsesFixedAnchor { get; set; }\n[18][24]  \n[19][25]          [Resolved]",
+    "checked_commit_id": "6ad6561e1cd8c73f9ad7237ce1c51ed389e24656",
+    "pr_size": "sm"
+  }
+]

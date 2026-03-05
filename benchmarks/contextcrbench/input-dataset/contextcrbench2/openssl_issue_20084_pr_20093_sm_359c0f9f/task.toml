@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "openssl_issue_20084_pr_20093_sm_359c0f9f"
+contextcrbench2_full_name = "openssl/openssl"
+contextcrbench2_lang = "c"
+contextcrbench2_issue_number = "20084"
+contextcrbench2_issue_title = "ChaCha20-Poly1305 fails to allow you to set a different IV length"
+contextcrbench2_pr_number = "20093"
+contextcrbench2_pr_title = "Allow Chacha20-Poly1305 to use a ivlen less than 12 bytes."
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "359c0f9f41196ba09abcec87bea75fe12929f7c1"
+contextcrbench2_commit_id = "359c0f9f41196ba09abcec87bea75fe12929f7c1"
+contextcrbench2_created_at = "2023-01-20T12:19:09Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

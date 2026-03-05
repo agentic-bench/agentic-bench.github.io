@@ -1,0 +1,22 @@
+[
+  {
+    "path": "src/cascadia/TerminalSettingsModel/CascadiaSettings.h",
+    "line": 99,
+    "original_line": 99,
+    "review_comment": [
+      "can we get transparency from `unordered_set` with C++23 without our own hash/equal types?",
+      "As far as I know, the only thing that C++23 adds are more heterogenous overloads, but it remains opt-in so as to not break existing code. It would also not help us here, because just like C++, cppwinrt is also frozen in time and it's what would require the `is_transparent` attribute on its hash/equal_to structs ([here](https://github.com/microsoft/cppwinrt/blob/f9ec1986083a70d2f99d726b06b00a38cb2d1054/strings/base_std_hash.h#L37-L43)).",
+      "\ud83e\udd72 "
+    ]
+  },
+  {
+    "path": "src/cascadia/TerminalSettingsModel/CascadiaSettingsSerialization.cpp",
+    "line": 157,
+    "original_line": 157,
+    "review_comment": [
+      "I suggest to move this into a global class that the logic part can be reused later in other places.",
+      "I know where that's coming from but in my experience (= decades) that's seldom useful.",
+      "(I should add that our development style is quite fluid. When the need for another policy check arises it'll not be a problem at all to move this code around.)"
+    ]
+  }
+]

@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "zed_issue_20444_pr_20577_xl_445e8014"
+contextcrbench2_full_name = "zed-industries/zed"
+contextcrbench2_lang = "rust"
+contextcrbench2_issue_number = "20444"
+contextcrbench2_issue_title = "Wrong element focused when deleting items in project panel"
+contextcrbench2_pr_number = "20577"
+contextcrbench2_pr_title = "Maintain selection on file/dir deletion in project panel"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "445e80144bebd9e4a03013d1bdcf1b86ec1d3da5"
+contextcrbench2_commit_id = "fb11e5ee068dc4f011f24d1a3218a2b6d804623a"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2024-11-13T15:36:03Z"
+contextcrbench2_entry_count = "2"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

@@ -1,0 +1,13 @@
+[
+  {
+    "id": 1065,
+    "full_name": "bevyengine/bevy",
+    "lang": "rust",
+    "issue_number": 7230,
+    "pr_number": 8371,
+    "diff_hunk": "@@ -16,6 +16,9 @@ fn push_events(world: &mut World, events: impl IntoIterator<Item = HierarchyEven\n     }\n }\n \n+/// Adds `child` to `parent`'s [`Children`], without checking if it is already present there.\n+///\n+/// This might cause unexpected results when removing duplicate children.\n fn push_child_unchecked(world: &mut World, parent: Entity, child: Entity) {\n     let mut parent = world.entity_mut(parent);\n     if let Some(mut children) = parent.get_mut::<Children>() {",
+    "diff_hunk_content_with_line_number": "[16][16]      }\n[17][17]  }\n[18][18]  \n[][19] +/// Adds `child` to `parent`'s [`Children`], without checking if it is already present there.\n[][20] +///\n[][21] +/// This might cause unexpected results when removing duplicate children.\n[19][22]  fn push_child_unchecked(world: &mut World, parent: Entity, child: Entity) {\n[20][23]      let mut parent = world.entity_mut(parent);\n[21][24]      if let Some(mut children) = parent.get_mut::<Children>() {",
+    "checked_commit_id": "c3ff6363bd5aaceaad4a3269109263904f0fe581",
+    "pr_size": "sm"
+  }
+]

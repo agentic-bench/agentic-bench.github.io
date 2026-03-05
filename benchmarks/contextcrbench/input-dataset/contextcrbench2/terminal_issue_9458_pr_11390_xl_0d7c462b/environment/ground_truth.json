@@ -1,0 +1,22 @@
+[
+  {
+    "path": "src/inc/til/rand.h",
+    "line": 16,
+    "original_line": 16,
+    "review_comment": [
+      "ideally we would have used the apiset \ud83d\ude09 ",
+      "(Going back and forth between these two threads -- SystemFunction036 is hosted in `api-ms-win-security-systemfunctions-l1-1-0`... but that apiset is only documented as containing SystemFunction036 after contract version `win8`. I bet they could back-version that and be fine, but that's not likely to happen.)",
+      "Since the apiset doesn't exist on win8, why shouldn't we have used `advapi32.dll` itself? The loader will take care of finding the secret place where it actually lives.\r\n\r\nAlso, why did we have to delay load this? I have so many questions.",
+      "I'm going to open a PR documenting the reasons behind this better."
+    ]
+  },
+  {
+    "path": "src/inc/til/rand.h",
+    "line": 18,
+    "original_line": 18,
+    "review_comment": [
+      "What on earth? RtlGenRandom is fully documented, but we're.. looking it up with a weird name in a private DLL? _Why_?",
+      "**Interesting**. It's a macro.\r\n\r\nIt _does_ have a prototype in NTSecAPI.h, under this name. Could we really not have used it with the wil helper? It would resolve to `SystemFunction036`, sure, but at least we wouldn't leak that name into our own code.\r\n\r\nIf not, could we not have stringified the content of the RtlGenRandom macro instead?"
+    ]
+  }
+]

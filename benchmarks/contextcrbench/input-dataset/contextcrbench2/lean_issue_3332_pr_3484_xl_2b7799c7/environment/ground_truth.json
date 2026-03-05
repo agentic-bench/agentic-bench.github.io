@@ -1,0 +1,30 @@
+[
+  {
+    "path": "Common/SecurityIdentifier.cs",
+    "line": 388,
+    "original_line": 388,
+    "review_comment": [
+      "Wondering if it's worth to make this method `public` - Seems to be used just by `GenerateBase()` and testing, maybe we could test its behavior asserting on the result of `GenerateBase()`",
+      "I think this makes sense. This will force consumer to use the overload that requires specifying the `dataType` so the consumer is at least _forced_ to make a decision there (whether to pass `null` or some relevant `Type` instance). \ud83d\udc4d  Great comments \ud83d\udc4d \r\n\r\nEDIT: Removed the overload that does not accept `Type  dataType` parameter."
+    ]
+  },
+  {
+    "path": "Common/SymbolCache.cs",
+    "line": 165,
+    "original_line": 165,
+    "review_comment": [
+      "Personal opinion here \ud83d\ude1b : I'd be more inclined to just throw the exception and catch it if we want to ignore it internally, which will remove the need to return a `Tuple`",
+      "_Ironically_ -- it was initially written that way and later refactored following self review. A quick [google](https://www.google.com/search?q=exception+for+control+flow&rlz=1C1CHBD_enUS817US817&oq=exception+for+control+flow&aqs=chrome..69i57.3471j0j7&sourceid=chrome&ie=UTF-8) will yield many examples as to why using exceptions for control flow is an anti-pattern and instead, exceptions should be reserved for truly exceptional cases that are unable to be reasonably handled by the executing code."
+    ]
+  },
+  {
+    "path": "Common/SymbolCache.cs",
+    "line": 157,
+    "original_line": 157,
+    "review_comment": [
+      "What would happen if we have `\"SPY\"` and `\"SPY.MyCustomData\"`, will the user be able to use `\"SPY\"` from the cache? Specifically thinking if it will cause this exception to be thrown\r\nI think it would be a good idea to add an algorithm which showcases this issue, has a collision, and what is the expected behavior",
+      "Since `\"SPY\"` is a direct match, it will resolve properly. If there isn't already a unit test for this exact case, I'll be sure to add one.",
+      "Added the following unit test:\r\n``` csharp\r\n[Test]\r\npublic void TryGetSymbol_FromTicker_WithConflictingSymbolWithCustomDataSuffix()\r\n{\r\n    var ticker = \"My-Ticker\";\r\n    var symbol = Symbol.Create(ticker, SecurityType.Equity, Market.USA);\r\n    SymbolCache.Set(ticker, symbol);\r\n\r\n    var customTicker = $\"{ticker}.CustomDataTypeName\";\r\n    var customSymbol = Symbol.Create(customTicker, SecurityType.Base, Market.USA, baseDataType: typeof(Bitcoin));\r\n    SymbolCache.Set(customTicker, customSymbol);\r\n\r\n    Symbol fetchedSymbol;\r\n    Assert.IsTrue(SymbolCache.TryGetSymbol(ticker, out fetchedSymbol));\r\n    Assert.AreEqual(symbol, fetchedSymbol);\r\n\r\n    Symbol fetchedCustomSymbol;\r\n    Assert.IsTrue(SymbolCache.TryGetSymbol(customTicker, out fetchedCustomSymbol));\r\n    Assert.AreEqual(customSymbol, fetchedCustomSymbol);\r\n}\r\n```\r\n\r\nNow... you bring up a _really_ great point. Consider `AddData<T>(\"SPY\")` and `AddEquity(\"SPY\")` -- using the `string` `\"SPY\"` will _always_ resolve to the equity and _never_ to the custom data type, which would require you to specify `\"SPY.TypeName\"`. This is another potentially breaking change, although I'm not sure how common this collision is in practice.\r\n\r\nIn the case where there is no potential for collision, say `AddData<T>(\"SPY\")` and `AddEquity(\"Not-SPY\")`, using `string` `\"SPY\"` will resolve to the only potential match, which would be `\"SPY.TypeName\"` since there is not entry that exactly matches `\"SPY\"`."
+    ]
+  }
+]

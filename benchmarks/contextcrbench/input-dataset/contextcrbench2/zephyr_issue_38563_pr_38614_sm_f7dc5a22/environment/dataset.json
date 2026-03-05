@@ -1,0 +1,13 @@
+[
+  {
+    "id": 27081,
+    "full_name": "zephyrproject-rtos/zephyr",
+    "lang": "c",
+    "issue_number": 38563,
+    "pr_number": 38614,
+    "diff_hunk": "@@ -87,6 +87,20 @@ static struct bt_conn sco_conns[CONFIG_BT_MAX_SCO_CONN];\n #endif /* CONFIG_BT_BREDR */\n #endif /* CONFIG_BT_CONN */\n \n+#if defined(CONFIG_BT_ISO)\n+/* Callback TX buffers for ISO */\n+static struct bt_conn_tx iso_tx[CONFIG_BT_ISO_TX_BUF_COUNT];\n+\n+int bt_conn_iso_init(void)\n+{\n+\tfor (size_t i = 0; i < ARRAY_SIZE(iso_tx); i++) {\n+\t\tk_fifo_put(&free_tx, &iso_tx[i]);\n+\t}\n+\n+\treturn 0;\n+}\n+#endif /* CONFIG_BT_ISO */\n+\n struct k_sem *bt_conn_get_pkts(struct bt_conn *conn)\n {\n #if defined(CONFIG_BT_BREDR)\n",
+    "diff_hunk_content_with_line_number": "[87][87]  #endif /* CONFIG_BT_BREDR */\n[88][88]  #endif /* CONFIG_BT_CONN */\n[89][89]  \n[][90] +#if defined(CONFIG_BT_ISO)\n[][91] +/* Callback TX buffers for ISO */\n[][92] +static struct bt_conn_tx iso_tx[CONFIG_BT_ISO_TX_BUF_COUNT];\n[][93] +\n[][94] +int bt_conn_iso_init(void)\n[][95] +{\n[][96] +\tfor (size_t i = 0; i < ARRAY_SIZE(iso_tx); i++) {\n[][97] +\t\tk_fifo_put(&free_tx, &iso_tx[i]);\n[][98] +\t}\n[][99] +\n[][100] +\treturn 0;\n[][101] +}\n[][102] +#endif /* CONFIG_BT_ISO */\n[][103] +\n[90][104]  struct k_sem *bt_conn_get_pkts(struct bt_conn *conn)\n[91][105]  {\n[92][106]  #if defined(CONFIG_BT_BREDR)",
+    "checked_commit_id": "f7dc5a226220f769babb4b79af2897f6b5ffd5e9",
+    "pr_size": "sm"
+  }
+]

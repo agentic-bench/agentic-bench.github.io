@@ -1,0 +1,10 @@
+[
+  {
+    "path": "crates/polars-python/src/conversion/any_value.rs",
+    "line": 422,
+    "original_line": 422,
+    "review_comment": [
+      "This was unused as far as I can tell. Removing it didn't fail any tests. The path to a literal list is elsewhere."
+    ]
+  }
+]

@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "core_issue_40877_pr_41711_xl_816bc8f7"
+contextcrbench2_full_name = "home-assistant/core"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "40877"
+contextcrbench2_issue_title = "Rewrite proximity unittest tests to pytest style test functions"
+contextcrbench2_pr_number = "41711"
+contextcrbench2_pr_title = "Rewrite proximity tests to be pytest functions"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "816bc8f78fd2c2acbc5cb30b9a03bed0dd9f0bc1"
+contextcrbench2_commit_id = "816bc8f78fd2c2acbc5cb30b9a03bed0dd9f0bc1"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2020-10-16T11:13:11Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

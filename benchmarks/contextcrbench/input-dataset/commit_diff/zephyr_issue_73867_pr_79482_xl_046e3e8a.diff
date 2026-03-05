@@ -1,0 +1,375 @@
+diff --git a/drivers/video/video_common.c b/drivers/video/video_common.c
+index 6ff4c7b933858..2cd9a6f032d5b 100644
+--- a/drivers/video/video_common.c
++++ b/drivers/video/video_common.c
+@@ -1,9 +1,12 @@
+ /*
+  * Copyright (c) 2019, Linaro Limited
++ * Copyright (c) 2024, tinyVision.ai Inc.
+  *
+  * SPDX-License-Identifier: Apache-2.0
+  */
+ 
++#include <string.h>
++
+ #include <zephyr/kernel.h>
+ #include <zephyr/drivers/video.h>
+ 
+@@ -83,3 +86,81 @@ void video_buffer_release(struct video_buffer *vbuf)
+ 		VIDEO_COMMON_FREE(block->data);
+ 	}
+ }
++
++int video_format_caps_index(const struct video_format_cap *fmts, const struct video_format *fmt,
++			    size_t *idx)
++{
++	for (int i = 0; fmts[i].pixelformat != 0; i++) {
++		if (fmts[i].pixelformat == fmt->pixelformat &&
++		    IN_RANGE(fmt->width, fmts[i].width_min, fmts[i].width_max) &&
++		    IN_RANGE(fmt->height, fmts[i].height_min, fmts[i].height_max)) {
++			*idx = i;
++			return 0;
++		}
++	}
++	return -ENOENT;
++}
++
++void video_closest_frmival_stepwise(const struct video_frmival_stepwise *stepwise,
++				    const struct video_frmival *desired,
++				    struct video_frmival *match)
++{
++	uint64_t min = stepwise->min.numerator;
++	uint64_t max = stepwise->max.numerator;
++	uint64_t step = stepwise->step.numerator;
++	uint64_t goal = desired->numerator;
++
++	/* Set a common denominator to all values */
++	min *= stepwise->max.denominator * stepwise->step.denominator * desired->denominator;
++	max *= stepwise->min.denominator * stepwise->step.denominator * desired->denominator;
++	step *= stepwise->min.denominator * stepwise->max.denominator * desired->denominator;
++	goal *= stepwise->min.denominator * stepwise->max.denominator * stepwise->step.denominator;
++
++	/* Saturate the desired value to the min/max supported */
++	goal = CLAMP(goal, min, max);
++
++	/* Compute a numerator and denominator */
++	match->numerator = min + DIV_ROUND_CLOSEST(goal - min, step) * step;
++	match->denominator = stepwise->min.denominator * stepwise->max.denominator *
++			     stepwise->step.denominator * desired->denominator;
++}
++
++void video_closest_frmival(const struct device *dev, enum video_endpoint_id ep,
++			   struct video_frmival_enum *match)
++{
++	uint64_t best_diff_nsec = INT32_MAX;
++	struct video_frmival desired = match->discrete;
++	struct video_frmival_enum fie = {.format = match->format};
++
++	__ASSERT(match->type != VIDEO_FRMIVAL_TYPE_STEPWISE,
++		 "cannot find range matching the range, only a value matching the range");
++
++	while (video_enum_frmival(dev, ep, &fie) == 0) {
++		struct video_frmival tmp = {0};
++		uint64_t diff_nsec = 0, a, b;
++
++		switch (fie.type) {
++		case VIDEO_FRMIVAL_TYPE_DISCRETE:
++			tmp = fie.discrete;
++			break;
++		case VIDEO_FRMIVAL_TYPE_STEPWISE:
++			video_closest_frmival_stepwise(&fie.stepwise, &desired, &tmp);
++			break;
++		default:
++			__ASSERT(false, "invalid answer from the queried video device");
++		}
++
++		a = video_frmival_nsec(&desired);
++		b = video_frmival_nsec(&tmp);
++		diff_nsec = a > b ? a - b : b - a;
++		if (diff_nsec < best_diff_nsec) {
++			best_diff_nsec = diff_nsec;
++			memcpy(&match->discrete, &tmp, sizeof(tmp));
++
++			/* The video_enum_frmival() function will increment fie.index every time.
++			 * Compensate for it to get the current index, not the next index.
++			 */
++			match->index = fie.index - 1;
++		}
++	}
++}
+diff --git a/include/zephyr/drivers/video.h b/include/zephyr/drivers/video.h
+index fb647cac70fb1..19d85f0db0c5a 100644
+--- a/include/zephyr/drivers/video.h
++++ b/include/zephyr/drivers/video.h
+@@ -16,7 +16,7 @@
+  * @brief Video Interface
+  * @defgroup video_interface Video Interface
+  * @since 2.1
+- * @version 1.0.0
++ * @version 1.1.0
+  * @ingroup io_interfaces
+  * @{
+  */
+@@ -753,6 +753,63 @@ struct video_buffer *video_buffer_alloc(size_t size);
+  */
+ void video_buffer_release(struct video_buffer *buf);
+ 
++/**
++ * @brief Search for a format that matches in a list of capabilities
++ *
++ * @param fmts The format capability list to search.
++ * @param fmt The format to find in the list.
++ * @param idx The pointer to a number of the first format that matches.
++ *
++ * @return 0 when a format is found.
++ * @return -ENOENT when no matching format is found.
++ */
++int video_format_caps_index(const struct video_format_cap *fmts, const struct video_format *fmt,
++			    size_t *idx);
++
++/**
++ * @brief Compute the difference between two frame intervals
++ *
++ * @param frmival Frame interval to turn into microseconds.
++ *
++ * @return The frame interval value in microseconds.
++ */
++static inline uint64_t video_frmival_nsec(const struct video_frmival *frmival)
++{
++	return (uint64_t)NSEC_PER_SEC * frmival->numerator / frmival->denominator;
++}
++
++/**
++ * @brief Find the closest match to a frame interval value within a stepwise frame interval.
++ *
++ * @param stepwise The stepwise frame interval range to search
++ * @param desired The frame interval for which find the closest match
++ * @param match The resulting frame interval closest to @p desired
++ */
++void video_closest_frmival_stepwise(const struct video_frmival_stepwise *stepwise,
++				    const struct video_frmival *desired,
++				    struct video_frmival *match);
++
++/**
++ * @brief Find the closest match to a frame interval value within a video device.
++ *
++ * To compute the closest match, fill @p match with the following fields:
++ *
++ * - @c match->format to the @ref video_format of interest.
++ * - @c match->type to @ref VIDEO_FRMIVAL_TYPE_DISCRETE.
++ * - @c match->discrete to the desired frame interval.
++ *
++ * The result will be loaded into @p match, with the following fields set:
++ *
++ * - @c match->discrete to the value of the closest frame interval.
++ * - @c match->index to the index of the closest frame interval.
++ *
++ * @param dev Video device to query.
++ * @param ep Video endpoint ID to query.
++ * @param match Frame interval enumerator with the query, and loaded with the result.
++ */
++void video_closest_frmival(const struct device *dev, enum video_endpoint_id ep,
++			   struct video_frmival_enum *match);
++
+ /* fourcc - four-character-code */
+ #define video_fourcc(a, b, c, d)                                                                   \
+ 	((uint32_t)(a) | ((uint32_t)(b) << 8) | ((uint32_t)(c) << 16) | ((uint32_t)(d) << 24))
+diff --git a/tests/drivers/video/api/CMakeLists.txt b/tests/drivers/video/api/CMakeLists.txt
+new file mode 100644
+index 0000000000000..ff4533fefd2d4
+--- /dev/null
++++ b/tests/drivers/video/api/CMakeLists.txt
+@@ -0,0 +1,7 @@
++# SPDX-License-Identifier: Apache-2.0
++
++cmake_minimum_required(VERSION 3.20.0)
++find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
++project(integration)
++
++target_sources(app PRIVATE src/video_common.c)
+diff --git a/tests/drivers/video/api/prj.conf b/tests/drivers/video/api/prj.conf
+new file mode 100644
+index 0000000000000..5e2cc7c828bf2
+--- /dev/null
++++ b/tests/drivers/video/api/prj.conf
+@@ -0,0 +1,5 @@
++CONFIG_ZTEST=y
++CONFIG_VIDEO=y
++CONFIG_VIDEO_BUFFER_POOL_SZ_MAX=16384
++CONFIG_VIDEO_BUFFER_POOL_NUM_MAX=1
++CONFIG_VIDEO_LOG_LEVEL_DBG=y
+diff --git a/tests/drivers/video/api/src/video_common.c b/tests/drivers/video/api/src/video_common.c
+new file mode 100644
+index 0000000000000..4f01ef2d5b599
+--- /dev/null
++++ b/tests/drivers/video/api/src/video_common.c
+@@ -0,0 +1,154 @@
++/*
++ * Copyright (c) 2024 tinyVision.ai Inc.
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include <zephyr/ztest.h>
++#include <zephyr/drivers/video.h>
++
++enum {
++	RGB565,
++	YUYV_A,
++	YUYV_B,
++};
++
++static const struct video_format_cap fmts[] = {
++	[RGB565] = {.pixelformat = VIDEO_PIX_FMT_RGB565,
++		    .width_min  = 1280, .width_max  = 1280, .width_step  = 50,
++		    .height_min = 720,  .height_max = 720,  .height_step = 50},
++	[YUYV_A] = {.pixelformat = VIDEO_PIX_FMT_YUYV,
++		    .width_min  = 100,  .width_max  = 1000, .width_step  = 50,
++		    .height_min = 100,  .height_max = 1000, .height_step = 50},
++	[YUYV_B] = {.pixelformat = VIDEO_PIX_FMT_YUYV,
++		    .width_min  = 1920, .width_max  = 1920, .width_step  = 0,
++		    .height_min = 1080, .height_max = 1080, .height_step = 0},
++	{0},
++};
++
++ZTEST(video_common, test_video_format_caps_index)
++{
++	struct video_format fmt = {0};
++	size_t idx;
++	int ret;
++
++	fmt.pixelformat = VIDEO_PIX_FMT_YUYV;
++
++	fmt.width = 100;
++	fmt.height = 100;
++	fmt.pitch = 100 * 2;
++	ret = video_format_caps_index(fmts, &fmt, &idx);
++	zassert_ok(ret, "expecting minimum value to match");
++	zassert_equal(idx, YUYV_A);
++
++	fmt.width = 1000;
++	fmt.height = 1000;
++	fmt.pitch = 1000 * 2;
++	ret = video_format_caps_index(fmts, &fmt, &idx);
++	zassert_ok(ret, "expecting maximum value to match");
++	zassert_equal(idx, YUYV_A);
++
++	fmt.width = 1920;
++	fmt.height = 1080;
++	fmt.pitch = 1920 * 2;
++	ret = video_format_caps_index(fmts, &fmt, &idx);
++	zassert_ok(ret, "expecting exact match to work");
++	zassert_equal(idx, YUYV_B);
++
++	fmt.width = 1001;
++	fmt.height = 1000;
++	fmt.pitch = 1001 * 2;
++	ret = video_format_caps_index(fmts, &fmt, &idx);
++	zassert_not_ok(ret, "expecting 1 above maximum width to mismatch");
++
++	fmt.width = 1000;
++	fmt.height = 1001;
++	fmt.pitch = 1000 * 2;
++	ret = video_format_caps_index(fmts, &fmt, &idx);
++	zassert_not_ok(ret, "expecting 1 above maximum height to mismatch");
++
++	fmt.width = 1280;
++	fmt.height = 720;
++	fmt.pitch = 1280 * 2;
++	ret = video_format_caps_index(fmts, &fmt, &idx);
++	zassert_not_ok(ret);
++	zassert_not_ok(ret, "expecting wrong format to mismatch");
++
++	fmt.pixelformat = VIDEO_PIX_FMT_RGB565;
++
++	fmt.width = 1000;
++	fmt.height = 1000;
++	fmt.pitch = 1000 * 2;
++	ret = video_format_caps_index(fmts, &fmt, &idx);
++	zassert_not_ok(ret, "expecting wrong format to mismatch");
++
++	fmt.width = 1280;
++	fmt.height = 720;
++	fmt.pitch = 1280 * 2;
++	ret = video_format_caps_index(fmts, &fmt, &idx);
++	zassert_ok(ret, "expecting exact match to work");
++	zassert_equal(idx, RGB565);
++}
++
++ZTEST(video_common, test_video_frmival_nsec)
++{
++	zassert_equal(
++		video_frmival_nsec(&(struct video_frmival){.numerator = 1, .denominator = 15}),
++		66666666);
++
++	zassert_equal(
++		video_frmival_nsec(&(struct video_frmival){.numerator = 1, .denominator = 30}),
++		33333333);
++
++	zassert_equal(
++		video_frmival_nsec(&(struct video_frmival){.numerator = 5, .denominator = 1}),
++		5000000000);
++
++	zassert_equal(
++		video_frmival_nsec(&(struct video_frmival){.numerator = 1, .denominator = 1750000}),
++		571);
++}
++
++ZTEST(video_common, test_video_closest_frmival_stepwise)
++{
++	struct video_frmival_stepwise stepwise;
++	struct video_frmival desired;
++	struct video_frmival expected;
++	struct video_frmival match;
++
++	stepwise.min.numerator = 1;
++	stepwise.min.denominator = 30;
++	stepwise.max.numerator = 30;
++	stepwise.max.denominator = 30;
++	stepwise.step.numerator = 1;
++	stepwise.step.denominator = 30;
++
++	desired.numerator = 1;
++	desired.denominator = 1;
++	video_closest_frmival_stepwise(&stepwise, &desired, &match);
++	zassert_equal(video_frmival_nsec(&match), video_frmival_nsec(&desired), "1 / 1");
++
++	desired.numerator = 3;
++	desired.denominator = 30;
++	video_closest_frmival_stepwise(&stepwise, &desired, &match);
++	zassert_equal(video_frmival_nsec(&match), video_frmival_nsec(&desired), "3 / 30");
++
++	desired.numerator = 7;
++	desired.denominator = 80;
++	expected.numerator = 3;
++	expected.denominator = 30;
++	video_closest_frmival_stepwise(&stepwise, &desired, &match);
++	zassert_equal(video_frmival_nsec(&match), video_frmival_nsec(&expected), "7 / 80");
++
++	desired.numerator = 1;
++	desired.denominator = 120;
++	video_closest_frmival_stepwise(&stepwise, &desired, &match);
++	zassert_equal(video_frmival_nsec(&match), video_frmival_nsec(&stepwise.min), "1 / 120");
++
++	desired.numerator = 100;
++	desired.denominator = 1;
++	video_closest_frmival_stepwise(&stepwise, &desired, &match);
++	zassert_equal(video_frmival_nsec(&match), video_frmival_nsec(&stepwise.max), "100 / 1");
++}
++
++ZTEST_SUITE(video_common, NULL, NULL, NULL, NULL, NULL);
+diff --git a/tests/drivers/video/api/testcase.yaml b/tests/drivers/video/api/testcase.yaml
+new file mode 100644
+index 0000000000000..c6005d99760c9
+--- /dev/null
++++ b/tests/drivers/video/api/testcase.yaml
+@@ -0,0 +1,9 @@
++# Copyright (c) 2024 tinyVision.ai Inc.
++# SPDX-License-Identifier: Apache-2.0
++
++tests:
++  drivers.video.api:
++    tags:
++      - drivers
++      - video
++    platform_allow: native_sim

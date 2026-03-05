@@ -1,0 +1,6 @@
+{
+  "issue_title": "[~75% IMPACT] Crash on natural app exit because of composition class issue (XamlApplication)",
+  "issue_body": "The \"correct\" fix for this is to make our `XamlApplication` `AddRef` its `outer`. C++/WinRT generates bad code here. Long term, we need to fix our XamlApplication stack.\r\n\r\n_Bug 22116519: C++/WinRT composable+composing types don't delegate calls during construction_",
+  "pr_title": "Workaround C++/WinRT's multi-level composition class refcount issue",
+  "pr_body": "Fixes #1339.\r\n\r\n* [x] CLA signed. If not, go over [here](https://cla.opensource.microsoft.com/microsoft/Terminal) and sign the CLA\r\n* [x] I've discussed this with core contributors already."
+}

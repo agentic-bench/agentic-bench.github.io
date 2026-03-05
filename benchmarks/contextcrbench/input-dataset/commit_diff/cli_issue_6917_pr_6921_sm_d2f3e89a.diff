@@ -1,0 +1,50 @@
+diff --git a/api/queries_projects_v2.go b/api/queries_projects_v2.go
+index 9609524f1b0..e3b214f69af 100644
+--- a/api/queries_projects_v2.go
++++ b/api/queries_projects_v2.go
+@@ -10,10 +10,10 @@ import (
+ 
+ const (
+ 	errorProjectsV2ReadScope         = "field requires one of the following scopes: ['read:project']"
+-	errorProjectsV2RepositoryField   = "Field 'ProjectsV2' doesn't exist on type 'Repository'"
+-	errorProjectsV2OrganizationField = "Field 'ProjectsV2' doesn't exist on type 'Organization'"
+-	errorProjectsV2IssueField        = "Field 'ProjectItems' doesn't exist on type 'Issue'"
+-	errorProjectsV2PullRequestField  = "Field 'ProjectItems' doesn't exist on type 'PullRequest'"
++	errorProjectsV2RepositoryField   = "Field 'projectsV2' doesn't exist on type 'Repository'"
++	errorProjectsV2OrganizationField = "Field 'projectsV2' doesn't exist on type 'Organization'"
++	errorProjectsV2IssueField        = "Field 'projectItems' doesn't exist on type 'Issue'"
++	errorProjectsV2PullRequestField  = "Field 'projectItems' doesn't exist on type 'PullRequest'"
+ )
+ 
+ // UpdateProjectV2Items uses the addProjectV2ItemById and the deleteProjectV2Item mutations
+diff --git a/api/queries_projects_v2_test.go b/api/queries_projects_v2_test.go
+index 6934051260d..bf6a618baa9 100644
+--- a/api/queries_projects_v2_test.go
++++ b/api/queries_projects_v2_test.go
+@@ -221,22 +221,22 @@ func TestProjectsV2IgnorableError(t *testing.T) {
+ 		},
+ 		{
+ 			name:      "repository projectsV2 field error",
+-			errMsg:    "Field 'ProjectsV2' doesn't exist on type 'Repository'",
++			errMsg:    "Field 'projectsV2' doesn't exist on type 'Repository'",
+ 			expectOut: true,
+ 		},
+ 		{
+ 			name:      "organization projectsV2 field error",
+-			errMsg:    "Field 'ProjectsV2' doesn't exist on type 'Organization'",
++			errMsg:    "Field 'projectsV2' doesn't exist on type 'Organization'",
+ 			expectOut: true,
+ 		},
+ 		{
+ 			name:      "issue projectItems field error",
+-			errMsg:    "Field 'ProjectItems' doesn't exist on type 'Issue'",
++			errMsg:    "Field 'projectItems' doesn't exist on type 'Issue'",
+ 			expectOut: true,
+ 		},
+ 		{
+ 			name:      "pullRequest projectItems field error",
+-			errMsg:    "Field 'ProjectItems' doesn't exist on type 'PullRequest'",
++			errMsg:    "Field 'projectItems' doesn't exist on type 'PullRequest'",
+ 			expectOut: true,
+ 		},
+ 		{

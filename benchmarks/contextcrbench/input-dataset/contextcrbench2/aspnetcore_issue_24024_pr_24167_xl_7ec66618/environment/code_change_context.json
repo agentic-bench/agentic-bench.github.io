@@ -1,0 +1,6 @@
+{
+  "issue_title": "Incorporate Microsoft.Identity.Web templates into our project templates",
+  "issue_body": "We want to use the templates at https://github.com/AzureAD/microsoft-identity-web/tree/master/ProjectTemplates/templates to replace our organization auth logic.",
+  "pr_title": "Update RazorPages, MVC, WebApi templates to use Identity.Web",
+  "pr_body": "Fixes #24024 \r\nFixes https://github.com/dotnet/aspnetcore/issues/22726\r\n\r\nported from https://github.com/dotnet/aspnetcore/pull/24065\r\n\r\nfyi @jmprieur"
+}

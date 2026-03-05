@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "pandas_issue_28619_pr_28622_l_accd05b3"
+contextcrbench2_full_name = "pandas-dev/pandas"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "28619"
+contextcrbench2_issue_title = "Allow users to pass backend option to `.plot()`"
+contextcrbench2_pr_number = "28622"
+contextcrbench2_pr_title = "ENH: Allow plotting backend to be an option"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "accd05b31056092fb1d1eaa342bdce9d29606079"
+contextcrbench2_commit_id = "e62e173690e42fa2f02db8537c1e65c6da0b4c95"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2019-11-05T14:40:50Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

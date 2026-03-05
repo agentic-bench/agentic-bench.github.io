@@ -1,0 +1,8 @@
+{
+    "task_id": "bazel_issue_17908_pr_17970_xl_6d5cb9b8",
+    "repo": "bazel",
+    "issue_number": 17908,
+    "pr_number": 17970,
+    "checked_commit_id": "6d5cb9b8d05aa85543f249ab07764ea4085e313d",
+    "entry_count": 1
+}

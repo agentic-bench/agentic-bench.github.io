@@ -1,0 +1,13 @@
+[
+  {
+    "id": 19642,
+    "full_name": "home-assistant/core",
+    "lang": "python",
+    "issue_number": 71303,
+    "pr_number": 71367,
+    "diff_hunk": "@@ -127,9 +129,16 @@ def __init__(\n         self, sabnzbd_api_data, client_name, description: SabnzbdSensorEntityDescription\n     ):\n         \"\"\"Initialize the sensor.\"\"\"\n+        unique_id = description.key\n+        self._attr_unique_id = unique_id\n         self.entity_description = description\n         self._sabnzbd_api = sabnzbd_api_data\n         self._attr_name = f\"{client_name} {description.name}\"\n+        self._attr_device_info = DeviceInfo(\n+            entry_type=DeviceEntryType.SERVICE,\n+            identifiers={(DOMAIN, DOMAIN)},\n+            name=DEFAULT_NAME,\n+        )\n \n     async def async_added_to_hass(self):\n         \"\"\"Call when entity about to be added to hass.\"\"\"\n",
+    "diff_hunk_content_with_line_number": "[127][129]          self, sabnzbd_api_data, client_name, description: SabnzbdSensorEntityDescription\n[128][130]      ):\n[129][131]          \"\"\"Initialize the sensor.\"\"\"\n[][132] +        unique_id = description.key\n[][133] +        self._attr_unique_id = unique_id\n[130][134]          self.entity_description = description\n[131][135]          self._sabnzbd_api = sabnzbd_api_data\n[132][136]          self._attr_name = f\"{client_name} {description.name}\"\n[][137] +        self._attr_device_info = DeviceInfo(\n[][138] +            entry_type=DeviceEntryType.SERVICE,\n[][139] +            identifiers={(DOMAIN, DOMAIN)},\n[][140] +            name=DEFAULT_NAME,\n[][141] +        )\n[133][142]  \n[134][143]      async def async_added_to_hass(self):\n[135][144]          \"\"\"Call when entity about to be added to hass.\"\"\"",
+    "checked_commit_id": "133d8f0b975a33a2572e4f92577a8b2f739142a2",
+    "pr_size": "sm"
+  }
+]

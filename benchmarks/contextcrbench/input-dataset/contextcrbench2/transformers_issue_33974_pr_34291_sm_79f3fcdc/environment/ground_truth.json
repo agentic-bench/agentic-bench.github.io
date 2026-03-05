@@ -1,0 +1,10 @@
+[
+  {
+    "path": "src/transformers/models/swin/modeling_tf_swin.py",
+    "line": 752,
+    "original_line": 752,
+    "review_comment": [
+      "this is all because of ruff linter"
+    ]
+  }
+]

@@ -1,0 +1,13 @@
+[
+  {
+    "id": 42193,
+    "full_name": "pingcap/tidb",
+    "lang": "go",
+    "issue_number": 21028,
+    "pr_number": 21032,
+    "diff_hunk": "@@ -56,7 +56,9 @@ func (c *twoPhaseCommitter) buildPrewriteRequest(batch batchMutations, txnSize u\n \t\t}\n \t\tisPessimisticLock[i] = m.IsPessimisticLock(i)\n \t}\n-\tvar minCommitTS = c.minCommitTS\n+\tc.mu.Lock()\n+\tminCommitTS := c.minCommitTS\n+\tc.mu.Unlock()\n \tif c.forUpdateTS > 0 && c.forUpdateTS >= minCommitTS {\n \t\tminCommitTS = c.forUpdateTS + 1\n \t} else if c.startTS >= minCommitTS {",
+    "diff_hunk_content_with_line_number": "[56][56]  \t\t}\n[57][57]  \t\tisPessimisticLock[i] = m.IsPessimisticLock(i)\n[58][58]  \t}\n[59][] -\tvar minCommitTS = c.minCommitTS\n[][59] +\tc.mu.Lock()\n[][60] +\tminCommitTS := c.minCommitTS\n[][61] +\tc.mu.Unlock()\n[60][62]  \tif c.forUpdateTS > 0 && c.forUpdateTS >= minCommitTS {\n[61][63]  \t\tminCommitTS = c.forUpdateTS + 1\n[62][64]  \t} else if c.startTS >= minCommitTS {",
+    "checked_commit_id": "82c18f59c2bb188607cd2536ff697149924e5d0c",
+    "pr_size": "sm"
+  }
+]

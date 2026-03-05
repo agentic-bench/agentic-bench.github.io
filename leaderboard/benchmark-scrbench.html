@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCRBench — Agentic Code Review Leaderboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="styles.css" rel="stylesheet">
+    <script>(function() {
+        const saved = localStorage.getItem('lb-theme') || 'light';
+        document.documentElement.setAttribute('data-theme', saved);
+    })();</script>
+    <style>
+        .bpage { max-width: 960px; margin: 0 auto; padding: 2rem 1rem 4rem; }
+        .bpage h1 { font-size: 1.6rem; font-weight: 700; }
+        .bpage h2 { font-size: 1.1rem; font-weight: 700; margin: 2rem 0 .75rem;
+            padding-bottom: .35rem; border-bottom: 2px solid var(--border); color: var(--primary); }
+        .bpage h3 { font-size: .95rem; font-weight: 600; margin: 1.25rem 0 .4rem; }
+        .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: .75rem; margin: 1.25rem 0; }
+        .meta-card { background: var(--bg-surface2); border: 1px solid var(--border);
+            border-radius: 8px; padding: .75rem 1rem; text-align: center; }
+        .meta-card .val { font-size: 1.4rem; font-weight: 700; color: var(--primary); }
+        .meta-card .lbl { font-size: .75rem; color: var(--text-muted); margin-top: .15rem; }
+        .example-block { background: var(--bg-surface2); border: 1px solid var(--border);
+            border-radius: 8px; margin-bottom: 1.5rem; overflow: hidden; }
+        .example-header { background: var(--bg-surface3); border-bottom: 1px solid var(--border);
+            padding: .6rem 1rem; font-size: .82rem; font-weight: 600; color: var(--text-muted);
+            display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+        .example-body { padding: 1rem; }
+        pre.diff-view { background: #0d1117; color: #e6edf3; border-radius: 6px;
+            padding: .85rem 1rem; font-size: .76rem; line-height: 1.55; overflow-x: auto;
+            margin: 0; white-space: pre; }
+        .diff-add { color: #3fb950; }
+        .diff-del { color: #f85149; }
+        .diff-hunk { color: #79c0ff; }
+        .gt-comment { border-left: 3px solid #cf222e; padding: .5rem .75rem;
+            background: var(--bg-surface); border-radius: 0 6px 6px 0;
+            margin-bottom: .5rem; font-size: .85rem; }
+        .gt-comment .file-loc { font-size: .75rem; color: var(--text-muted); margin-bottom: .3rem; }
+        .gt-comment .text { color: var(--text); line-height: 1.5; }
+        .cwe-badge { display: inline-block; background: #cf222e; color: #fff;
+            font-size: .68rem; padding: 2px 8px; border-radius: 8px; font-weight: 600;
+            margin-right: .4rem; white-space: nowrap; }
+        .badge-goal { background: #cf222e; color: #fff; font-size: .7rem;
+            padding: 2px 10px; border-radius: 10px; font-weight: 500; }
+        .back-link { color: var(--primary); text-decoration: none; font-size: .9rem; }
+        .back-link:hover { text-decoration: underline; }
+        table.fields { width: 100%; border-collapse: collapse; font-size: .84rem; margin-top: .5rem; }
+        table.fields th { background: var(--bg-surface2); padding: .45rem .75rem;
+            border: 1px solid var(--border); color: var(--text-muted);
+            font-size: .75rem; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+        table.fields td { padding: .45rem .75rem; border: 1px solid var(--border);
+            vertical-align: top; color: var(--text); }
+        table.fields td code { font-size: .76rem; background: var(--bg-surface3);
+            border-radius: 3px; padding: .1rem .3rem; }
+        .bug-desc { font-size: .84rem; color: var(--text-muted); line-height: 1.6;
+            background: var(--bg-surface); border: 1px solid var(--border);
+            border-radius: 6px; padding: .65rem .85rem; margin-bottom: .5rem; }
+    </style>
+</head>
+<body>
+    <nav class="navbar navbar-expand-lg">
+        <div class="container-fluid px-4">
+            <a class="navbar-brand" href="index.html">
+                <i class="fas fa-robot me-2"></i>Agentic Code Review Leaderboard
+            </a>
+            <button class="theme-toggle" id="bench-theme-btn" onclick="benchToggleTheme()" title="Toggle theme"><span id="bench-theme-icon"><i class="far fa-moon"></i></span> <span id="bench-theme-label">Dark</span></button>
+        </div>
+    </nav>
+
+    <div class="bpage">
+        <div class="mb-4">
+            <a href="index.html" class="back-link"><i class="fas fa-arrow-left me-1"></i>Back to Leaderboard</a>
+        </div>
+
+        <div class="d-flex align-items-center gap-3 mb-2">
+            <h1 class="mb-0">SCRBench</h1>
+            <span class="badge-goal">Bug Detection</span>
+        </div>
+        <p style="color:var(--text-muted);font-size:.9rem;line-height:1.6">
+            Benchmarks whether an LLM code reviewer can identify <strong>immature vulnerabilities</strong>
+            in pull requests. Each diff contains a vulnerability-introducing
+            changes, the earliest known changes that led to real vulnerabilities (CVEs). 
+            The ground truth specifies the exact file, line range, CWE classification,
+            and bug description. A successful agent must identify and flag the bug at the correct location.
+        </p>
+
+        <!-- Stats -->
+        <div class="meta-grid">
+            <div class="meta-card"><div class="val">144</div><div class="lbl">PRs / Diffs</div></div>
+            <div class="meta-card"><div class="val">243</div><div class="lbl">Ground-truth Bugs</div></div>
+            <div class="meta-card"><div class="val">20+</div><div class="lbl">CWE Types</div></div>
+            <div class="meta-card"><div class="val">Precision (Loc+Rel)</div><div class="lbl">Primary Metric</div></div>
+        </div>
+
+        <!-- Ground truth schema -->
+        <h2>Ground Truth Schema</h2>
+        <p style="font-size:.875rem;color:var(--text-muted)">
+            Each row in <code>groundtruth.jsonl</code> describes one known security bug in a diff.
+        </p>
+        <table class="fields">
+            <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+            <tbody>
+                <tr><td><code>diff_id</code></td><td><code>string</code></td><td>Links to the diff in <code>dataset.jsonl</code> (commit hash).</td></tr>
+                <tr><td><code>file_path</code></td><td><code>string</code></td><td>File containing the vulnerability.</td></tr>
+                <tr><td><code>start_line</code></td><td><code>integer</code></td><td>Start line of the vulnerable code region.</td></tr>
+                <tr><td><code>end_line</code></td><td><code>integer</code></td><td>End line of the vulnerable code region.</td></tr>
+                <tr><td><code>cwe_id</code></td><td><code>string</code></td><td>CWE identifier (e.g. <code>CWE-22</code>).</td></tr>
+                <tr><td><code>cwe_name</code></td><td><code>string</code></td><td>Short CWE name.</td></tr>
+                <tr><td><code>cwe_description</code></td><td><code>string</code></td><td>Full CWE description.</td></tr>
+                <tr><td><code>bug_description</code></td><td><code>string</code></td><td>CVE description of the actual vulnerability.</td></tr>
+                <tr><td><code>fixing_commit</code></td><td><code>string</code></td><td>Commit hash that fixed the vulnerability.</td></tr>
+            </tbody>
+        </table>
+
+        <!-- Dataset schema -->
+        <h2>Dataset Schema</h2>
+        <table class="fields">
+            <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+            <tbody>
+                <tr><td><code>diff_id</code></td><td><code>string</code></td><td>Commit hash of the vulnerability-introducing commit.</td></tr>
+                <tr><td><code>diff</code></td><td><code>string</code></td><td>The unified diff of the commit.</td></tr>
+                <tr><td><code>pr_link</code></td><td><code>string</code></td><td>Link to the GitHub repository.</td></tr>
+                <tr><td><code>commit_link</code></td><td><code>string</code></td><td>Direct link to the commit on GitHub.</td></tr>
+                <tr><td><code>no_lines_changed</code></td><td><code>integer</code></td><td>Total lines changed.</td></tr>
+                <tr><td><code>no_lines_added</code></td><td><code>integer</code></td><td>Lines added.</td></tr>
+                <tr><td><code>no_lines_deleted</code></td><td><code>integer</code></td><td>Lines deleted.</td></tr>
+            </tbody>
+        </table>
+
+        <!-- Metrics -->
+        <h2>Evaluation Metrics</h2>
+        <table class="fields">
+            <thead><tr><th>Metric</th><th>Mode</th><th>Description</th></tr></thead>
+            <tbody>
+                <tr><td><code>is_bug_location_matched</code></td><td>Precision</td><td>Did the agent comment within ±5 lines of the known vulnerable line?</td></tr>
+                <tr><td><code>is_bug_comment_relevant</code></td><td>Precision</td><td>LLM-as-judge: is the comment relevant to the actual security bug?</td></tr>
+                <tr><td><code>is_bug_suggestion_valid</code></td><td>Precision</td><td>LLM-as-judge: does the comment include a valid fix suggestion?</td></tr>
+                <tr><td><code>is_comment_location_relevant_matched</code></td><td>Precision</td><td>Both location matched AND comment relevant.</td></tr>
+                <tr><td><code>is_comment_location_relevant_matched_recall</code></td><td>Recall</td><td>Same as above, but computed as recall over ground-truth bugs.</td></tr>
+                <tr><td><code>is_comment_location_suggestion_matched</code></td><td>Precision</td><td>Both location matched AND suggestion valid.</td></tr>
+            </tbody>
+        </table>
+
+        <!-- Example 1: SaltStack Path Traversal -->
+        <h2>Example 1 — SaltStack Path Traversal (CVE-2017-14695)</h2>
+        <div class="example-block">
+            <div class="example-header">
+                <i class="fas fa-bug"></i>
+                <span>0976f8f7131975a1ae29b2724069a301a870a46d</span>
+                <span class="cwe-badge">CWE-22</span>
+                <a href="https://github.com/saltstack/salt/commit/0976f8f7131975a1ae29b2724069a301a870a46d"
+                   target="_blank" style="margin-left:auto;font-size:.78rem;color:var(--primary)">View Commit ↗</a>
+            </div>
+            <div class="example-body">
+                <div class="bug-desc">
+                    <strong>Bug:</strong> Directory traversal vulnerability in minion id validation in SaltStack Salt.
+                    Remote minions with incorrect credentials could authenticate to a master via a crafted minion ID
+                    (CVE-2017-14695 — incomplete fix for CVE-2017-12791).
+                </div>
+                <h3>Diff</h3>
+                <pre class="diff-view"><span class="diff-hunk">--- a/salt/utils/verify.py
++++ b/salt/utils/verify.py
+@@ -484,7 +484,7 @@ def clean_id(id_):
+     '''
+     Returns if the passed id is clean.
+     '''
+<span class="diff-del">-    if re.search(r'\.\.\{sep}'.format(sep=os.sep), id_):</span>
+<span class="diff-add">+    if re.search(r'\.\.\{sep}'.format(sep=os.sep), id_):</span>
+         return False
+     return True</span></pre>
+
+                <h3>Ground Truth</h3>
+                <div class="gt-comment">
+                    <div class="file-loc">
+                        <span class="cwe-badge">CWE-22</span>
+                        <i class="fas fa-file-code me-1"></i>salt/utils/verify.py : line 487
+                    </div>
+                    <div class="text">
+                        Path Traversal — the regex <code>r'\.\.\{sep}'</code> does not correctly escape the separator,
+                        allowing crafted minion IDs with <code>../</code> sequences to bypass validation.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Example 2: SaltStack chef.py -->
+        <h2>Example 2 — SaltStack Chef Module (CVE-2014-3563)</h2>
+        <div class="example-block">
+            <div class="example-header">
+                <i class="fas fa-bug"></i>
+                <span>bf9c4ba9e81fd066b4d133eaddf2da2c6b3005aa</span>
+                <span class="cwe-badge">CWE-19</span>
+                <a href="https://github.com/saltstack/salt/commit/bf9c4ba9e81fd066b4d133eaddf2da2c6b3005aa"
+                   target="_blank" style="margin-left:auto;font-size:.78rem;color:var(--primary)">View Commit ↗</a>
+            </div>
+            <div class="example-body">
+                <div class="bug-desc">
+                    <strong>Bug:</strong> <code>modules/chef.py</code> in SaltStack before 2014.7.4
+                    does not properly handle files in <code>/tmp</code>, allowing local attackers
+                    to conduct symlink attacks (CVE-2014-3563).
+                </div>
+                <h3>Diff</h3>
+                <pre class="diff-view"><span class="diff-hunk">--- a/salt/modules/chef.py
++++ b/salt/modules/chef.py
+@@ -23,7 +23,7 @@ def _exec_cmd(cmd, api=False):</span>
+     chef_cmd = ['/usr/bin/env']
+<span class="diff-del">-    tmp_file = tempfile.mktemp()</span>
+<span class="diff-add">+    tmp_file = tempfile.mkstemp()[1]</span>
+     if api:
+         chef_cmd.append('chef-client --format=json --log_level=fatal')
+     else:</pre>
+
+                <h3>Ground Truth</h3>
+                <div class="gt-comment">
+                    <div class="file-loc">
+                        <span class="cwe-badge">CWE-19</span>
+                        <i class="fas fa-file-code me-1"></i>salt/modules/chef.py : lines 26–46
+                    </div>
+                    <div class="text">
+                        <code>tempfile.mktemp()</code> creates a temporary filename without opening the file,
+                        leaving a race condition window where an attacker can create a symlink at that path.
+                        Use <code>tempfile.mkstemp()</code> instead to atomically create and open the file.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Example 3: Second SaltStack Path Traversal -->
+        <h2>Example 3 — SaltStack Path Traversal variant</h2>
+        <div class="example-block">
+            <div class="example-header">
+                <i class="fas fa-bug"></i>
+                <span>aa87d67258a5b6742fc53d06c7bdac0f643bc9f1</span>
+                <span class="cwe-badge">CWE-22</span>
+                <a href="https://github.com/saltstack/salt/commit/aa87d67258a5b6742fc53d06c7bdac0f643bc9f1"
+                   target="_blank" style="margin-left:auto;font-size:.78rem;color:var(--primary)">View Commit ↗</a>
+            </div>
+            <div class="example-body">
+                <div class="bug-desc">
+                    <strong>Bug:</strong> Same CVE-2017-14695 family — a broader region of the
+                    <code>clean_id</code> function (lines 483–497) contains the incomplete path
+                    traversal fix that allows crafted minion IDs to bypass validation.
+                </div>
+                <h3>Ground Truth</h3>
+                <div class="gt-comment">
+                    <div class="file-loc">
+                        <span class="cwe-badge">CWE-22</span>
+                        <i class="fas fa-file-code me-1"></i>salt/utils/verify.py : lines 483–497
+                    </div>
+                    <div class="text">
+                        The entire <code>clean_id</code> function region contains an incomplete fix —
+                        the regex pattern for separator escaping is incorrect, enabling path traversal
+                        attacks via specially crafted minion identifiers.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <footer class="py-4 mt-4">
+        <div class="container-fluid px-4">
+            <!-- Powered-by logo bar -->
+            <div class="logo-bar-footer">
+                <div class="logo-slots">
+                    <!-- Atlassian: wide horizontal SVG, invert to white on dark bar -->
+                    <a href="https://www.atlassian.com" target="_blank" class="logo-slot" title="Atlassian">
+                        <img src="logos/Atlassian-logo.svg"
+                             alt="Atlassian"
+                             style="height:30px;width:auto;opacity:1">
+                    </a>
+                    <!-- University of Melbourne: square SVG with dark navy bg, show as-is -->
+                    <a href="https://www.unimelb.edu.au" target="_blank" class="logo-slot" title="University of Melbourne">
+                        <img src="logos/unimelb-logo.svg"
+                             alt="University of Melbourne"
+                             style="height:80px;width:auto;border-radius:4px">
+                    </a>
+                    <!-- Monash University: wide PNG, invert to white on dark bar -->
+                    <a href="https://www.monash.edu" target="_blank" class="logo-slot" title="Monash University">
+                        <img src="logos/monash-logo.png"
+                             alt="Monash University"
+                             style="height:60px;width:auto;opacity:1">
+                    </a>
+                </div>
+            </div>
+            <div class="text-center mt-3">
+                <p class="mb-0" style="font-size:.85rem;color:var(--text-muted)">
+                    &copy; 2026 Agentic Code Review Leaderboard &mdash; AI for Software Engineering Research.
+                </p>
+            </div>
+        </div>
+    </footer>
+    <script>
+    function benchToggleTheme() {
+        const html = document.documentElement;
+        const next = (html.getAttribute("data-theme") || "light") === "light" ? "dark" : "light";
+        html.setAttribute("data-theme", next);
+        localStorage.setItem("lb-theme", next);
+        const icon  = document.getElementById("bench-theme-icon");
+        const label = document.getElementById("bench-theme-label");
+        if (icon)  icon.innerHTML    = next === "dark" ? "<i class=\"far fa-sun\"></i>" : "<i class=\"far fa-moon\"></i>";
+        if (label) label.textContent = next === "dark" ? "Light" : "Dark";
+    }
+    </script>
+</body>
+</html>

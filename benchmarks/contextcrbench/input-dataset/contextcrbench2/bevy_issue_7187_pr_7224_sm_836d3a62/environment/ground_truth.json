@@ -1,0 +1,10 @@
+[
+  {
+    "path": "crates/bevy_render/src/render_phase/draw.rs",
+    "line": 167,
+    "original_line": 168,
+    "review_comment": [
+      "```suggestion\r\n    /// All parameters have to be read only.\r\n    ///\r\n    /// [`SRes`](bevy_ecs::system::lifetimeless::SRes)\r\n    /// [`SRes::into_inner`](bevy_ecs::system::lifetimeless::SRes::into_inner)\r\n```"
+    ]
+  }
+]

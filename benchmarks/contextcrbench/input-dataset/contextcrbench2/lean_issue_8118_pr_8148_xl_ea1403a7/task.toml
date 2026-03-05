@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "lean_issue_8118_pr_8148_xl_ea1403a7"
+contextcrbench2_full_name = "QuantConnect/Lean"
+contextcrbench2_lang = "c_sharp"
+contextcrbench2_issue_number = "8118"
+contextcrbench2_issue_title = "Implement Zero Lag Exponential Moving Average"
+contextcrbench2_pr_number = "8148"
+contextcrbench2_pr_title = "Implement new indicator - ZLEMA - Zero Lag Exponential Moving Average"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "ea1403a77f1fb771ee53190f06d62246057efb5c"
+contextcrbench2_commit_id = "01d4d6faef6d7d0fce501609bb26763819b51756"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2024-07-05T14:59:03Z"
+contextcrbench2_entry_count = "2"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

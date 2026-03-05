@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "vllm_issue_9114_pr_9089_xl_1e2d246a"
+contextcrbench2_full_name = "vllm-project/vllm"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "9114"
+contextcrbench2_issue_title = "[Usage]: How to run llama 3.2 with CPU only version"
+contextcrbench2_pr_number = "9089"
+contextcrbench2_pr_title = "[Hardware][CPU] Cross-attention and Encoder-Decoder models support on CPU backend"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "1e2d246a71cfaa19e5d4041fcc1164b787c4e128"
+contextcrbench2_commit_id = "1e2d246a71cfaa19e5d4041fcc1164b787c4e128"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2024-10-07T03:51:24Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

@@ -1,0 +1,6 @@
+{
+  "issue_title": "Editable installation with extras",
+  "issue_body": "When I try to install extras for an editable installation, e.g. `uv pip install -e . --all-extras`, uv refuses this with an error message:\r\n```\r\nerror: Requesting extras requires a `pyproject.toml`, `setup.cfg`, or `setup.py` file.\r\n```\r\nWithout `--extra` or \u00b4--all-extras` everything is fine, so the pyproject.toml file is obviously present and can be processed.\r\n\r\nParticularly with an `install -e`, however, it's often desirable to install the dev dependencies; `uv pip install` doesn't have any kind of `--dev` flag (unless I miss something).\r\n\r\nI haven't provided a full working sample as I think this behaviour doesn't depend on any particular conditions, but of course I'll try to prepare a stripped-down sample if it helps. I'm using uv 0.4.17.",
+  "pr_title": "Improve error messages for `uv pip install` with `--extra` or `--all-extras` and invalid sources",
+  "pr_body": "Closes https://github.com/astral-sh/uv/issues/11190\r\nCloses https://github.com/astral-sh/uv/issues/7845\r\n\r\nThis error message was copied over from `uv pip compile` (presumably) but makes way more sense there than here."
+}

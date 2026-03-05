@@ -1,0 +1,6 @@
+{
+  "issue_title": "[Linter panic] PLW2901 panics in async function",
+  "issue_body": "The following code panics in rule PLW2901 redefined-loop-name:\r\n```python\r\nasync def f():\r\n    async with a:\r\n        return await b\r\n```\r\nCommand:\r\n```shell\r\nruff --no-cache --select PLW2901 tasks.py\r\n```\r\nThis is an explicit panic, so i'm omitting the backtrace https://github.com/astral-sh/ruff/blob/66089e1a2e4b8b6ad6de3dc9543cd9a8d2a764e3/crates/ruff/src/rules/pylint/rules/redefined_loop_name.rs#L378",
+  "pr_title": "Allow `async with` in `redefined-loop-name`",
+  "pr_body": "## Summary\r\n\r\nCloses #5124.\r\n"
+}

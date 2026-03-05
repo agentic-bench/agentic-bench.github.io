@@ -1,0 +1,10 @@
+[
+  {
+    "path": "packages/svelte/src/compiler/phases/3-transform/client/utils.js",
+    "line": 436,
+    "original_line": 436,
+    "review_comment": [
+      "looks like type checking is failing on this line:\r\n\r\n> error TS2339: Property 'name' does not exist on type 'Pattern'."
+    ]
+  }
+]

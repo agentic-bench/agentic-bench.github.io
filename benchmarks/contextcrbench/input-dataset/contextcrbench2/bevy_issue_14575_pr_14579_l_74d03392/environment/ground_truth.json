@@ -1,0 +1,13 @@
+[
+  {
+    "path": "crates/bevy_ecs/src/schedule/schedule.rs",
+    "line": 1382,
+    "original_line": 1382,
+    "review_comment": [
+      "this is not ideal.. maybe we'd like to introduce a similar enum in the schedule graph conflicts? not sure if that's what we want",
+      "IMO this can wait until follow-up.",
+      "Out of curiousity, what happens with the ambiguity reporting in this case?",
+      "It says that the two systems are ambiguous and conflict on `World`: https://github.com/cBournhonesque/bevy/blob/944cc182d2265df2165ac03372d681d718e1723d/crates/bevy_ecs/src/schedule/schedule.rs#L1883-L1883"
+    ]
+  }
+]

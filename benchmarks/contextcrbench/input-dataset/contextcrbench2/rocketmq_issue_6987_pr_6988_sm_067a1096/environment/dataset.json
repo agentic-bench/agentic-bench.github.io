@@ -1,0 +1,13 @@
+[
+  {
+    "id": 21948,
+    "full_name": "apache/rocketmq",
+    "lang": "java",
+    "issue_number": 6987,
+    "pr_number": 6988,
+    "diff_hunk": "@@ -529,6 +529,13 @@ private synchronized RemotingCommand deleteTopic(ChannelHandlerContext ctx,\n             }\n         }\n \n+        if (MixAll.isLmq(topic)) {\n+            this.brokerController.getMessageStore().cleanUnusedLmqTopic(topic);\n+            response.setCode(ResponseCode.SUCCESS);\n+            response.setRemark(null);\n+            return response;\n+        }\n+\n         this.brokerController.getTopicConfigManager().deleteTopicConfig(requestHeader.getTopic());\n         this.brokerController.getTopicQueueMappingManager().delete(requestHeader.getTopic());\n         this.brokerController.getConsumerOffsetManager().cleanOffsetByTopic(requestHeader.getTopic());\n",
+    "diff_hunk_content_with_line_number": "[529][529]              }\n[530][530]          }\n[531][531]  \n[][532] +        if (MixAll.isLmq(topic)) {\n[][533] +            this.brokerController.getMessageStore().cleanUnusedLmqTopic(topic);\n[][534] +            response.setCode(ResponseCode.SUCCESS);\n[][535] +            response.setRemark(null);\n[][536] +            return response;\n[][537] +        }\n[][538] +\n[532][539]          this.brokerController.getTopicConfigManager().deleteTopicConfig(requestHeader.getTopic());\n[533][540]          this.brokerController.getTopicQueueMappingManager().delete(requestHeader.getTopic());\n[534][541]          this.brokerController.getConsumerOffsetManager().cleanOffsetByTopic(requestHeader.getTopic());",
+    "checked_commit_id": "067a109685db4d37cce621c5a4c16fff43f1a71a",
+    "pr_size": "sm"
+  }
+]

@@ -1,0 +1,24 @@
+[
+  {
+    "id": 40084,
+    "full_name": "pingcap/tidb",
+    "lang": "go",
+    "issue_number": 17475,
+    "pr_number": 17909,
+    "diff_hunk": "@@ -697,7 +697,9 @@ func EvaluateExprWithNull(ctx sessionctx.Context, schema *Schema, expr Expressio\n \t\tfor i, arg := range x.GetArgs() {\n \t\t\targs[i] = EvaluateExprWithNull(ctx, schema, arg)\n \t\t}\n-\t\treturn NewFunctionInternal(ctx, x.FuncName.L, x.RetType, args...)\n+\t\tnewExpr := x.Clone().(*ScalarFunction)\n+\t\tnewExpr.Function.setArgs(args)\n+\t\treturn FoldConstant(newExpr)\n \tcase *Column:\n \t\tif !schema.Contains(x) {\n \t\t\treturn x\n",
+    "diff_hunk_content_with_line_number": "[697][697]  \t\tfor i, arg := range x.GetArgs() {\n[698][698]  \t\t\targs[i] = EvaluateExprWithNull(ctx, schema, arg)\n[699][699]  \t\t}\n[700][] -\t\treturn NewFunctionInternal(ctx, x.FuncName.L, x.RetType, args...)\n[][700] +\t\tnewExpr := x.Clone().(*ScalarFunction)\n[][701] +\t\tnewExpr.Function.setArgs(args)\n[][702] +\t\treturn FoldConstant(newExpr)\n[701][703]  \tcase *Column:\n[702][704]  \t\tif !schema.Contains(x) {\n[703][705]  \t\t\treturn x",
+    "checked_commit_id": "11cdc6008e188f4938a1e175a5768ccdfc4edb3d",
+    "pr_size": "sm"
+  },
+  {
+    "id": 40085,
+    "full_name": "pingcap/tidb",
+    "lang": "go",
+    "issue_number": 17475,
+    "pr_number": 17909,
+    "diff_hunk": "@@ -247,6 +247,10 @@ func (b *baseBuiltinFunc) getArgs() []Expression {\n \treturn b.args\n }\n \n+func (b *baseBuiltinFunc) setArgs(args []Expression) {\n+\tb.args = args\n+}\n+\n func (b *baseBuiltinFunc) vecEvalInt(input *chunk.Chunk, result *chunk.Column) error {\n \treturn errors.Errorf(\"baseBuiltinFunc.vecEvalInt() should never be called, please contact the TiDB team for help\")\n }",
+    "diff_hunk_content_with_line_number": "[247][247]  \treturn b.args\n[248][248]  }\n[249][249]  \n[][250] +func (b *baseBuiltinFunc) setArgs(args []Expression) {\n[][251] +\tb.args = args\n[][252] +}\n[][253] +\n[250][254]  func (b *baseBuiltinFunc) vecEvalInt(input *chunk.Chunk, result *chunk.Column) error {\n[251][255]  \treturn errors.Errorf(\"baseBuiltinFunc.vecEvalInt() should never be called, please contact the TiDB team for help\")\n[252][256]  }",
+    "checked_commit_id": "11cdc6008e188f4938a1e175a5768ccdfc4edb3d",
+    "pr_size": "sm"
+  }
+]

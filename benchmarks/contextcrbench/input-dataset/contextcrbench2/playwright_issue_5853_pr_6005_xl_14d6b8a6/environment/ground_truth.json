@@ -1,0 +1,11 @@
+[
+  {
+    "path": "src/server/artifact.ts",
+    "line": 82,
+    "original_line": 82,
+    "review_comment": [
+      "move this check up?",
+      "If we move this up, there could be a race where another delete() happens during `await localPathAfterFinished()`."
+    ]
+  }
+]

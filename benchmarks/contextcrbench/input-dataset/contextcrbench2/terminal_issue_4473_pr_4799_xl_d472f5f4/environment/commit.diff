@@ -1,0 +1,124 @@
+diff --git a/src/tsf/ConsoleTSF.cpp b/src/tsf/ConsoleTSF.cpp
+index 4937ab0c25d..cae281b2e61 100644
+--- a/src/tsf/ConsoleTSF.cpp
++++ b/src/tsf/ConsoleTSF.cpp
+@@ -3,7 +3,7 @@
+ 
+ #include "precomp.h"
+ #include "TfConvArea.h"
+-#include "TfEditSes.h"
++#include "TfEditSession.h"
+ 
+ /* 626761ad-78d2-44d2-be8b-752cf122acec */
+ const GUID GUID_APPLICATION = { 0x626761ad, 0x78d2, 0x44d2, { 0xbe, 0x8b, 0x75, 0x2c, 0xf1, 0x22, 0xac, 0xec } };
+diff --git a/src/tsf/TfEditses.cpp b/src/tsf/TfEditSession.cpp
+similarity index 96%
+rename from src/tsf/TfEditses.cpp
+rename to src/tsf/TfEditSession.cpp
+index 762b8ced25b..b052c573a73 100644
+--- a/src/tsf/TfEditses.cpp
++++ b/src/tsf/TfEditSession.cpp
+@@ -5,7 +5,7 @@ Licensed under the MIT license.
+ 
+ Module Name:
+ 
+-    TfEditses.cpp
++    TfEditSession.cpp
+ 
+ Abstract:
+ 
+@@ -23,7 +23,7 @@ Revision History:
+ #include "TfConvArea.h"
+ #include "TfCatUtil.h"
+ #include "TfDispAttr.h"
+-#include "TfEditses.h"
++#include "TfEditSession.h"
+ 
+ //+---------------------------------------------------------------------------
+ //
+diff --git a/src/tsf/TfEditses.h b/src/tsf/TfEditSession.h
+similarity index 97%
+rename from src/tsf/TfEditses.h
+rename to src/tsf/TfEditSession.h
+index 002bbcafaa1..44bb50005ad 100644
+--- a/src/tsf/TfEditses.h
++++ b/src/tsf/TfEditSession.h
+@@ -5,7 +5,7 @@ Licensed under the MIT license.
+ 
+ Module Name:
+ 
+-    TfEditses.h
++    TfEditSession.h
+ 
+ Abstract:
+ 
+diff --git a/src/tsf/TfTxtevCb.cpp b/src/tsf/TfTxtevCb.cpp
+index b43bf70c990..59429d32544 100644
+--- a/src/tsf/TfTxtevCb.cpp
++++ b/src/tsf/TfTxtevCb.cpp
+@@ -21,7 +21,7 @@ Revision History:
+ 
+ #include "precomp.h"
+ #include "ConsoleTSF.h"
+-#include "TfEditses.h"
++#include "TfEditSession.h"
+ 
+ //+---------------------------------------------------------------------------
+ //
+diff --git a/src/tsf/sources b/src/tsf/sources
+index 1054a0039e2..137acce43ef 100644
+--- a/src/tsf/sources
++++ b/src/tsf/sources
+@@ -48,7 +48,7 @@ SOURCES = \
+     TfConvArea.cpp \
+     TfCatUtil.cpp \
+     TfDispAttr.cpp \
+-    TfEditses.cpp \
++    TfEditSession.cpp \
+     TfTxtevCb.cpp \
+ 
+ INCLUDES = \
+diff --git a/src/tsf/tsf.vcxproj b/src/tsf/tsf.vcxproj
+index 6ef3f344df3..41a588f87cc 100644
+--- a/src/tsf/tsf.vcxproj
++++ b/src/tsf/tsf.vcxproj
+@@ -15,7 +15,7 @@
+     <ClCompile Include="TfCatUtil.cpp" />
+     <ClCompile Include="TfConvArea.cpp" />
+     <ClCompile Include="TfDispAttr.cpp" />
+-    <ClCompile Include="TfEditses.cpp" />
++    <ClCompile Include="TfEditSession.cpp" />
+     <ClCompile Include="TfTxtevCb.cpp" />
+     <ClCompile Include="precomp.cpp">
+       <PrecompiledHeader>Create</PrecompiledHeader>
+@@ -30,7 +30,7 @@
+     <ClInclude Include="TfConvArea.h" />
+     <ClInclude Include="TfCtxtComp.h" />
+     <ClInclude Include="TfDispAttr.h" />
+-    <ClInclude Include="TfEditses.h" />
++    <ClInclude Include="TfEditSession.h" />
+   </ItemGroup>
+   <!-- Careful reordering these. Some default props (contained in these files) are order sensitive. -->
+   <Import Project="$(SolutionDir)src\common.build.post.props" />
+diff --git a/src/tsf/tsf.vcxproj.filters b/src/tsf/tsf.vcxproj.filters
+index ac250d2fb9e..45de6a88be4 100644
+--- a/src/tsf/tsf.vcxproj.filters
++++ b/src/tsf/tsf.vcxproj.filters
+@@ -30,7 +30,7 @@
+     <ClCompile Include="TfDispAttr.cpp">
+       <Filter>Source Files</Filter>
+     </ClCompile>
+-    <ClCompile Include="TfEditses.cpp">
++    <ClCompile Include="TfEditSession.cpp">
+       <Filter>Source Files</Filter>
+     </ClCompile>
+     <ClCompile Include="TfTxtevCb.cpp">
+@@ -65,7 +65,7 @@
+     <ClInclude Include="TfDispAttr.h">
+       <Filter>Header Files</Filter>
+     </ClInclude>
+-    <ClInclude Include="TfEditses.h">
++    <ClInclude Include="TfEditSession.h">
+       <Filter>Header Files</Filter>
+     </ClInclude>
+   </ItemGroup>

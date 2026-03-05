@@ -1,0 +1,8 @@
+{
+    "task_id": "ruff_issue_4360_pr_4407_xl_603b9220",
+    "repo": "ruff",
+    "issue_number": 4360,
+    "pr_number": 4407,
+    "checked_commit_id": "603b922084e072c1da8845720e70147e332db188",
+    "entry_count": 2
+}

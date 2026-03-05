@@ -1,0 +1,963 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 6d580c93fefdb..a78e0c97f337a 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -4750,6 +4750,7 @@ dependencies = [
+  "serde",
+  "toml",
+  "tracing",
++ "url",
+  "uv-client",
+  "uv-distribution",
+  "uv-fs",
+diff --git a/crates/pep508-rs/src/marker.rs b/crates/pep508-rs/src/marker.rs
+index 69ad5484aa718..f2553c75a9710 100644
+--- a/crates/pep508-rs/src/marker.rs
++++ b/crates/pep508-rs/src/marker.rs
+@@ -967,6 +967,88 @@ impl MarkerTree {
+         }
+     }
+ 
++    /// Remove the extras from a marker, returning `None` if the marker tree evaluates to `true`.
++    ///
++    /// Any `extra` markers that are always `true` given the provided extras will be removed.
++    /// Any `extra` markers that are always `false` given the provided extras will be left
++    /// unchanged.
++    ///
++    /// For example, if `dev` is a provided extra, given `sys_platform == 'linux' and extra == 'dev'`,
++    /// the marker will be simplified to `sys_platform == 'linux'`.
++    pub fn simplify_extras(self, extras: &[ExtraName]) -> Option<MarkerTree> {
++        /// Returns `true` if the given expression is always `true` given the set of extras.
++        pub fn is_true(expression: &MarkerExpression, extras: &[ExtraName]) -> bool {
++            // Ex) `extra == 'dev'`
++            if expression.l_value == MarkerValue::Extra {
++                if let MarkerValue::QuotedString(r_string) = &expression.r_value {
++                    if let Ok(r_extra) = ExtraName::from_str(r_string) {
++                        return extras.contains(&r_extra);
++                    }
++                }
++            }
++            // Ex) `'dev' == extra`
++            if expression.r_value == MarkerValue::Extra {
++                if let MarkerValue::QuotedString(l_string) = &expression.l_value {
++                    if let Ok(l_extra) = ExtraName::from_str(l_string) {
++                        return extras.contains(&l_extra);
++                    }
++                }
++            }
++            false
++        }
++
++        match self {
++            Self::Expression(expression) => {
++                // If the expression is true, we can remove the marker entirely.
++                if is_true(&expression, extras) {
++                    None
++                } else {
++                    // If not, return the original marker.
++                    Some(Self::Expression(expression))
++                }
++            }
++            Self::And(expressions) => {
++                // Remove any expressions that are _true_ due to the presence of an extra.
++                let simplified = expressions
++                    .into_iter()
++                    .filter_map(|marker| marker.simplify_extras(extras))
++                    .collect::<Vec<_>>();
++
++                // If there are no expressions left, return None.
++                if simplified.is_empty() {
++                    None
++                } else if simplified.len() == 1 {
++                    // If there is only one expression left, return the remaining expression.
++                    simplified.into_iter().next()
++                } else {
++                    // If there are still expressions left, return the simplified marker.
++                    Some(Self::And(simplified))
++                }
++            }
++            Self::Or(expressions) => {
++                let num_expressions = expressions.len();
++
++                // Remove any expressions that are _true_ due to the presence of an extra.
++                let simplified = expressions
++                    .into_iter()
++                    .filter_map(|marker| marker.simplify_extras(extras))
++                    .collect::<Vec<_>>();
++
++                // If _any_ of the expressions are true (i.e., if any of the markers were filtered
++                // out in the above filter step), the entire marker is true.
++                if simplified.len() < num_expressions {
++                    None
++                } else if simplified.len() == 1 {
++                    // If there is only one expression left, return the remaining expression.
++                    simplified.into_iter().next()
++                } else {
++                    // If there are still expressions left, return the simplified marker.
++                    Some(Self::Or(simplified))
++                }
++            }
++        }
++    }
++
+     /// Same as [`Self::evaluate`], but instead of using logging to warn, you can pass your own
+     /// handler for warnings
+     pub fn evaluate_reporter(
+@@ -1368,9 +1450,13 @@ fn parse_markers(markers: &str) -> Result<MarkerTree, Pep508Error> {
+ #[cfg(test)]
+ mod test {
+     use crate::marker::{MarkerEnvironment, StringVersion};
+-    use crate::{MarkerExpression, MarkerOperator, MarkerTree, MarkerValue, MarkerValueString};
++    use crate::{
++        MarkerExpression, MarkerOperator, MarkerTree, MarkerValue, MarkerValueString,
++        MarkerValueVersion,
++    };
+     use insta::assert_snapshot;
+     use std::str::FromStr;
++    use uv_normalize::ExtraName;
+ 
+     fn parse_err(input: &str) -> String {
+         MarkerTree::from_str(input).unwrap_err().to_string()
+@@ -1616,4 +1702,99 @@ mod test {
+         )
+         .unwrap();
+     }
++
++    #[test]
++    fn test_simplify_extras() {
++        // Given `os_name == "nt" and extra == "dev"`, simplify to `os_name == "nt"`.
++        let markers = MarkerTree::from_str(r#"os_name == "nt" and extra == "dev""#).unwrap();
++        let simplified = markers.simplify_extras(&[ExtraName::from_str("dev").unwrap()]);
++        assert_eq!(
++            simplified,
++            Some(MarkerTree::Expression(MarkerExpression {
++                l_value: MarkerValue::MarkerEnvString(MarkerValueString::OsName),
++                operator: MarkerOperator::Equal,
++                r_value: MarkerValue::QuotedString("nt".to_string()),
++            }))
++        );
++
++        // Given `os_name == "nt" or extra == "dev"`, remove the marker entirely.
++        let markers = MarkerTree::from_str(r#"os_name == "nt" or extra == "dev""#).unwrap();
++        let simplified = markers.simplify_extras(&[ExtraName::from_str("dev").unwrap()]);
++        assert_eq!(simplified, None);
++
++        // Given `extra == "dev"`, remove the marker entirely.
++        let markers = MarkerTree::from_str(r#"extra == "dev""#).unwrap();
++        let simplified = markers.simplify_extras(&[ExtraName::from_str("dev").unwrap()]);
++        assert_eq!(simplified, None);
++
++        // Given `extra == "dev" and extra == "test"`, simplify to `extra == "test"`.
++        let markers = MarkerTree::from_str(r#"extra == "dev" and extra == "test""#).unwrap();
++        let simplified = markers.simplify_extras(&[ExtraName::from_str("dev").unwrap()]);
++        assert_eq!(
++            simplified,
++            Some(MarkerTree::Expression(MarkerExpression {
++                l_value: MarkerValue::Extra,
++                operator: MarkerOperator::Equal,
++                r_value: MarkerValue::QuotedString("test".to_string()),
++            }))
++        );
++
++        // Given `os_name == "nt" and extra == "test"`, don't simplify.
++        let markers = MarkerTree::from_str(r#"os_name == "nt" and extra == "test""#).unwrap();
++        let simplified = markers.simplify_extras(&[ExtraName::from_str("dev").unwrap()]);
++        assert_eq!(
++            simplified,
++            Some(MarkerTree::And(vec![
++                MarkerTree::Expression(MarkerExpression {
++                    l_value: MarkerValue::MarkerEnvString(MarkerValueString::OsName),
++                    operator: MarkerOperator::Equal,
++                    r_value: MarkerValue::QuotedString("nt".to_string()),
++                }),
++                MarkerTree::Expression(MarkerExpression {
++                    l_value: MarkerValue::Extra,
++                    operator: MarkerOperator::Equal,
++                    r_value: MarkerValue::QuotedString("test".to_string()),
++                }),
++            ]))
++        );
++
++        // Given `os_name == "nt" and (python_version == "3.7" or extra == "dev")`, simplify to
++        // `os_name == "nt".
++        let markers = MarkerTree::from_str(
++            r#"os_name == "nt" and (python_version == "3.7" or extra == "dev")"#,
++        )
++        .unwrap();
++        let simplified = markers.simplify_extras(&[ExtraName::from_str("dev").unwrap()]);
++        assert_eq!(
++            simplified,
++            Some(MarkerTree::Expression(MarkerExpression {
++                l_value: MarkerValue::MarkerEnvString(MarkerValueString::OsName),
++                operator: MarkerOperator::Equal,
++                r_value: MarkerValue::QuotedString("nt".to_string()),
++            }))
++        );
++
++        // Given `os_name == "nt" or (python_version == "3.7" and extra == "dev")`, simplify to
++        // `os_name == "nt" or python_version == "3.7"`.
++        let markers = MarkerTree::from_str(
++            r#"os_name == "nt" or (python_version == "3.7" and extra == "dev")"#,
++        )
++        .unwrap();
++        let simplified = markers.simplify_extras(&[ExtraName::from_str("dev").unwrap()]);
++        assert_eq!(
++            simplified,
++            Some(MarkerTree::Or(vec![
++                MarkerTree::Expression(MarkerExpression {
++                    l_value: MarkerValue::MarkerEnvString(MarkerValueString::OsName),
++                    operator: MarkerOperator::Equal,
++                    r_value: MarkerValue::QuotedString("nt".to_string()),
++                }),
++                MarkerTree::Expression(MarkerExpression {
++                    l_value: MarkerValue::MarkerEnvVersion(MarkerValueVersion::PythonVersion),
++                    operator: MarkerOperator::Equal,
++                    r_value: MarkerValue::QuotedString("3.7".to_string()),
++                }),
++            ]))
++        );
++    }
+ }
+diff --git a/crates/uv-requirements/Cargo.toml b/crates/uv-requirements/Cargo.toml
+index 572c236ddc770..99b5e2cc9cf3b 100644
+--- a/crates/uv-requirements/Cargo.toml
++++ b/crates/uv-requirements/Cargo.toml
+@@ -36,6 +36,7 @@ rustc-hash = { workspace = true }
+ serde = { workspace = true }
+ toml = { workspace = true }
+ tracing = { workspace = true }
++url = { workspace = true }
+ 
+ [lints]
+ workspace = true
+diff --git a/crates/uv-requirements/src/lib.rs b/crates/uv-requirements/src/lib.rs
+index 0bc4f8cabcb0b..8ef5ec28b8eb4 100644
+--- a/crates/uv-requirements/src/lib.rs
++++ b/crates/uv-requirements/src/lib.rs
+@@ -1,9 +1,11 @@
+ pub use crate::resolver::*;
++pub use crate::source_tree::*;
+ pub use crate::sources::*;
+ pub use crate::specification::*;
+ 
+ mod confirm;
+ mod resolver;
++mod source_tree;
+ mod sources;
+ mod specification;
+ pub mod upgrade;
+diff --git a/crates/uv-requirements/src/source_tree.rs b/crates/uv-requirements/src/source_tree.rs
+new file mode 100644
+index 0000000000000..1a67c09127643
+--- /dev/null
++++ b/crates/uv-requirements/src/source_tree.rs
+@@ -0,0 +1,127 @@
++use std::borrow::Cow;
++use std::path::{Path, PathBuf};
++use std::sync::Arc;
++
++use anyhow::{Context, Result};
++use futures::{StreamExt, TryStreamExt};
++use url::Url;
++
++use distribution_types::{BuildableSource, PathSourceUrl, SourceUrl};
++use pep508_rs::Requirement;
++use uv_client::RegistryClient;
++use uv_distribution::{Reporter, SourceDistCachedBuilder};
++use uv_traits::BuildContext;
++
++use crate::ExtrasSpecification;
++
++/// A resolver for requirements specified via source trees.
++///
++/// Used, e.g., to determine the the input requirements when a user specifies a `pyproject.toml`
++/// file, which may require running PEP 517 build hooks to extract metadata.
++pub struct SourceTreeResolver<'a> {
++    /// The requirements for the project.
++    source_trees: Vec<PathBuf>,
++    /// The extras to include when resolving requirements.
++    extras: &'a ExtrasSpecification<'a>,
++    /// The reporter to use when building source distributions.
++    reporter: Option<Arc<dyn Reporter>>,
++}
++
++impl<'a> SourceTreeResolver<'a> {
++    /// Instantiate a new [`SourceTreeResolver`] for a given set of `source_trees`.
++    pub fn new(source_trees: Vec<PathBuf>, extras: &'a ExtrasSpecification<'a>) -> Self {
++        Self {
++            source_trees,
++            extras,
++            reporter: None,
++        }
++    }
++
++    /// Set the [`Reporter`] to use for this resolver.
++    #[must_use]
++    pub fn with_reporter(self, reporter: impl Reporter + 'static) -> Self {
++        let reporter: Arc<dyn Reporter> = Arc::new(reporter);
++        Self {
++            reporter: Some(reporter),
++            ..self
++        }
++    }
++
++    /// Resolve the requirements from the provided source trees.
++    pub async fn resolve<T: BuildContext>(
++        self,
++        context: &T,
++        client: &RegistryClient,
++    ) -> Result<Vec<Requirement>> {
++        let requirements: Vec<_> = futures::stream::iter(self.source_trees.iter())
++            .map(|source_tree| async {
++                self.resolve_source_tree(source_tree, context, client).await
++            })
++            .buffered(50)
++            .try_collect()
++            .await?;
++        Ok(requirements.into_iter().flatten().collect())
++    }
++
++    /// Infer the package name for a given "unnamed" requirement.
++    async fn resolve_source_tree<T: BuildContext>(
++        &self,
++        source_tree: &Path,
++        context: &T,
++        client: &RegistryClient,
++    ) -> Result<Vec<Requirement>> {
++        // Convert to a buildable source.
++        let path = fs_err::canonicalize(source_tree).with_context(|| {
++            format!(
++                "Failed to canonicalize path to source tree: {}",
++                source_tree.display()
++            )
++        })?;
++        let Ok(url) = Url::from_directory_path(&path) else {
++            return Err(anyhow::anyhow!("Failed to convert path to URL"));
++        };
++        let source = BuildableSource::Url(SourceUrl::Path(PathSourceUrl {
++            url: &url,
++            path: Cow::Owned(path),
++        }));
++
++        // Run the PEP 517 build process to extract metadata from the source distribution.
++        let builder = if let Some(reporter) = self.reporter.clone() {
++            SourceDistCachedBuilder::new(context, client).with_reporter(reporter)
++        } else {
++            SourceDistCachedBuilder::new(context, client)
++        };
++
++        let metadata = builder
++            .download_and_build_metadata(&source)
++            .await
++            .context("Failed to build source distribution")?;
++
++        // Determine the appropriate requirements to return based on the extras. This involves
++        // evaluating the `extras` expression in any markers, but preserving the remaining marker
++        // conditions.
++        match self.extras {
++            ExtrasSpecification::None => Ok(metadata.requires_dist),
++            ExtrasSpecification::All => Ok(metadata
++                .requires_dist
++                .into_iter()
++                .map(|requirement| Requirement {
++                    marker: requirement
++                        .marker
++                        .and_then(|marker| marker.simplify_extras(&metadata.provides_extras)),
++                    ..requirement
++                })
++                .collect()),
++            ExtrasSpecification::Some(extras) => Ok(metadata
++                .requires_dist
++                .into_iter()
++                .map(|requirement| Requirement {
++                    marker: requirement
++                        .marker
++                        .and_then(|marker| marker.simplify_extras(extras)),
++                    ..requirement
++                })
++                .collect()),
++        }
++    }
++}
+diff --git a/crates/uv-requirements/src/sources.rs b/crates/uv-requirements/src/sources.rs
+index 16398bda6cca8..027b3818db942 100644
+--- a/crates/uv-requirements/src/sources.rs
++++ b/crates/uv-requirements/src/sources.rs
+@@ -105,4 +105,8 @@ impl ExtrasSpecification<'_> {
+             ExtrasSpecification::Some(extras) => extras.contains(name),
+         }
+     }
++
++    pub fn is_empty(&self) -> bool {
++        matches!(self, ExtrasSpecification::None)
++    }
+ }
+diff --git a/crates/uv-requirements/src/specification.rs b/crates/uv-requirements/src/specification.rs
+index 8dc96d5513cb9..410b4a9baa964 100644
+--- a/crates/uv-requirements/src/specification.rs
++++ b/crates/uv-requirements/src/specification.rs
+@@ -1,7 +1,9 @@
++use std::path::PathBuf;
+ use std::str::FromStr;
+ 
+ use anyhow::{Context, Result};
+ use indexmap::IndexMap;
++use pyproject_toml::Project;
+ use rustc_hash::FxHashSet;
+ use tracing::{instrument, Level};
+ 
+@@ -12,7 +14,6 @@ use requirements_txt::{EditableRequirement, FindLink, RequirementsTxt};
+ use uv_client::BaseClientBuilder;
+ use uv_fs::Simplified;
+ use uv_normalize::{ExtraName, PackageName};
+-use uv_warnings::warn_user;
+ 
+ use crate::{ExtrasSpecification, RequirementsSource};
+ 
+@@ -28,6 +29,8 @@ pub struct RequirementsSpecification {
+     pub overrides: Vec<Requirement>,
+     /// Package to install as editable installs
+     pub editables: Vec<EditableRequirement>,
++    /// The source trees from which to extract requirements.
++    pub source_trees: Vec<PathBuf>,
+     /// The extras used to collect requirements.
+     pub extras: FxHashSet<ExtraName>,
+     /// The index URL to use for fetching packages.
+@@ -58,6 +61,7 @@ impl RequirementsSpecification {
+                     constraints: vec![],
+                     overrides: vec![],
+                     editables: vec![],
++                    source_trees: vec![],
+                     extras: FxHashSet::default(),
+                     index_url: None,
+                     extra_index_urls: vec![],
+@@ -74,6 +78,7 @@ impl RequirementsSpecification {
+                     constraints: vec![],
+                     overrides: vec![],
+                     editables: vec![requirement],
++                    source_trees: vec![],
+                     extras: FxHashSet::default(),
+                     index_url: None,
+                     extra_index_urls: vec![],
+@@ -92,8 +97,9 @@ impl RequirementsSpecification {
+                         .map(|entry| entry.requirement)
+                         .collect(),
+                     constraints: requirements_txt.constraints,
+-                    editables: requirements_txt.editables,
+                     overrides: vec![],
++                    editables: requirements_txt.editables,
++                    source_trees: vec![],
+                     extras: FxHashSet::default(),
+                     index_url: requirements_txt.index_url.map(IndexUrl::from),
+                     extra_index_urls: requirements_txt
+@@ -116,66 +122,59 @@ impl RequirementsSpecification {
+                 let contents = uv_fs::read_to_string(path).await?;
+                 let pyproject_toml = toml::from_str::<pyproject_toml::PyProjectToml>(&contents)
+                     .with_context(|| format!("Failed to parse `{}`", path.user_display()))?;
+-                let mut used_extras = FxHashSet::default();
+-                let mut requirements = Vec::new();
+-                let mut project_name = None;
+-
+-                if let Some(project) = pyproject_toml.project {
+-                    // Parse the project name.
+-                    let parsed_project_name =
+-                        PackageName::new(project.name).with_context(|| {
+-                            format!("Invalid `project.name` in {}", path.user_display())
+-                        })?;
+ 
+-                    // Include the default dependencies.
+-                    requirements.extend(project.dependencies.unwrap_or_default());
+-
+-                    // Include any optional dependencies specified in `extras`.
+-                    if !matches!(extras, ExtrasSpecification::None) {
+-                        if let Some(optional_dependencies) = project.optional_dependencies {
+-                            for (extra_name, optional_requirements) in &optional_dependencies {
+-                                // TODO(konstin): It's not ideal that pyproject-toml doesn't use
+-                                // `ExtraName`
+-                                let normalized_name = ExtraName::from_str(extra_name)?;
+-                                if extras.contains(&normalized_name) {
+-                                    used_extras.insert(normalized_name);
+-                                    requirements.extend(flatten_extra(
+-                                        &parsed_project_name,
+-                                        optional_requirements,
+-                                        &optional_dependencies,
+-                                    )?);
+-                                }
+-                            }
+-                        }
+-                    }
+-
+-                    project_name = Some(parsed_project_name);
+-                }
+-
+-                if requirements.is_empty()
+-                    && pyproject_toml.build_system.is_some_and(|build_system| {
+-                        build_system.requires.iter().any(|requirement| {
+-                            requirement.name.as_dist_info_name().starts_with("poetry")
++                // Attempt to read metadata from the `pyproject.toml` directly.
++                if let Some(project) = pyproject_toml
++                    .project
++                    .map(|project| {
++                        StaticProject::try_from(project, extras).with_context(|| {
++                            format!(
++                                "Failed to extract requirements from `{}`",
++                                path.user_display()
++                            )
+                         })
+                     })
++                    .transpose()?
++                    .flatten()
+                 {
+-                    warn_user!("`{}` does not contain any dependencies (hint: specify dependencies in the `project.dependencies` section; `tool.poetry.dependencies` is not currently supported)", path.user_display());
+-                }
+-
+-                Self {
+-                    project: project_name,
+-                    requirements: requirements
+-                        .into_iter()
+-                        .map(RequirementsTxtRequirement::Pep508)
+-                        .collect(),
+-                    constraints: vec![],
+-                    overrides: vec![],
+-                    editables: vec![],
+-                    extras: used_extras,
+-                    index_url: None,
+-                    extra_index_urls: vec![],
+-                    no_index: false,
+-                    find_links: vec![],
++                    Self {
++                        project: Some(project.name),
++                        requirements: project
++                            .requirements
++                            .into_iter()
++                            .map(RequirementsTxtRequirement::Pep508)
++                            .collect(),
++                        constraints: vec![],
++                        overrides: vec![],
++                        editables: vec![],
++                        source_trees: vec![],
++                        extras: project.used_extras,
++                        index_url: None,
++                        extra_index_urls: vec![],
++                        no_index: false,
++                        find_links: vec![],
++                    }
++                } else {
++                    let path = fs_err::canonicalize(path)?;
++                    let source_tree = path.parent().ok_or_else(|| {
++                        anyhow::anyhow!(
++                            "The file `{}` appears to be a `pyproject.toml` file, which must be in a directory",
++                            path.user_display()
++                        )
++                    })?;
++                    Self {
++                        project: None,
++                        requirements: vec![],
++                        constraints: vec![],
++                        overrides: vec![],
++                        editables: vec![],
++                        source_trees: vec![source_tree.to_path_buf()],
++                        extras: FxHashSet::default(),
++                        index_url: None,
++                        extra_index_urls: vec![],
++                        no_index: false,
++                        find_links: vec![],
++                    }
+                 }
+             }
+         })
+@@ -201,6 +200,7 @@ impl RequirementsSpecification {
+             spec.overrides.extend(source.overrides);
+             spec.extras.extend(source.extras);
+             spec.editables.extend(source.editables);
++            spec.source_trees.extend(source.source_trees);
+ 
+             // Use the first project name discovered.
+             if spec.project.is_none() {
+@@ -307,6 +307,66 @@ impl RequirementsSpecification {
+     }
+ }
+ 
++#[derive(Debug)]
++pub struct StaticProject {
++    /// The name of the project.
++    pub name: PackageName,
++    /// The requirements extracted from the project.
++    pub requirements: Vec<Requirement>,
++    /// The extras used to collect requirements.
++    pub used_extras: FxHashSet<ExtraName>,
++}
++
++impl StaticProject {
++    pub fn try_from(project: Project, extras: &ExtrasSpecification) -> Result<Option<Self>> {
++        // Parse the project name.
++        let name =
++            PackageName::new(project.name).with_context(|| "Invalid `project.name`".to_string())?;
++
++        if let Some(dynamic) = project.dynamic.as_ref() {
++            // If the project specifies dynamic dependencies, we can't extract the requirements.
++            if dynamic.iter().any(|field| field == "dependencies") {
++                return Ok(None);
++            }
++            // If we requested extras, and the project specifies dynamic optional dependencies, we can't
++            // extract the requirements.
++            if !extras.is_empty() && dynamic.iter().any(|field| field == "optional-dependencies") {
++                return Ok(None);
++            }
++        }
++
++        let mut requirements = Vec::new();
++        let mut used_extras = FxHashSet::default();
++
++        // Include the default dependencies.
++        requirements.extend(project.dependencies.unwrap_or_default());
++
++        // Include any optional dependencies specified in `extras`.
++        if !extras.is_empty() {
++            if let Some(optional_dependencies) = project.optional_dependencies {
++                for (extra_name, optional_requirements) in &optional_dependencies {
++                    let normalized_name = ExtraName::from_str(extra_name)
++                        .with_context(|| format!("Invalid extra name `{extra_name}`"))?;
++                    if extras.contains(&normalized_name) {
++                        used_extras.insert(normalized_name);
++                        requirements.extend(flatten_extra(
++                            &name,
++                            optional_requirements,
++                            &optional_dependencies,
++                        )?);
++                    }
++                }
++            }
++        }
++
++        Ok(Some(Self {
++            name,
++            requirements,
++            used_extras,
++        }))
++    }
++}
++
+ /// Given an extra in a project that may contain references to the project
+ /// itself, flatten it into a list of requirements.
+ ///
+diff --git a/crates/uv/src/commands/pip_compile.rs b/crates/uv/src/commands/pip_compile.rs
+index 4608bdc6f5246..cb4182fccceb7 100644
+--- a/crates/uv/src/commands/pip_compile.rs
++++ b/crates/uv/src/commands/pip_compile.rs
+@@ -30,6 +30,7 @@ use uv_normalize::{ExtraName, PackageName};
+ use uv_requirements::{
+     upgrade::{read_lockfile, Upgrade},
+     ExtrasSpecification, NamedRequirementsResolver, RequirementsSource, RequirementsSpecification,
++    SourceTreeResolver,
+ };
+ use uv_resolver::{
+     AnnotationStyle, DependencyMode, DisplayResolutionGraph, InMemoryIndex, Manifest,
+@@ -102,6 +103,7 @@ pub(crate) async fn pip_compile(
+         constraints,
+         overrides,
+         editables,
++        source_trees,
+         extras: used_extras,
+         index_url,
+         extra_index_urls,
+@@ -116,20 +118,23 @@ pub(crate) async fn pip_compile(
+     )
+     .await?;
+ 
+-    // Check that all provided extras are used.
+-    if let ExtrasSpecification::Some(extras) = extras {
+-        let mut unused_extras = extras
+-            .iter()
+-            .filter(|extra| !used_extras.contains(extra))
+-            .collect::<Vec<_>>();
+-        if !unused_extras.is_empty() {
+-            unused_extras.sort_unstable();
+-            unused_extras.dedup();
+-            let s = if unused_extras.len() == 1 { "" } else { "s" };
+-            return Err(anyhow!(
+-                "Requested extra{s} not found: {}",
+-                unused_extras.iter().join(", ")
+-            ));
++    // If all the metadata could be statically resolved, validate that every extra was used. If we
++    // need to resolve metadata via PEP 517, we don't know which extras are used until much later.
++    if source_trees.is_empty() {
++        if let ExtrasSpecification::Some(extras) = extras {
++            let mut unused_extras = extras
++                .iter()
++                .filter(|extra| !used_extras.contains(extra))
++                .collect::<Vec<_>>();
++            if !unused_extras.is_empty() {
++                unused_extras.sort_unstable();
++                unused_extras.dedup();
++                let s = if unused_extras.len() == 1 { "" } else { "s" };
++                return Err(anyhow!(
++                    "Requested extra{s} not found: {}",
++                    unused_extras.iter().join(", ")
++                ));
++            }
+         }
+     }
+ 
+@@ -246,11 +251,26 @@ pub(crate) async fn pip_compile(
+     )
+     .with_options(OptionsBuilder::new().exclude_newer(exclude_newer).build());
+ 
+-    // Convert from unnamed to named requirements.
+-    let requirements = NamedRequirementsResolver::new(requirements)
+-        .with_reporter(ResolverReporter::from(printer))
+-        .resolve(&build_dispatch, &client)
+-        .await?;
++    // Resolve the requirements from the provided sources.
++    let requirements = {
++        // Convert from unnamed to named requirements.
++        let mut requirements = NamedRequirementsResolver::new(requirements)
++            .with_reporter(ResolverReporter::from(printer))
++            .resolve(&build_dispatch, &client)
++            .await?;
++
++        // Resolve any source trees into requirements.
++        if !source_trees.is_empty() {
++            requirements.extend(
++                SourceTreeResolver::new(source_trees, &extras)
++                    .with_reporter(ResolverReporter::from(printer))
++                    .resolve(&build_dispatch, &client)
++                    .await?,
++            );
++        }
++
++        requirements
++    };
+ 
+     // Build the editables and add their requirements
+     let editable_metadata = if editables.is_empty() {
+diff --git a/crates/uv/src/commands/pip_install.rs b/crates/uv/src/commands/pip_install.rs
+index fca811a47e54b..9a4416f5a65a5 100644
+--- a/crates/uv/src/commands/pip_install.rs
++++ b/crates/uv/src/commands/pip_install.rs
+@@ -35,7 +35,7 @@ use uv_interpreter::{Interpreter, PythonEnvironment};
+ use uv_normalize::PackageName;
+ use uv_requirements::{
+     upgrade::Upgrade, ExtrasSpecification, NamedRequirementsResolver, RequirementsSource,
+-    RequirementsSpecification,
++    RequirementsSpecification, SourceTreeResolver,
+ };
+ use uv_resolver::{
+     DependencyMode, InMemoryIndex, Manifest, Options, OptionsBuilder, PreReleaseMode, Preference,
+@@ -95,6 +95,7 @@ pub(crate) async fn pip_install(
+         constraints,
+         overrides,
+         editables,
++        source_trees,
+         index_url,
+         extra_index_urls,
+         no_index,
+@@ -153,6 +154,7 @@ pub(crate) async fn pip_install(
+     // magnitude faster to validate the environment than to resolve the requirements.
+     if reinstall.is_none()
+         && upgrade.is_none()
++        && source_trees.is_empty()
+         && site_packages.satisfies(&requirements, &editables, &constraints)?
+     {
+         let num_requirements = requirements.len() + editables.len();
+@@ -234,11 +236,26 @@ pub(crate) async fn pip_install(
+     )
+     .with_options(OptionsBuilder::new().exclude_newer(exclude_newer).build());
+ 
+-    // Convert from unnamed to named requirements.
+-    let requirements = NamedRequirementsResolver::new(requirements)
+-        .with_reporter(ResolverReporter::from(printer))
+-        .resolve(&resolve_dispatch, &client)
+-        .await?;
++    // Resolve the requirements from the provided sources.
++    let requirements = {
++        // Convert from unnamed to named requirements.
++        let mut requirements = NamedRequirementsResolver::new(requirements)
++            .with_reporter(ResolverReporter::from(printer))
++            .resolve(&resolve_dispatch, &client)
++            .await?;
++
++        // Resolve any source trees into requirements.
++        if !source_trees.is_empty() {
++            requirements.extend(
++                SourceTreeResolver::new(source_trees, extras)
++                    .with_reporter(ResolverReporter::from(printer))
++                    .resolve(&resolve_dispatch, &client)
++                    .await?,
++            );
++        }
++
++        requirements
++    };
+ 
+     // Build all editable distributions. The editables are shared between resolution and
+     // installation, and should live for the duration of the command. If an editable is already
+diff --git a/crates/uv/src/commands/pip_sync.rs b/crates/uv/src/commands/pip_sync.rs
+index 517ed13026b01..a75076ae5f11e 100644
+--- a/crates/uv/src/commands/pip_sync.rs
++++ b/crates/uv/src/commands/pip_sync.rs
+@@ -31,7 +31,10 @@ use crate::commands::reporters::{
+ };
+ use crate::commands::{compile_bytecode, elapsed, ChangeEvent, ChangeEventKind, ExitStatus};
+ use crate::printer::Printer;
+-use uv_requirements::{NamedRequirementsResolver, RequirementsSource, RequirementsSpecification};
++use uv_requirements::{
++    ExtrasSpecification, NamedRequirementsResolver, RequirementsSource, RequirementsSpecification,
++    SourceTreeResolver,
++};
+ 
+ /// Install a set of locked requirements into the current Python environment.
+ #[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
+@@ -69,6 +72,7 @@ pub(crate) async fn pip_sync(
+         constraints: _,
+         overrides: _,
+         editables,
++        source_trees,
+         extras: _,
+         index_url,
+         extra_index_urls,
+@@ -77,7 +81,7 @@ pub(crate) async fn pip_sync(
+     } = RequirementsSpecification::from_simple_sources(sources, &client_builder).await?;
+ 
+     // Validate that the requirements are non-empty.
+-    let num_requirements = requirements.len() + editables.len();
++    let num_requirements = requirements.len() + source_trees.len() + editables.len();
+     if num_requirements == 0 {
+         writeln!(printer.stderr(), "No requirements found")?;
+         return Ok(ExitStatus::Success);
+@@ -178,10 +182,25 @@ pub(crate) async fn pip_sync(
+     );
+ 
+     // Convert from unnamed to named requirements.
+-    let requirements = NamedRequirementsResolver::new(requirements)
+-        .with_reporter(ResolverReporter::from(printer))
+-        .resolve(&build_dispatch, &client)
+-        .await?;
++    let requirements = {
++        // Convert from unnamed to named requirements.
++        let mut requirements = NamedRequirementsResolver::new(requirements)
++            .with_reporter(ResolverReporter::from(printer))
++            .resolve(&build_dispatch, &client)
++            .await?;
++
++        // Resolve any source trees into requirements.
++        if !source_trees.is_empty() {
++            requirements.extend(
++                SourceTreeResolver::new(source_trees, &ExtrasSpecification::None)
++                    .with_reporter(ResolverReporter::from(printer))
++                    .resolve(&build_dispatch, &client)
++                    .await?,
++            );
++        }
++
++        requirements
++    };
+ 
+     // Determine the set of installed packages.
+     let site_packages = SitePackages::from_executable(&venv)?;
+diff --git a/crates/uv/tests/pip_compile.rs b/crates/uv/tests/pip_compile.rs
+index 24cc979e4e045..fafc8066c6471 100644
+--- a/crates/uv/tests/pip_compile.rs
++++ b/crates/uv/tests/pip_compile.rs
+@@ -404,10 +404,9 @@ optional-dependencies.foo = [
+     Ok(())
+ }
+ 
+-/// Show a dedicated warning if the user tries to compile a `pyproject.toml` file with a `poetry`
+-/// section.
++/// Compile a `pyproject.toml` file with a `poetry` section.
+ #[test]
+-fn compile_empty_pyproject_toml_poetry() -> Result<()> {
++fn compile_pyproject_toml_poetry() -> Result<()> {
+     let context = TestContext::new("3.12");
+     let pyproject_toml = context.temp_dir.child("pyproject.toml");
+     pyproject_toml.write_str(
+@@ -419,7 +418,7 @@ authors = ["Astral Software Inc. <hey@astral.sh>"]
+ 
+ [tool.poetry.dependencies]
+ python = "^3.10"
+-numpy = "^1"
++anyio = "^3"
+ 
+ [build-system]
+ requires = ["poetry-core"]
+@@ -434,10 +433,77 @@ build-backend = "poetry.core.masonry.api"
+     ----- stdout -----
+     # This file was autogenerated by uv via the following command:
+     #    uv pip compile --cache-dir [CACHE_DIR] --exclude-newer 2024-03-25T00:00:00Z pyproject.toml
++    anyio==3.7.1
++    idna==3.6
++        # via anyio
++    sniffio==1.3.1
++        # via anyio
+ 
+     ----- stderr -----
+-    warning: `pyproject.toml` does not contain any dependencies (hint: specify dependencies in the `project.dependencies` section; `tool.poetry.dependencies` is not currently supported)
+-    Resolved 0 packages in [TIME]
++    Resolved 3 packages in [TIME]
++    "###
++    );
++
++    Ok(())
++}
++
++/// Compile a `pyproject.toml` file that uses setuptools as the build backend.
++#[test]
++fn compile_pyproject_toml_setuptools() -> Result<()> {
++    let context = TestContext::new("3.12");
++    let pyproject_toml = context.temp_dir.child("pyproject.toml");
++    pyproject_toml.write_str(
++        r#"[build-system]
++requires = ["setuptools"]
++build-backend = "setuptools.build_meta"
++"#,
++    )?;
++
++    let setup_cfg = context.temp_dir.child("setup.cfg");
++    setup_cfg.write_str(
++        r#"[options]
++packages = find:
++install_requires=
++    anyio
++
++[options.extras_require]
++dev =
++    iniconfig; python_version >= "3.7"
++    mypy; python_version <= "3.8"
++"#,
++    )?;
++
++    let setup_py = context.temp_dir.child("setup.py");
++    setup_py.write_str(
++        r#"# setup.py
++from setuptools import setup
++
++
++setup(
++    name="dummypkg",
++    description="A dummy package",
++)
++"#,
++    )?;
++
++    uv_snapshot!(context.compile()
++            .arg("pyproject.toml")
++            .arg("--extra")
++            .arg("dev"), @r###"
++    success: true
++    exit_code: 0
++    ----- stdout -----
++    # This file was autogenerated by uv via the following command:
++    #    uv pip compile --cache-dir [CACHE_DIR] --exclude-newer 2024-03-25T00:00:00Z pyproject.toml --extra dev
++    anyio==4.3.0
++    idna==3.6
++        # via anyio
++    iniconfig==2.0.0
++    sniffio==1.3.1
++        # via anyio
++
++    ----- stderr -----
++    Resolved 4 packages in [TIME]
+     "###
+     );
+ 

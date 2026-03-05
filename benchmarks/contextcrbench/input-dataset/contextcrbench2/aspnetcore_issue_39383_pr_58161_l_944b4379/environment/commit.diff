@@ -1,0 +1,473 @@
+diff --git a/src/Mvc/Mvc.Core/src/ControllerBase.cs b/src/Mvc/Mvc.Core/src/ControllerBase.cs
+index 547ed9fe1bf9..6d79e1fbc05a 100644
+--- a/src/Mvc/Mvc.Core/src/ControllerBase.cs
++++ b/src/Mvc/Mvc.Core/src/ControllerBase.cs
+@@ -1705,6 +1705,65 @@ public virtual PhysicalFileResult PhysicalFile(string physicalPath, string conte
+             EnableRangeProcessing = enableRangeProcessing,
+         };
+     }
++
++    /// <summary>
++    /// Writes the file directly to the response body with the specified <paramref name="streamWriterCallback" /> (<see cref="StatusCodes.Status200OK"/>), and the
++    /// specified <paramref name="contentType" /> as the Content-Type.
++    /// </summary>
++    /// <param name="streamWriterCallback">The callback that allows users to write directly to the response body.</param>
++    /// <param name="contentType">The Content-Type of the file.</param>
++    /// <returns>The created <see cref="PushFileStreamResult"/> for the response.</returns>
++    [NonAction]
++    public virtual PushFileStreamResult File(Func<Stream, Task> streamWriterCallback, string contentType)
++        => File(streamWriterCallback, contentType, fileDownloadName: null);
++
++    /// <summary>
++    /// Writes the file directly to the response body with the specified <paramref name="streamWriterCallback" /> (<see cref="StatusCodes.Status200OK"/>), the
++    /// specified <paramref name="contentType" /> as the Content-Type, and the specified <paramref name="fileDownloadName" /> as the suggested file name.
++    /// </summary>
++    /// <param name="streamWriterCallback">The callback that allows users to write directly to the response body.</param>
++    /// <param name="contentType">The Content-Type of the file.</param>
++    /// <param name="fileDownloadName">The suggested file name.</param>
++    /// <returns>The created <see cref="PushFileStreamResult"/> for the response.</returns>
++    [NonAction]
++    public virtual PushFileStreamResult File(Func<Stream, Task> streamWriterCallback, string contentType, string? fileDownloadName)
++        => new PushFileStreamResult(streamWriterCallback, contentType) { FileDownloadName = fileDownloadName };
++
++    /// <summary>
++    /// Writes the file directly to the response body with the specified <paramref name="streamWriterCallback" /> (<see cref="StatusCodes.Status200OK"/>), and the
++    /// specified <paramref name="contentType" /> as the Content-Type.
++    /// </summary>
++    /// <param name="streamWriterCallback">The callback that allows users to write directly to the response body.</param>
++    /// <param name="contentType">The Content-Type of the file.</param>
++    /// <param name="lastModified">The <see cref="DateTimeOffset"/> of when the file was last modified.</param>
++    /// <param name="entityTag">The <see cref="EntityTagHeaderValue"/> associated with the file.</param>
++    /// <returns>The created <see cref="PushFileStreamResult"/> for the response.</returns>
++    [NonAction]
++    public virtual PushFileStreamResult File(Func<Stream, Task> streamWriterCallback, string contentType, DateTimeOffset? lastModified, EntityTagHeaderValue entityTag)
++        => new PushFileStreamResult(streamWriterCallback, contentType)
++        {
++            LastModified = lastModified,
++            EntityTag = entityTag,
++        };
++
++    /// <summary>
++    /// Writes the file directly to the response body with the specified <paramref name="streamWriterCallback" /> (<see cref="StatusCodes.Status200OK"/>), the
++    /// specified <paramref name="contentType" /> as the Content-Type, and the specified <paramref name="fileDownloadName" /> as the suggested file name.
++    /// </summary>
++    /// <param name="streamWriterCallback">The callback that allows users to write directly to the response body.</param>
++    /// <param name="contentType">The Content-Type of the file.</param>
++    /// <param name="fileDownloadName">The suggested file name.</param>
++    /// <param name="lastModified">The <see cref="DateTimeOffset"/> of when the file was last modified.</param>
++    /// <param name="entityTag">The <see cref="EntityTagHeaderValue"/> associated with the file.</param>
++    /// <returns>The created <see cref="PushFileStreamResult"/> for the response.</returns>
++    [NonAction]
++    public virtual PushFileStreamResult File(Func<Stream, Task> streamWriterCallback, string contentType, string? fileDownloadName, DateTimeOffset? lastModified, EntityTagHeaderValue entityTag)
++        => new PushFileStreamResult(streamWriterCallback, contentType)
++        {
++            LastModified = lastModified,
++            EntityTag = entityTag,
++            FileDownloadName = fileDownloadName,
++        };
+     #endregion
+ 
+     /// <summary>
+diff --git a/src/Mvc/Mvc.Core/src/DependencyInjection/MvcCoreServiceCollectionExtensions.cs b/src/Mvc/Mvc.Core/src/DependencyInjection/MvcCoreServiceCollectionExtensions.cs
+index 7a255af79f06..65fdb8590657 100644
+--- a/src/Mvc/Mvc.Core/src/DependencyInjection/MvcCoreServiceCollectionExtensions.cs
++++ b/src/Mvc/Mvc.Core/src/DependencyInjection/MvcCoreServiceCollectionExtensions.cs
+@@ -236,6 +236,7 @@ internal static void AddMvcCoreServices(IServiceCollection services)
+         services.TryAddSingleton<IActionResultExecutor<PhysicalFileResult>, PhysicalFileResultExecutor>();
+         services.TryAddSingleton<IActionResultExecutor<VirtualFileResult>, VirtualFileResultExecutor>();
+         services.TryAddSingleton<IActionResultExecutor<FileStreamResult>, FileStreamResultExecutor>();
++        services.TryAddSingleton<IActionResultExecutor<PushFileStreamResult>, PushFileStreamResultExecutor>();
+         services.TryAddSingleton<IActionResultExecutor<FileContentResult>, FileContentResultExecutor>();
+         services.TryAddSingleton<IActionResultExecutor<RedirectResult>, RedirectResultExecutor>();
+         services.TryAddSingleton<IActionResultExecutor<LocalRedirectResult>, LocalRedirectResultExecutor>();
+diff --git a/src/Mvc/Mvc.Core/src/Infrastructure/PushFileStreamResultExecutor.cs b/src/Mvc/Mvc.Core/src/Infrastructure/PushFileStreamResultExecutor.cs
+new file mode 100644
+index 000000000000..1240b9897893
+--- /dev/null
++++ b/src/Mvc/Mvc.Core/src/Infrastructure/PushFileStreamResultExecutor.cs
+@@ -0,0 +1,84 @@
++// Licensed to the .NET Foundation under one or more agreements.
++// The .NET Foundation licenses this file to you under the MIT license.
++
++using System.Diagnostics;
++using Microsoft.Extensions.Logging;
++using Microsoft.Net.Http.Headers;
++
++namespace Microsoft.AspNetCore.Mvc.Infrastructure;
++
++/// <summary>
++/// A <see cref="IActionResultExecutor{PushFileStreamResult}"/> for <see cref="PushFileStreamResult"/>.
++/// </summary>
++public partial class PushFileStreamResultExecutor : FileResultExecutorBase, IActionResultExecutor<PushFileStreamResult>
++{
++    /// <summary>
++    /// Initializes a new <see cref="PushFileStreamResultExecutor"/>.
++    /// </summary>
++    /// <param name="loggerFactory">The factory used to create loggers.</param>
++    public PushFileStreamResultExecutor(ILoggerFactory loggerFactory)
++        : base(CreateLogger<PushFileStreamResultExecutor>(loggerFactory))
++    {
++    }
++
++    /// <inheritdoc />
++    public virtual async Task ExecuteAsync(ActionContext context, PushFileStreamResult result)
++    {
++        ArgumentNullException.ThrowIfNull(context);
++        ArgumentNullException.ThrowIfNull(result);
++
++        Log.ExecutingFileResult(Logger, result);
++
++        var (range, rangeLength, serveBody) = SetHeadersAndLog(
++            context,
++            result,
++            fileLength: null,
++            result.EnableRangeProcessing,
++            result.LastModified,
++            result.EntityTag);
++
++        if (!serveBody)
++        {
++            return;
++        }
++
++        await WriteFileAsync(context, result, range, rangeLength);
++    }
++
++    /// <summary>
++    /// Write the contents of the PushFileStreamResult to the response body.
++    /// </summary>
++    /// <param name="context">The <see cref="ActionContext"/>.</param>
++    /// <param name="result">The PushFileStreamResult to write.</param>
++    /// <param name="range">The <see cref="RangeItemHeaderValue"/>.</param>
++    /// <param name="rangeLength">The range length.</param>
++    protected virtual async Task WriteFileAsync(
++        ActionContext context,
++        PushFileStreamResult result,
++        RangeItemHeaderValue? range,
++        long rangeLength)
++    {
++        ArgumentNullException.ThrowIfNull(context);
++        ArgumentNullException.ThrowIfNull(result);
++
++        Debug.Assert(range == null);
++        Debug.Assert(rangeLength == 0);
++
++        await result.StreamWriterCallback(context.HttpContext.Response.Body);
++    }
++
++    private static partial class Log
++    {
++        public static void ExecutingFileResult(ILogger logger, FileResult fileResult)
++        {
++            if (logger.IsEnabled(LogLevel.Information))
++            {
++                var fileResultType = fileResult.GetType().Name;
++                ExecutingFileResultWithNoFileName(logger, fileResultType, fileResult.FileDownloadName);
++            }
++        }
++
++        [LoggerMessage(1, LogLevel.Information, "Executing {FileResultType}, sending file with download name '{FileDownloadName}' ...", EventName = "ExecutingFileResultWithNoFileName", SkipEnabledCheck = true)]
++        private static partial void ExecutingFileResultWithNoFileName(ILogger logger, string fileResultType, string fileDownloadName);
++    }
++}
+diff --git a/src/Mvc/Mvc.Core/src/PublicAPI.Unshipped.txt b/src/Mvc/Mvc.Core/src/PublicAPI.Unshipped.txt
+index b4560b45280f..8fc408d793c2 100644
+--- a/src/Mvc/Mvc.Core/src/PublicAPI.Unshipped.txt
++++ b/src/Mvc/Mvc.Core/src/PublicAPI.Unshipped.txt
+@@ -1,6 +1,17 @@
+ #nullable enable
+ *REMOVED*virtual Microsoft.AspNetCore.Mvc.ControllerBase.Problem(string? detail = null, string? instance = null, int? statusCode = null, string? title = null, string? type = null) -> Microsoft.AspNetCore.Mvc.ObjectResult!
+ *REMOVED*virtual Microsoft.AspNetCore.Mvc.ControllerBase.ValidationProblem(string? detail = null, string? instance = null, int? statusCode = null, string? title = null, string? type = null, Microsoft.AspNetCore.Mvc.ModelBinding.ModelStateDictionary? modelStateDictionary = null) -> Microsoft.AspNetCore.Mvc.ActionResult!
++Microsoft.AspNetCore.Mvc.Infrastructure.PushFileStreamResultExecutor
++Microsoft.AspNetCore.Mvc.Infrastructure.PushFileStreamResultExecutor.PushFileStreamResultExecutor(Microsoft.Extensions.Logging.ILoggerFactory! loggerFactory) -> void
++Microsoft.AspNetCore.Mvc.PushFileStreamResult
++Microsoft.AspNetCore.Mvc.PushFileStreamResult.PushFileStreamResult(System.Func<System.IO.Stream!, System.Threading.Tasks.Task!>! streamWriterCallback, string! contentType) -> void
++Microsoft.AspNetCore.Mvc.PushFileStreamResult.StreamWriterCallback.get -> System.Func<System.IO.Stream!, System.Threading.Tasks.Task!>!
++Microsoft.AspNetCore.Mvc.PushFileStreamResult.StreamWriterCallback.set -> void
++override Microsoft.AspNetCore.Mvc.PushFileStreamResult.ExecuteResultAsync(Microsoft.AspNetCore.Mvc.ActionContext! context) -> System.Threading.Tasks.Task!
++virtual Microsoft.AspNetCore.Mvc.ControllerBase.File(System.Func<System.IO.Stream!, System.Threading.Tasks.Task!>! streamWriterCallback, string! contentType) -> Microsoft.AspNetCore.Mvc.PushFileStreamResult!
++virtual Microsoft.AspNetCore.Mvc.ControllerBase.File(System.Func<System.IO.Stream!, System.Threading.Tasks.Task!>! streamWriterCallback, string! contentType, string? fileDownloadName) -> Microsoft.AspNetCore.Mvc.PushFileStreamResult!
++virtual Microsoft.AspNetCore.Mvc.ControllerBase.File(System.Func<System.IO.Stream!, System.Threading.Tasks.Task!>! streamWriterCallback, string! contentType, string? fileDownloadName, System.DateTimeOffset? lastModified, Microsoft.Net.Http.Headers.EntityTagHeaderValue! entityTag) -> Microsoft.AspNetCore.Mvc.PushFileStreamResult!
++virtual Microsoft.AspNetCore.Mvc.ControllerBase.File(System.Func<System.IO.Stream!, System.Threading.Tasks.Task!>! streamWriterCallback, string! contentType, System.DateTimeOffset? lastModified, Microsoft.Net.Http.Headers.EntityTagHeaderValue! entityTag) -> Microsoft.AspNetCore.Mvc.PushFileStreamResult!
+ virtual Microsoft.AspNetCore.Mvc.ControllerBase.Problem(string? detail, string? instance, int? statusCode, string? title, string? type) -> Microsoft.AspNetCore.Mvc.ObjectResult!
+ virtual Microsoft.AspNetCore.Mvc.ControllerBase.Problem(string? detail = null, string? instance = null, int? statusCode = null, string? title = null, string? type = null, System.Collections.Generic.IDictionary<string!, object?>? extensions = null) -> Microsoft.AspNetCore.Mvc.ObjectResult!
+ virtual Microsoft.AspNetCore.Mvc.ControllerBase.ValidationProblem(string? detail, string? instance, int? statusCode, string? title, string? type, Microsoft.AspNetCore.Mvc.ModelBinding.ModelStateDictionary? modelStateDictionary) -> Microsoft.AspNetCore.Mvc.ActionResult!
+@@ -9,3 +20,5 @@ Microsoft.AspNetCore.Mvc.Infrastructure.DefaultProblemDetailsFactory
+ Microsoft.AspNetCore.Mvc.Infrastructure.DefaultProblemDetailsFactory.DefaultProblemDetailsFactory(Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Mvc.ApiBehaviorOptions!>! options, Microsoft.Extensions.Options.IOptions<Microsoft.AspNetCore.Http.ProblemDetailsOptions!>? problemDetailsOptions = null) -> void
+ override Microsoft.AspNetCore.Mvc.Infrastructure.DefaultProblemDetailsFactory.CreateProblemDetails(Microsoft.AspNetCore.Http.HttpContext! httpContext, int? statusCode = null, string? title = null, string? type = null, string? detail = null, string? instance = null) -> Microsoft.AspNetCore.Mvc.ProblemDetails!
+ override Microsoft.AspNetCore.Mvc.Infrastructure.DefaultProblemDetailsFactory.CreateValidationProblemDetails(Microsoft.AspNetCore.Http.HttpContext! httpContext, Microsoft.AspNetCore.Mvc.ModelBinding.ModelStateDictionary! modelStateDictionary, int? statusCode = null, string? title = null, string? type = null, string? detail = null, string? instance = null) -> Microsoft.AspNetCore.Mvc.ValidationProblemDetails!
++virtual Microsoft.AspNetCore.Mvc.Infrastructure.PushFileStreamResultExecutor.ExecuteAsync(Microsoft.AspNetCore.Mvc.ActionContext! context, Microsoft.AspNetCore.Mvc.PushFileStreamResult! result) -> System.Threading.Tasks.Task!
++virtual Microsoft.AspNetCore.Mvc.Infrastructure.PushFileStreamResultExecutor.WriteFileAsync(Microsoft.AspNetCore.Mvc.ActionContext! context, Microsoft.AspNetCore.Mvc.PushFileStreamResult! result, Microsoft.Net.Http.Headers.RangeItemHeaderValue? range, long rangeLength) -> System.Threading.Tasks.Task!
+diff --git a/src/Mvc/Mvc.Core/src/PushFileStreamResult.cs b/src/Mvc/Mvc.Core/src/PushFileStreamResult.cs
+new file mode 100644
+index 000000000000..beecfa3ea26c
+--- /dev/null
++++ b/src/Mvc/Mvc.Core/src/PushFileStreamResult.cs
+@@ -0,0 +1,40 @@
++// Licensed to the .NET Foundation under one or more agreements.
++// The .NET Foundation licenses this file to you under the MIT license.
++
++using Microsoft.AspNetCore.Mvc.Infrastructure;
++using Microsoft.Extensions.DependencyInjection;
++
++namespace Microsoft.AspNetCore.Mvc;
++
++/// <summary>
++/// A <see cref="FileResult" /> that on execution writes the file using the specified stream writer callback.
++/// </summary>
++public class PushFileStreamResult : FileResult
++{
++    /// <summary>
++    /// The callback that writes the file to the provided stream.
++    /// </summary>
++    public Func<Stream, Task> StreamWriterCallback { get; set; }
++
++    /// <summary>
++    /// Creates a new <see cref="PushFileStreamResult"/> instance with
++    /// the provided <paramref name="streamWriterCallback"/> and the provided <paramref name="contentType"/>.
++    /// </summary>
++    /// <param name="streamWriterCallback">The callback that writes the file to the provided stream.</param>
++    /// <param name="contentType">The Content-Type header of the response.</param>
++    public PushFileStreamResult(Func<Stream, Task> streamWriterCallback, string contentType) : base(contentType)
++    {
++        ArgumentNullException.ThrowIfNull(streamWriterCallback);
++
++        StreamWriterCallback = streamWriterCallback;
++    }
++
++    /// <inheritdoc />
++    public override Task ExecuteResultAsync(ActionContext context)
++    {
++        ArgumentNullException.ThrowIfNull(context);
++
++        var executor = context.HttpContext.RequestServices.GetRequiredService<IActionResultExecutor<PushFileStreamResult>>();
++        return executor.ExecuteAsync(context, this);
++    }
++}
+diff --git a/src/Mvc/Mvc.Core/test/PushFileStreamResultTest.cs b/src/Mvc/Mvc.Core/test/PushFileStreamResultTest.cs
+new file mode 100644
+index 000000000000..6764430b83fa
+--- /dev/null
++++ b/src/Mvc/Mvc.Core/test/PushFileStreamResultTest.cs
+@@ -0,0 +1,75 @@
++// Licensed to the .NET Foundation under one or more agreements.
++// The .NET Foundation licenses this file to you under the MIT license.
++
++using Microsoft.AspNetCore.Http;
++using Microsoft.AspNetCore.Internal;
++using Microsoft.AspNetCore.Mvc.Infrastructure;
++using Microsoft.Extensions.DependencyInjection;
++using Microsoft.Extensions.Logging;
++using Microsoft.Extensions.Logging.Abstractions;
++using Microsoft.Net.Http.Headers;
++
++namespace Microsoft.AspNetCore.Mvc;
++
++public class PushFileStreamResultTest : PushFileStreamResultTestBase
++{
++    protected override Task ExecuteAsync(
++        HttpContext httpContext,
++        Func<Stream, Task> streamWriterCallback,
++        string contentType,
++        DateTimeOffset? lastModified = null,
++        EntityTagHeaderValue entityTag = null)
++    {
++        httpContext.RequestServices = new ServiceCollection()
++            .AddSingleton<ILoggerFactory, NullLoggerFactory>()
++            .AddSingleton<IActionResultExecutor<PushFileStreamResult>, PushFileStreamResultExecutor>()
++            .BuildServiceProvider();
++
++        var actionContext = new ActionContext(httpContext, new(), new());
++        var fileStreamResult = new PushFileStreamResult(streamWriterCallback, contentType)
++        {
++            LastModified = lastModified,
++            EntityTag = entityTag,
++        };
++
++        return fileStreamResult.ExecuteResultAsync(actionContext);
++    }
++
++    [Fact]
++    public void Constructor_SetsContentType()
++    {
++        // Arrange
++        var streamWriterCallback = (Stream _) => Task.CompletedTask;
++        var contentType = "text/plain; charset=us-ascii; p1=p1-value";
++        var expectedMediaType = contentType;
++
++        // Act
++        var result = new PushFileStreamResult(streamWriterCallback, contentType);
++
++        // Assert
++        Assert.Equal(expectedMediaType, result.ContentType);
++    }
++
++    [Fact]
++    public void Constructor_SetsLastModifiedAndEtag()
++    {
++        // Arrange
++        var streamWriterCallback = (Stream _) => Task.CompletedTask;
++        var contentType = "text/plain";
++        var expectedMediaType = contentType;
++        var lastModified = new DateTimeOffset();
++        var entityTag = new EntityTagHeaderValue("\"Etag\"");
++
++        // Act
++        var result = new PushFileStreamResult(streamWriterCallback, contentType)
++        {
++            LastModified = lastModified,
++            EntityTag = entityTag,
++        };
++
++        // Assert
++        Assert.Equal(lastModified, result.LastModified);
++        Assert.Equal(entityTag, result.EntityTag);
++        Assert.Equal(expectedMediaType, result.ContentType);
++    }
++}
+diff --git a/src/Shared/ResultsTests/PushFileStreamResultTestBase.cs b/src/Shared/ResultsTests/PushFileStreamResultTestBase.cs
+new file mode 100644
+index 000000000000..7f7fbb1260d2
+--- /dev/null
++++ b/src/Shared/ResultsTests/PushFileStreamResultTestBase.cs
+@@ -0,0 +1,140 @@
++// Licensed to the .NET Foundation under one or more agreements.
++// The .NET Foundation licenses this file to you under the MIT license.
++
++using System.Text;
++using Microsoft.AspNetCore.Http;
++using Microsoft.Extensions.DependencyInjection;
++using Microsoft.Extensions.Logging;
++using Microsoft.Extensions.Logging.Abstractions;
++using Microsoft.Net.Http.Headers;
++
++namespace Microsoft.AspNetCore.Internal;
++
++public abstract class PushFileStreamResultTestBase
++{
++    protected abstract Task ExecuteAsync(
++        HttpContext httpContext,
++        Func<Stream, Task> streamWriterCallback,
++        string contentType,
++        DateTimeOffset? lastModified = null,
++        EntityTagHeaderValue entityTag = null);
++
++    [Fact]
++    public async Task WriteFileAsync_RangeProcessingNotEnabled_RangeRequestedIgnored()
++    {
++        // Arrange
++        var contentType = "text/plain";
++        var lastModified = DateTimeOffset.MinValue;
++        var entityTag = new EntityTagHeaderValue("\"Etag\"");
++        var byteArray = Encoding.ASCII.GetBytes("Hello World");
++        var streamWriterCallback = (Stream stream) => stream.WriteAsync(byteArray).AsTask();
++
++        var httpContext = GetHttpContext();
++        var requestHeaders = httpContext.Request.GetTypedHeaders();
++        requestHeaders.IfMatch = new[]
++        {
++                new EntityTagHeaderValue("\"Etag\""),
++            };
++        requestHeaders.Range = new RangeHeaderValue(0, 4);
++        requestHeaders.IfRange = new RangeConditionHeaderValue(DateTimeOffset.MinValue);
++        httpContext.Request.Method = HttpMethods.Get;
++        httpContext.Response.Body = new MemoryStream();
++
++        // Act
++        await ExecuteAsync(httpContext, streamWriterCallback, contentType, lastModified, entityTag);
++
++        // Assert
++        var httpResponse = httpContext.Response;
++        httpResponse.Body.Seek(0, SeekOrigin.Begin);
++        var streamReader = new StreamReader(httpResponse.Body);
++        var body = await streamReader.ReadToEndAsync();
++        Assert.Equal(StatusCodes.Status200OK, httpResponse.StatusCode);
++        Assert.Equal(lastModified.ToString("R"), httpResponse.Headers.LastModified);
++        Assert.Equal(entityTag.ToString(), httpResponse.Headers.ETag);
++        Assert.Equal("Hello World", body);
++    }
++
++    [Fact]
++    public async Task WriteFileAsync_CopiesProvidedData_ToOutputStream()
++    {
++        // Arrange
++        // Generate an array of bytes with a predictable pattern
++        // 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, A, B, C, D, E, F, 10, 11, 12, 13
++        var originalBytes = Enumerable.Range(0, 0x1234)
++            .Select(b => (byte)(b % 20)).ToArray();
++
++        var streamWriterCallback = (Stream stream) => stream.WriteAsync(originalBytes).AsTask();
++
++        var httpContext = GetHttpContext();
++        var outStream = new MemoryStream();
++        httpContext.Response.Body = outStream;
++
++        // Act
++        await ExecuteAsync(httpContext, streamWriterCallback, "text/plain");
++
++        // Assert
++        var outBytes = outStream.ToArray();
++        Assert.True(originalBytes.SequenceEqual(outBytes));
++    }
++
++    [Fact]
++    public async Task SetsSuppliedContentTypeAndEncoding()
++    {
++        // Arrange
++        var expectedContentType = "text/foo; charset=us-ascii";
++        // Generate an array of bytes with a predictable pattern
++        // 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, A, B, C, D, E, F, 10, 11, 12, 13
++        var originalBytes = Enumerable.Range(0, 0x1234)
++            .Select(b => (byte)(b % 20)).ToArray();
++
++        var streamWriterCallback = (Stream stream) => stream.WriteAsync(originalBytes).AsTask();
++
++        var httpContext = GetHttpContext();
++        var outStream = new MemoryStream();
++        httpContext.Response.Body = outStream;
++
++        // Act
++        await ExecuteAsync(httpContext, streamWriterCallback, expectedContentType);
++
++        // Assert
++        var outBytes = outStream.ToArray();
++        Assert.True(originalBytes.SequenceEqual(outBytes));
++        Assert.Equal(expectedContentType, httpContext.Response.ContentType);
++    }
++
++    [Fact]
++    public async Task HeadRequest_DoesNotWriteToBody()
++    {
++        // Arrange
++        var streamWriterCallback = (Stream stream) => stream.WriteAsync("Hello, World!"u8.ToArray()).AsTask();
++
++        var httpContext = GetHttpContext();
++        httpContext.Request.Method = "HEAD";
++        var outStream = new MemoryStream();
++        httpContext.Response.Body = outStream;
++
++        // Act
++        await ExecuteAsync(httpContext, streamWriterCallback, "text/plain");
++
++        // Assert
++        Assert.Equal(200, httpContext.Response.StatusCode);
++        Assert.Equal(0, httpContext.Response.Body.Length);
++    }
++
++    private static IServiceCollection CreateServices()
++    {
++        var services = new ServiceCollection();
++        services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
++        services.AddSingleton<ILoggerFactory>(NullLoggerFactory.Instance);
++        return services;
++    }
++
++    private static HttpContext GetHttpContext()
++    {
++        var services = CreateServices();
++
++        var httpContext = new DefaultHttpContext();
++        httpContext.RequestServices = services.BuildServiceProvider();
++        return httpContext;
++    }
++}

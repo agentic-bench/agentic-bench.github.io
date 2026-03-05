@@ -1,0 +1,10 @@
+[
+  {
+    "path": "src/app/ui/file_selector.cpp",
+    "line": 622,
+    "original_line": 622,
+    "review_comment": [
+      "There is a missing `(`, anyway I'll check if I can add support to use full paths on Windows too.\r\n```suggestion\r\n        (fn.find(':') != std::string::npos ||\r\n```"
+    ]
+  }
+]

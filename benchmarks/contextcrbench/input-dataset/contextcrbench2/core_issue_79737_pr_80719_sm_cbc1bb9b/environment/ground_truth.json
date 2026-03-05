@@ -1,0 +1,30 @@
+[
+  {
+    "path": "homeassistant/components/bluesound/media_player.py",
+    "line": 869,
+    "original_line": 869,
+    "review_comment": [
+      "We shouldn't store the entities in a shared container. If we need to communicate with another entity we should use our dispatch helper.\r\n\r\nhttps://github.com/home-assistant/core/blob/dev/homeassistant/helpers/dispatcher.py\r\n\r\nIt's ok to store the entity ids of the group members."
+    ]
+  },
+  {
+    "path": "homeassistant/components/bluesound/media_player.py",
+    "line": 906,
+    "original_line": 906,
+    "review_comment": [
+      "This integration needs a 3rd party library before we change any code that involves protocol details like this.",
+      "Yes, I know I will try to fix this later. I have alot of other changes that I want to do but I'm waiting with those until I have the time to make the 3rd party library.\r\nThis is only to fix compatibility with current function, I'm not actually adding anything new.",
+      "We're touching protocol code. We don't allow that. The integration needs the 3rd party library first."
+    ]
+  },
+  {
+    "path": "homeassistant/components/bluesound/media_player.py",
+    "line": 899,
+    "original_line": 899,
+    "review_comment": [
+      "I'd recommend to rename the library methods to something more modern, instead of slave/master.",
+      "slave/master is the same terminology that bluesound is using in their API. I think the way to go is to match their terms. But if you want me to change it I will of course do so.",
+      "It's just a recommendation. If it makes sense or not you need to decide who knows the device."
+    ]
+  }
+]

@@ -1,0 +1,6 @@
+{
+  "issue_title": "[Fix error] UP025, UP032, W605",
+  "issue_body": "<!--\r\nThank you for taking the time to report an issue! We're glad to have you involved with Ruff.\r\n\r\nIf you're filing a bug report, please consider including the following information:\r\n\r\n* A minimal code snippet that reproduces the bug.\r\n* The command you invoked (e.g., `ruff /path/to/file.py --fix`), ideally including the `--isolated` flag.\r\n* The current Ruff settings (any relevant sections from your `pyproject.toml`).\r\n* The current Ruff version (`ruff --version`).\r\n-->\r\n\r\nUsing `ruff check --select UP025,UP032,W605 --fix --isolated pokedex/doc/tabledoc.py` on a local copy of the https://github.com/veekun/pokedex repo reports Ruff introducing a syntax error. So, this seems to be an issue with Unicode literals in f-strings?\r\n",
+  "pr_title": "Avoid syntax error via invalid ur string prefix",
+  "pr_body": "## Summary\r\n\r\nIf a string has a Unicode prefix, we can't add the `r` prefix on top of that -- we need to remove and replace it. (The Unicode prefix is redundant anyway in Python 3.)\r\n\r\nCloses https://github.com/astral-sh/ruff/issues/8967.\r\n"
+}

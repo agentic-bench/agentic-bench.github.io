@@ -1,0 +1,12 @@
+[
+  {
+    "path": "homeassistant/components/ping/binary_sensor.py",
+    "line": 216,
+    "original_line": 216,
+    "review_comment": [
+      "Shouldn't this be >= 1? Since it would still log an exception now if the host is unreachable",
+      "We don't want to log it if the code is 0 or 1. I submitted this pre-coffee, what am I missing here?",
+      "I think I should have a coffee, you are right I was missing something. Everything checks out :+1: "
+    ]
+  }
+]

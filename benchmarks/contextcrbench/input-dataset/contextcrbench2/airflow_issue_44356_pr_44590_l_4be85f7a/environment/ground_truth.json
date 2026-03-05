@@ -1,0 +1,19 @@
+[
+  {
+    "path": "task_sdk/src/airflow/sdk/execution_time/comms.py",
+    "line": 105,
+    "original_line": 105,
+    "review_comment": [
+      "This isn't used right now, but I am sure we will make use of it at some point"
+    ]
+  },
+  {
+    "path": "task_sdk/tests/execution_time/test_task_runner.py",
+    "line": 102,
+    "original_line": 102,
+    "review_comment": [
+      "So are we changing it now that the task \"must\" send a TaskState message at the end? Or just may/should?",
+      "For now, it \"may\" send it but I think as the code evolves, we _might_ end up sending at-least 1 msg for any state.\n"
+    ]
+  }
+]

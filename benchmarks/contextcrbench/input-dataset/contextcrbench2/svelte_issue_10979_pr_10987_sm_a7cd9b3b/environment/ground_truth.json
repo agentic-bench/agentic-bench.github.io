@@ -1,0 +1,13 @@
+[
+  {
+    "path": "packages/svelte/src/internal/index.js",
+    "line": 3,
+    "original_line": 3,
+    "review_comment": [
+      "I vaguely remember @dominikg / @bluwy trying this approach to throw an error for better visibility what's happening, but IIRC the node/bundlers/whatever swallow the error and show something opaque instead.\r\n\r\nIn general I would prefer if we instead would keep svelte/internal and expose a browser+default condition for the client/server entry points ",
+      "The issue people are facing isn't that they're importing this module and it's failing, it's that Vite is attempting to preoptimize stuff based on what `vite-plugin-svelte` tells it. So there are two possible solutions:\r\n\r\n- this one\r\n- vite-plugin-svelte dynamic generates the list of Svelte subpackages from the `package.json` it finds\r\n\r\nUltimately we need both, but this is what will fix the errors for the largest number of people most quickly ",
+      "> In general I would prefer if we instead would keep svelte/internal and expose a browser+default condition for the client/server entry points\r\n\r\nI really don't think that's the right approach \u2014 having different export conditions is a good way to expose a common API across different environments (such as `onMount` being a no-op in SSR, but still existing), but using it to have the same module specifier mean two completely different modules feels like a recipe for confusion",
+      "Who would be confused by that? It's an internal implementation detail that only concerns us. And doing it this way would mean less configs in the wild that need to be adjusted, which I value way higher.\r\n\r\nFor a quick fix I agree that this is the best option for now"
+    ]
+  }
+]

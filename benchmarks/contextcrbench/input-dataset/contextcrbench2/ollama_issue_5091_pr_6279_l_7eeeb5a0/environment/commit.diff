@@ -1,0 +1,842 @@
+diff --git a/cmd/cmd.go b/cmd/cmd.go
+index 01eb66f9ba1..b863264f564 100644
+--- a/cmd/cmd.go
++++ b/cmd/cmd.go
+@@ -1445,6 +1445,7 @@ func NewCLI() *cobra.Command {
+ 				envVars["OLLAMA_SCHED_SPREAD"],
+ 				envVars["OLLAMA_TMPDIR"],
+ 				envVars["OLLAMA_FLASH_ATTENTION"],
++				envVars["OLLAMA_KV_CACHE_TYPE"],
+ 				envVars["OLLAMA_LLM_LIBRARY"],
+ 				envVars["OLLAMA_GPU_OVERHEAD"],
+ 				envVars["OLLAMA_LOAD_TIMEOUT"],
+diff --git a/discover/types.go b/discover/types.go
+index 19f215247d1..3112d003eab 100644
+--- a/discover/types.go
++++ b/discover/types.go
+@@ -183,3 +183,17 @@ func (si SystemInfo) GetOptimalThreadCount() int {
+ 
+ 	return coreCount
+ }
++
++// For each GPU, check if it does NOT support flash attention
++func (l GpuInfoList) FlashAttentionSupported() bool {
++	for _, gpu := range l {
++		supportsFA := gpu.Library == "metal" ||
++			(gpu.Library == "cuda" && gpu.DriverMajor >= 7) ||
++			gpu.Library == "rocm"
++
++		if !supportsFA {
++			return false
++		}
++	}
++	return true
++}
+diff --git a/docs/faq.md b/docs/faq.md
+index 0dbbb3ff4d9..a75588651f1 100644
+--- a/docs/faq.md
++++ b/docs/faq.md
+@@ -151,7 +151,7 @@ Refer to the section [above](#how-do-i-configure-ollama-server) for how to set e
+ 
+ Ollama runs an HTTP server and can be exposed using a proxy server such as Nginx. To do so, configure the proxy to forward requests and optionally set required headers (if not exposing Ollama on the network). For example, with Nginx:
+ 
+-```
++```nginx
+ server {
+     listen 80;
+     server_name example.com;  # Replace with your domain or IP
+@@ -285,4 +285,29 @@ Note: Windows with Radeon GPUs currently default to 1 model maximum due to limit
+ 
+ ## How does Ollama load models on multiple GPUs?
+ 
+-Installing multiple GPUs of the same brand can be a great way to increase your available VRAM to load larger models.  When you load a new model, Ollama evaluates the required VRAM for the model against what is currently available.  If the model will entirely fit on any single GPU, Ollama will load the model on that GPU.  This typically provides the best performance as it reduces the amount of data transfering across the PCI bus during inference.  If the model does not fit entirely on one GPU, then it will be spread across all the available GPUs.
++When loading a new model, Ollama evaluates the required VRAM for the model against what is currently available.  If the model will entirely fit on any single GPU, Ollama will load the model on that GPU.  This typically provides the best performance as it reduces the amount of data transferring across the PCI bus during inference.  If the model does not fit entirely on one GPU, then it will be spread across all the available GPUs.
++
++## How can I enable Flash Attention?
++
++Flash Attention is a feature of most modern models that can significantly reduce memory usage as the context size grows.  To enable Flash Attention, set the `OLLAMA_FLASH_ATTENTION` environment variable to `1` when starting the Ollama server.
++
++## How can I set the quantization type for the K/V cache?
++
++The K/V context cache can be quantized to significantly reduce memory usage when Flash Attention is enabled.
++
++To use quantized K/V cache with Ollama you can set the following environment variable:
++
++- `OLLAMA_KV_CACHE_TYPE` - The quantization type for the K/V cache.  Default is `f16`.
++
++> Note: Currently this is a global option - meaning all models will run with the specified quantization type.
++
++The currently available K/V cache quantization types are:
++
++- `f32` - full precision and memory usage.
++- `f16` - high precision and memory usage (default).
++- `q8_0` - 8-bit quantization, uses approximately 1/2 the memory of `f16` with a very small loss in precision, this usually has no noticeable impact on the model's quality (recommended if not using f16).
++- `q4_0` - 4-bit quantization, uses approximately 1/4 the memory of `f16` with a small-medium loss in precision that may be more noticeable at higher context sizes.
++
++How much the cache quantization impacts the model's response quality will depend on the model and the task.  Models that have a high GQA count (e.g. Qwen2) may see a larger impact on precision from quantization than models with a low GQA count.
++
++You may need to experiment with different quantization types to find the best balance between memory usage and quality.
+diff --git a/envconfig/config.go b/envconfig/config.go
+index e80c67ba306..29c7fa4ffd6 100644
+--- a/envconfig/config.go
++++ b/envconfig/config.go
+@@ -153,6 +153,8 @@ var (
+ 	Debug = Bool("OLLAMA_DEBUG")
+ 	// FlashAttention enables the experimental flash attention feature.
+ 	FlashAttention = Bool("OLLAMA_FLASH_ATTENTION")
++	// KvCacheType is the quantization type for the K/V cache.
++	KvCacheType = String("OLLAMA_KV_CACHE_TYPE")
+ 	// NoHistory disables readline history.
+ 	NoHistory = Bool("OLLAMA_NOHISTORY")
+ 	// NoPrune disables pruning of model blobs on startup.
+@@ -234,6 +236,7 @@ func AsMap() map[string]EnvVar {
+ 	ret := map[string]EnvVar{
+ 		"OLLAMA_DEBUG":             {"OLLAMA_DEBUG", Debug(), "Show additional debug information (e.g. OLLAMA_DEBUG=1)"},
+ 		"OLLAMA_FLASH_ATTENTION":   {"OLLAMA_FLASH_ATTENTION", FlashAttention(), "Enabled flash attention"},
++		"OLLAMA_KV_CACHE_TYPE":     {"OLLAMA_KV_CACHE_TYPE", KvCacheType(), "Quantization type for the K/V cache (default: f16)"},
+ 		"OLLAMA_GPU_OVERHEAD":      {"OLLAMA_GPU_OVERHEAD", GpuOverhead(), "Reserve a portion of VRAM per GPU (bytes)"},
+ 		"OLLAMA_HOST":              {"OLLAMA_HOST", Host(), "IP Address for the ollama server (default 127.0.0.1:11434)"},
+ 		"OLLAMA_KEEP_ALIVE":        {"OLLAMA_KEEP_ALIVE", KeepAlive(), "The duration that models stay loaded in memory (default \"5m\")"},
+diff --git a/llama/llama.go b/llama/llama.go
+index 468540f5b8e..13d6e8054e1 100644
+--- a/llama/llama.go
++++ b/llama/llama.go
+@@ -88,6 +88,7 @@ import (
+ 	_ "embed"
+ 	"errors"
+ 	"fmt"
++	"log/slog"
+ 	"runtime"
+ 	"runtime/cgo"
+ 	"slices"
+@@ -140,7 +141,7 @@ type ContextParams struct {
+ 	c C.struct_llama_context_params
+ }
+ 
+-func NewContextParams(numCtx int, batchSize int, numSeqMax int, threads int, flashAttention bool) ContextParams {
++func NewContextParams(numCtx int, batchSize int, numSeqMax int, threads int, flashAttention bool, kvCacheType string) ContextParams {
+ 	params := C.llama_context_default_params()
+ 	params.n_ctx = C.uint(numCtx)
+ 	params.n_batch = C.uint(batchSize)
+@@ -149,9 +150,36 @@ func NewContextParams(numCtx int, batchSize int, numSeqMax int, threads int, fla
+ 	params.n_threads_batch = params.n_threads
+ 	params.embeddings = C.bool(true)
+ 	params.flash_attn = C.bool(flashAttention)
++	params.type_k = kvCacheTypeFromStr(strings.ToLower(kvCacheType))
++	params.type_v = kvCacheTypeFromStr(strings.ToLower(kvCacheType))
++
+ 	return ContextParams{c: params}
+ }
+ 
++// kvCacheTypeFromStr converts a string cache type to the corresponding GGML type value
++func kvCacheTypeFromStr(s string) C.enum_ggml_type {
++	if s == "" {
++		return C.GGML_TYPE_F16
++	}
++
++	switch s {
++	case "f32":
++		return C.GGML_TYPE_F32
++	case "f16", "fp16":
++		return C.GGML_TYPE_F16
++	case "q8_0":
++		return C.GGML_TYPE_Q8_0
++	case "q4_0":
++		return C.GGML_TYPE_Q4_0
++	default:
++		// Only warn if non-default type was specified
++		if s != "" && s != "f16" && s != "fp16" {
++			slog.Warn("unsupported quantization type, defaulting to f16", "type", s)
++		}
++		return C.GGML_TYPE_F16
++	}
++}
++
+ type Context struct {
+ 	c          *C.struct_llama_context
+ 	numThreads int
+diff --git a/llama/runner/runner.go b/llama/runner/runner.go
+index 9b1534e48bc..660e8cffa84 100644
+--- a/llama/runner/runner.go
++++ b/llama/runner/runner.go
+@@ -850,6 +850,7 @@ func (s *Server) loadModel(
+ 	lpath multiLPath,
+ 	ppath string,
+ 	kvSize int,
++	kvCacheType string,
+ 	flashAttention bool,
+ 	threads int,
+ 	multiUserCache bool,
+@@ -862,7 +863,7 @@ func (s *Server) loadModel(
+ 		panic(err)
+ 	}
+ 
+-	ctxParams := llama.NewContextParams(kvSize, s.batchSize*s.parallel, s.parallel, threads, flashAttention)
++	ctxParams := llama.NewContextParams(kvSize, s.batchSize*s.parallel, s.parallel, threads, flashAttention, kvCacheType)
+ 	s.lc, err = llama.NewContextWithModel(s.model, ctxParams)
+ 	if err != nil {
+ 		panic(err)
+@@ -903,6 +904,7 @@ func main() {
+ 	mainGpu := flag.Int("main-gpu", 0, "Main GPU")
+ 	flashAttention := flag.Bool("flash-attn", false, "Enable flash attention")
+ 	kvSize := flag.Int("ctx-size", 2048, "Context (or KV cache) size")
++	kvCacheType := flag.String("kv-cache-type", "", "quantization type for KV cache (default: f16)")
+ 	port := flag.Int("port", 8080, "Port to expose the server on")
+ 	threads := flag.Int("threads", runtime.NumCPU(), "Number of threads to use during generation")
+ 	verbose := flag.Bool("verbose", false, "verbose output (default: disabled)")
+@@ -970,7 +972,7 @@ func main() {
+ 	}
+ 
+ 	server.ready.Add(1)
+-	go server.loadModel(params, *mpath, lpaths, *ppath, *kvSize, *flashAttention, *threads, *multiUserCache)
++	go server.loadModel(params, *mpath, lpaths, *ppath, *kvSize, *kvCacheType, *flashAttention, *threads, *multiUserCache)
+ 
+ 	server.cond = sync.NewCond(&server.mu)
+ 
+diff --git a/llm/kv_cache.go b/llm/kv_cache.go
+new file mode 100644
+index 00000000000..ccc374f08f4
+--- /dev/null
++++ b/llm/kv_cache.go
+@@ -0,0 +1,69 @@
++package llm
++
++import (
++	"log/slog"
++	"slices"
++)
++
++// Interface for GGML functionality needed by validation
++type GGMLModel interface {
++	KV() KV
++}
++
++// kVCacheQuantization determines the appropriate KV cache quantization type based on
++// model characteristics, GPU capabilities, and environment settings
++func kVCacheQuantization(kvct string, ggml GGMLModel) string {
++	if kvct == "f16" || kvct == "f32" {
++		return kvct
++	}
++
++	// First check if the requested type is valid
++	validKVCacheTypes := []string{"f32", "f16", "q8_0", "q4_0"}
++	if !slices.Contains(validKVCacheTypes, kvct) {
++		slog.Warn("unsupported cache type, defaulting to f16", "type", kvct)
++		return "f16"
++	}
++
++	// Check flash attention support
++	flashAttnEnabled, _ := checkFlashAttentionSupport(ggml)
++	if !flashAttnEnabled && kvct != "f16" && kvct != "f32" {
++		slog.Info("quantized KV cache requires flash attention, defaulting to f16",
++			"requested_type", kvct)
++		return "f16"
++	}
++
++	// Flash attention is enabled and type is valid, use requested type
++	return kvct
++}
++
++// estimateKvCacheSize determines the total memory required for KV cache based on the quantization type
++func estimateKvCacheSize(cacheType string, numCtx uint64, ggml *GGML) uint64 {
++	var bytesPerElement float64
++
++	flashAttnEnabled, _ := checkFlashAttentionSupport(ggml)
++	if !flashAttnEnabled && cacheType != "f32" {
++		cacheType = "f16"
++	}
++
++	switch cacheType {
++	case "f32", "fp32":
++		bytesPerElement = 4 // fp32
++	case "", "f16", "fp16":
++		bytesPerElement = 2 // fp16 is the default
++	case "q8_0":
++		bytesPerElement = 1 // 1/2 of fp16
++	case "q4_0":
++		bytesPerElement = 0.5 // 1/4 of fp16
++	default:
++		// Only log a warning if an explicit type was provided but not recognized
++		if cacheType != "" {
++			slog.Warn("unknown cache type, defaulting to fp16", "type", cacheType)
++		}
++		bytesPerElement = 2
++	}
++
++	kv := ggml.KV()
++	estimate := uint64(float64(numCtx*kv.BlockCount()*(kv.EmbeddingHeadCountK()+kv.EmbeddingHeadCountV())*kv.HeadCountKV()) * bytesPerElement)
++	// round up to the nearest multiple of 64 bytes
++	return ((estimate + 63) / 64) * 64
++}
+diff --git a/llm/kv_cache_test.go b/llm/kv_cache_test.go
+new file mode 100644
+index 00000000000..392adee4151
+--- /dev/null
++++ b/llm/kv_cache_test.go
+@@ -0,0 +1,327 @@
++package llm
++
++import (
++	"strconv"
++	"testing"
++
++	"github.com/ollama/ollama/discover"
++)
++
++// testGGML implements GGMLModel for testing
++type testGGML struct {
++	kv KV
++}
++
++func (g *testGGML) KV() KV {
++	return g.kv
++}
++
++func TestKVCacheQuantization(t *testing.T) {
++	tests := []struct {
++		name         string
++		kvData       map[string]any
++		gpus         discover.GpuInfoList
++		envKVCache   string
++		envFlashAttn string
++		numGPULayers int
++		expected     string
++	}{
++		// Basic validation cases
++		{
++			name: "empty cache type",
++			kvData: map[string]any{
++				"general.architecture": "llama",
++			},
++			gpus: discover.GpuInfoList{
++				{Library: "cuda", DriverMajor: 8},
++			},
++			envKVCache:   "",
++			envFlashAttn: "false",
++			numGPULayers: -1,
++			expected:     "f16",
++		},
++		{
++			name: "invalid cache type",
++			kvData: map[string]any{
++				"general.architecture": "llama",
++			},
++			gpus: discover.GpuInfoList{
++				{Library: "cuda", DriverMajor: 8},
++			},
++			envKVCache:   "invalid",
++			envFlashAttn: "true",
++			numGPULayers: -1,
++			expected:     "f16",
++		},
++		// Embedding model cases
++		{
++			name: "embedding model with q4_0",
++			kvData: map[string]any{
++				"general.architecture": "bert",
++				"bert.pooling_type":    "mean",
++			},
++			gpus: discover.GpuInfoList{
++				{Library: "cuda", DriverMajor: 8},
++			},
++			envKVCache:   "q4_0",
++			envFlashAttn: "true",
++			numGPULayers: -1,
++			expected:     "f16",
++		},
++		{
++			name: "embedding model with f32",
++			kvData: map[string]any{
++				"general.architecture": "bert",
++				"bert.pooling_type":    "mean",
++			},
++			gpus: discover.GpuInfoList{
++				{Library: "cuda", DriverMajor: 8},
++			},
++			envKVCache:   "f32",
++			envFlashAttn: "true",
++			numGPULayers: -1,
++			expected:     "f32",
++		},
++		// Flash attention cases
++		{
++			name: "non-embedding model with q4_0 and flash attention",
++			kvData: map[string]any{
++				"general.architecture":         "llama",
++				"llama.attention.key_length":   uint32(32),
++				"llama.attention.value_length": uint32(32),
++			},
++			gpus: discover.GpuInfoList{
++				{Library: "cuda", DriverMajor: 8},
++			},
++			envKVCache:   "q4_0",
++			envFlashAttn: "true",
++			numGPULayers: -1,
++			expected:     "q4_0",
++		},
++		{
++			name: "non-embedding model with q4_0 without flash attention support",
++			kvData: map[string]any{
++				"general.architecture": "llama",
++			},
++			gpus: discover.GpuInfoList{
++				{Library: "cuda", DriverMajor: 6},
++			},
++			envKVCache:   "q4_0",
++			envFlashAttn: "true",
++			numGPULayers: -1,
++			expected:     "f16",
++		},
++		{
++			name: "flash attention disabled via env var",
++			kvData: map[string]any{
++				"general.architecture":         "llama",
++				"llama.attention.key_length":   uint32(32),
++				"llama.attention.value_length": uint32(32),
++			},
++			gpus: discover.GpuInfoList{
++				{Library: "cuda", DriverMajor: 8},
++			},
++			envKVCache:   "q4_0",
++			envFlashAttn: "false",
++			numGPULayers: -1,
++			expected:     "f16",
++		},
++		// Multi-GPU cases
++		{
++			name: "multiple GPUs with flash attention support",
++			kvData: map[string]any{
++				"general.architecture":         "llama",
++				"llama.attention.key_length":   uint32(32),
++				"llama.attention.value_length": uint32(32),
++			},
++			gpus: discover.GpuInfoList{
++				{Library: "cuda", DriverMajor: 8},
++				{Library: "cuda", DriverMajor: 8},
++			},
++			envKVCache:   "q4_0",
++			envFlashAttn: "true",
++			numGPULayers: -1,
++			expected:     "q4_0",
++		},
++		// Partial offload cases
++		{
++			name: "partial offload with q4_0 cache type",
++			kvData: map[string]any{
++				"general.architecture":         "llama",
++				"llama.attention.key_length":   uint32(32),
++				"llama.attention.value_length": uint32(32),
++				"llama.block_count":            uint32(32),
++			},
++			gpus: discover.GpuInfoList{
++				{Library: "cuda", DriverMajor: 8},
++			},
++			envKVCache:   "q4_0",
++			envFlashAttn: "true",
++			numGPULayers: 16,
++			expected:     "q4_0",
++		},
++		{
++			name: "minimal partial offload",
++			kvData: map[string]any{
++				"general.architecture":         "llama",
++				"llama.attention.key_length":   uint32(32),
++				"llama.attention.value_length": uint32(32),
++				"llama.block_count":            uint32(32),
++			},
++			gpus: discover.GpuInfoList{
++				{Library: "cuda", DriverMajor: 8},
++			},
++			envKVCache:   "q4_0",
++			envFlashAttn: "true",
++			numGPULayers: 1, // Test minimum offload case
++			expected:     "q4_0",
++		},
++		{
++			name: "partial offload with insufficient VRAM",
++			kvData: map[string]any{
++				"general.architecture":         "llama",
++				"llama.attention.key_length":   uint32(32),
++				"llama.attention.value_length": uint32(32),
++				"llama.block_count":            uint32(32),
++			},
++			gpus: discover.GpuInfoList{
++				{
++					Library:       "cuda",
++					DriverMajor:   8,
++					MinimumMemory: 1024 * 1024 * 1024,
++				},
++			},
++			envKVCache:   "q4_0",
++			envFlashAttn: "true",
++			numGPULayers: 4,
++			expected:     "q4_0",
++		},
++		// Different GPU types
++		{
++			name: "metal GPU",
++			kvData: map[string]any{
++				"general.architecture":         "llama",
++				"llama.attention.key_length":   uint32(32),
++				"llama.attention.value_length": uint32(32),
++			},
++			gpus: discover.GpuInfoList{
++				{Library: "metal"},
++			},
++			envKVCache:   "q4_0",
++			envFlashAttn: "true",
++			numGPULayers: -1,
++			expected:     "q4_0",
++		},
++		{
++			name: "rocm GPU",
++			kvData: map[string]any{
++				"general.architecture":         "llama",
++				"llama.attention.key_length":   uint32(32),
++				"llama.attention.value_length": uint32(32),
++			},
++			gpus: discover.GpuInfoList{
++				{Library: "rocm", DriverMajor: 5},
++			},
++			envKVCache:   "q4_0",
++			envFlashAttn: "true",
++			numGPULayers: -1,
++			expected:     "q4_0",
++		},
++		{
++			name: "zero GPU layers", // Updated name
++			kvData: map[string]any{
++				"general.architecture":         "llama",
++				"llama.attention.key_length":   uint32(32),
++				"llama.attention.value_length": uint32(32),
++			},
++			gpus: discover.GpuInfoList{
++				{Library: "cuda", DriverMajor: 8},
++			},
++			envKVCache:   "q4_0",
++			envFlashAttn: "true",
++			numGPULayers: 0,
++			expected:     "q4_0", // The implementation considers GPU capabilities even with zero layers
++		},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			// Reset environment before each test
++			t.Setenv("OLLAMA_KV_CACHE_TYPE", tt.envKVCache)
++			t.Setenv("OLLAMA_FLASH_ATTENTION", tt.envFlashAttn)
++			if tt.numGPULayers >= 0 {
++				t.Setenv("OLLAMA_NUM_GPU_LAYERS", strconv.Itoa(tt.numGPULayers))
++			}
++
++			ggml := &testGGML{kv: tt.kvData}
++			result := kVCacheQuantization(tt.envKVCache, ggml)
++
++			// Check the result
++			if result != tt.expected {
++				t.Errorf("expected %s, got %s for test case: %s", tt.expected, result, tt.name)
++				t.Logf("Test configuration: %+v", tt)
++			}
++		})
++	}
++}
++
++func TestValidateFASupport(t *testing.T) {
++	tests := []struct {
++		name               string
++		kvData             map[string]any
++		gpus               discover.GpuInfoList
++		flashAttnRequested bool
++		want               bool
++	}{
++		{
++			name: "supported model and hardware",
++			kvData: map[string]any{
++				"general.architecture":         "llama",
++				"llama.attention.key_length":   uint32(32),
++				"llama.attention.value_length": uint32(32),
++			},
++			gpus: discover.GpuInfoList{
++				{Library: "cuda", DriverMajor: 8},
++			},
++			flashAttnRequested: true,
++			want:               true,
++		},
++		{
++			name: "embedding model",
++			kvData: map[string]any{
++				"general.architecture":        "bert",
++				"bert.attention.key_length":   uint32(32),
++				"bert.attention.value_length": uint32(32),
++				"bert.pooling_type":           "mean",
++			},
++			gpus: discover.GpuInfoList{
++				{Library: "cuda", DriverMajor: 8},
++			},
++			flashAttnRequested: true,
++			want:               false,
++		},
++		{
++			name: "unsupported hardware",
++			kvData: map[string]any{
++				"general.architecture":         "llama",
++				"llama.attention.key_length":   uint32(32),
++				"llama.attention.value_length": uint32(32),
++			},
++			gpus: discover.GpuInfoList{
++				{Library: "cuda", DriverMajor: 6},
++			},
++			flashAttnRequested: true,
++			want:               false,
++		},
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			ggml := &testGGML{kv: tt.kvData}
++			got := tt.gpus.FlashAttentionSupported() && modelSupportsFlashAttention(ggml) && tt.flashAttnRequested
++			if tt.want != got {
++				t.Errorf("expected %v, got %v", tt.want, got)
++			}
++		})
++	}
++}
+diff --git a/llm/memory.go b/llm/memory.go
+index 521ed16ffcb..a3cb84c704a 100644
+--- a/llm/memory.go
++++ b/llm/memory.go
+@@ -123,7 +123,15 @@ func EstimateGPULayers(gpus []discover.GpuInfo, ggml *GGML, projectors []string,
+ 		slog.Warn("model missing blk.0 layer size")
+ 	}
+ 
+-	kv, graphPartialOffload, graphFullOffload := ggml.GraphSize(uint64(opts.NumCtx), uint64(min(opts.NumCtx, opts.NumBatch)))
++	// Estimate the memory required for KV cache quantization
++	kv := estimateKvCacheSize(kVCacheQuantization(envconfig.KvCacheType(), ggml), uint64(opts.NumCtx), ggml)
++
++	// KV is proportional to the number of layers
++	layerSize += kv / ggml.KV().BlockCount()
++
++	// Get graph sizes from ggml
++	_, graphPartialOffload, graphFullOffload = ggml.GraphSize(uint64(opts.NumCtx), uint64(min(opts.NumCtx, opts.NumBatch)))
++
+ 	if graphPartialOffload == 0 {
+ 		graphPartialOffload = ggml.KV().GQA() * kv / 6
+ 	}
+@@ -131,9 +139,6 @@ func EstimateGPULayers(gpus []discover.GpuInfo, ggml *GGML, projectors []string,
+ 		graphFullOffload = graphPartialOffload
+ 	}
+ 
+-	// KV is proportional to the number of layers
+-	layerSize += kv / ggml.KV().BlockCount()
+-
+ 	// on metal there's no partial offload overhead
+ 	if gpus[0].Library == "metal" {
+ 		graphPartialOffload = graphFullOffload
+diff --git a/llm/memory_test.go b/llm/memory_test.go
+index 73e77d9088d..438163a957e 100644
+--- a/llm/memory_test.go
++++ b/llm/memory_test.go
+@@ -15,6 +15,7 @@ import (
+ 
+ func TestEstimateGPULayers(t *testing.T) {
+ 	t.Setenv("OLLAMA_DEBUG", "1")
++	t.Setenv("OLLAMA_KV_CACHE_TYPE", "")
+ 
+ 	modelName := "dummy"
+ 	f, err := os.CreateTemp(t.TempDir(), modelName)
+@@ -57,6 +58,7 @@ func TestEstimateGPULayers(t *testing.T) {
+ 	}
+ 	projectors := []string{}
+ 	opts := api.DefaultOptions()
++
+ 	t.Run("cpu", func(t *testing.T) {
+ 		estimate := EstimateGPULayers(gpus, ggml, projectors, opts)
+ 		assert.Equal(t, 0, estimate.Layers)
+@@ -70,7 +72,7 @@ func TestEstimateGPULayers(t *testing.T) {
+ 	projectorSize := uint64(0)
+ 	memoryLayerOutput := uint64(4)
+ 
+-	// Dual CUDA scenario with assymetry
++	// Dual CUDA scenario with asymmetry
+ 	gpuMinimumMemory := uint64(2048)
+ 	gpus = []discover.GpuInfo{
+ 		{
+@@ -126,3 +128,97 @@ func TestEstimateGPULayers(t *testing.T) {
+ 		})
+ 	}
+ }
++
++func TestEstimateKvCacheSize(t *testing.T) {
++	const (
++		baseSize = 0x10000000 // Base size for standard model with 1024 context using f32
++		baseCtx  = uint64(1024)
++	)
++
++	var (
++		tokenizer = []string{" "}
++		scores    = []float32{0}
++		tokenType = []int32{0}
++	)
++
++	// Helper to create a test model with given architecture
++	createTestModel := func(arch string, poolingType string) *GGML {
++		f, err := os.CreateTemp(t.TempDir(), "dummy")
++		require.NoError(t, err)
++		defer f.Close()
++
++		tensor := Tensor{
++			Name:     "output.weight",
++			Kind:     uint32(0),
++			Offset:   uint64(0),
++			Shape:    []uint64{1, 1, 1, 1},
++			WriterTo: bytes.NewReader(make([]byte, 32)),
++		}
++
++		kv := KV{
++			"general.architecture":            arch,
++			arch + ".context_length":          uint32(32),
++			arch + ".embedding_length":        uint32(4096),
++			arch + ".block_count":             uint32(32),
++			arch + ".attention.head_count":    uint32(32),
++			arch + ".attention.head_count_kv": uint32(32),
++			"tokenizer.ggml.tokens":           tokenizer,
++			"tokenizer.ggml.scores":           scores,
++			"tokenizer.ggml.token_type":       tokenType,
++		}
++
++		if poolingType != "" {
++			kv[arch+".pooling_type"] = poolingType
++		}
++
++		require.NoError(t, WriteGGUF(f, kv, []Tensor{tensor}))
++
++		ggml, err := LoadModel(f.Name(), 0)
++		require.NoError(t, err)
++		return ggml
++	}
++
++	tests := []struct {
++		name        string
++		ctx         uint64
++		cacheType   string
++		isEmbedding bool
++		want        uint64
++	}{
++		// Standard test cases (all non-f32 should fall back to f16 without flash attention)
++		{"f32 standard", baseCtx, "f32", false, baseSize * 4},     // f32 stays f32
++		{"f16 standard", baseCtx, "f16", false, baseSize * 2},     // f16 stays f16
++		{"q8_0 standard", baseCtx, "q8_0", false, baseSize * 2},   // falls back to f16
++		{"q4_0 standard", baseCtx, "q4_0", false, baseSize * 2},   // falls back to f16
++		{"empty type", baseCtx, "", false, baseSize * 2},          // defaults to f16
++		{"unknown type", baseCtx, "unknown", false, baseSize * 2}, // defaults to f16
++
++		// Embedding model cases
++		{"q4_0 embedding", baseCtx, "q4_0", true, baseSize * 2}, // forces f16
++		{"q8_0 embedding", baseCtx, "q8_0", true, baseSize * 2}, // forces f16
++		{"f32 embedding", baseCtx, "f32", true, baseSize * 4},   // keeps f32
++	}
++
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			arch := "llama"
++			poolingType := ""
++			if tt.isEmbedding {
++				arch = "bert"
++				poolingType = "mean"
++			}
++
++			ggml := createTestModel(arch, poolingType)
++			t.Setenv("OLLAMA_FLASH_ATTENTION", "false") // Ensure flash attention is disabled
++
++			// First get the actual cache type that will be used
++			actualCacheType := kVCacheQuantization(tt.cacheType, ggml)
++			// Then estimate size using the actual type that will be used
++			got := estimateKvCacheSize(actualCacheType, tt.ctx, ggml)
++
++			assert.Equal(t, tt.want, got,
++				fmt.Sprintf("ctx=%d requested_cache=%s actual_cache=%s embedding=%v",
++					tt.ctx, tt.cacheType, actualCacheType, tt.isEmbedding))
++		})
++	}
++}
+diff --git a/llm/server.go b/llm/server.go
+index 2afc5562917..75d0b8d8be8 100644
+--- a/llm/server.go
++++ b/llm/server.go
+@@ -214,15 +214,23 @@ func NewLlamaServer(gpus discover.GpuInfoList, model string, ggml *GGML, adapter
+ 		params = append(params, "--threads", strconv.Itoa(defaultThreads))
+ 	}
+ 
+-	flashAttnEnabled := envconfig.FlashAttention()
++	// Check flash attention support and determine KV cache type
++	flashAttnEnabled, reason := checkFlashAttentionSupport(ggml)
++	if flashAttnEnabled {
++		params = append(params, "--flash-attn")
++		slog.Info("enabling flash attention")
+ 
+-	for _, g := range gpus {
+-		// only cuda (compute capability 7+) and metal support flash attention
+-		if g.Library != "metal" && (g.Library != "cuda" || g.DriverMajor < 7) {
+-			flashAttnEnabled = false
++		kvCacheType := kVCacheQuantization(envconfig.KvCacheType(), ggml)
++		if kvCacheType != "" {
++			params = append(params, "--kv-cache-type", kvCacheType)
++			slog.Debug("setting cache type", "type", kvCacheType)
+ 		}
++	} else if envconfig.FlashAttention() {
++		slog.Info("flash attention not enabled", "reason", reason)
++	}
+ 
+-		// mmap has issues with partial offloading on metal
++	// mmap has issues with partial offloading on metal
++	for _, g := range gpus {
+ 		if g.Library == "metal" &&
+ 			uint64(opts.NumGPU) > 0 &&
+ 			uint64(opts.NumGPU) < ggml.KV().BlockCount()+1 {
+@@ -231,10 +239,6 @@ func NewLlamaServer(gpus discover.GpuInfoList, model string, ggml *GGML, adapter
+ 		}
+ 	}
+ 
+-	if flashAttnEnabled {
+-		params = append(params, "--flash-attn")
+-	}
+-
+ 	// Windows CUDA should not use mmap for best performance
+ 	// Linux  with a model larger than free space, mmap leads to thrashing
+ 	// For CPU loads we want the memory to be allocated, not FS cache
+@@ -1115,3 +1119,35 @@ func parseDurationMs(ms float64) time.Duration {
+ 
+ 	return dur
+ }
++
++// modelSupportsFlashAttention checks if the model supports flash attention
++func modelSupportsFlashAttention(ggml GGMLModel) bool {
++	_, isEmbedding := ggml.KV()[fmt.Sprintf("%s.pooling_type", ggml.KV().Architecture())]
++	if isEmbedding {
++		return false
++	}
++
++	// Check head counts match and are non-zero
++	headCountK := ggml.KV().EmbeddingHeadCountK()
++	headCountV := ggml.KV().EmbeddingHeadCountV()
++	return headCountK != 0 && headCountV != 0 && headCountK == headCountV
++}
++
++// checkFlashAttentionSupport returns whether flash attention should be enabled and a reason if it's not
++func checkFlashAttentionSupport(ggml GGMLModel) (bool, string) {
++	gpus := discover.GpuInfoList{}
++	flashAttnRequested := envconfig.FlashAttention()
++	if !flashAttnRequested {
++		return false, "not requested"
++	}
++
++	if !gpus.FlashAttentionSupported() {
++		return false, "not supported by GPU"
++	}
++
++	if !modelSupportsFlashAttention(ggml) {
++		return false, "not supported by model"
++	}
++
++	return true, ""
++}

@@ -1,0 +1,11 @@
+[
+  {
+    "path": "subsys/bluetooth/host/conn.c",
+    "line": 100,
+    "original_line": 100,
+    "review_comment": [
+      "Seems ```bt_conn_iso_init()``` will only return ```0```, should we make it ```void```, or we add some checking mechanism? ",
+      "That's a good question. Made it return `int` to follow the pattern of `bt_conn_init`, but maybe it should be `void`. @joerchan Any input? "
+    ]
+  }
+]

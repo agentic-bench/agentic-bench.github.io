@@ -1,0 +1,10 @@
+[
+  {
+    "path": "packages/core/test/acceptance/di_spec.ts",
+    "line": 3421,
+    "original_line": 3421,
+    "review_comment": [
+      "We should probably have a similar assignment but without an options object entirety"
+    ]
+  }
+]

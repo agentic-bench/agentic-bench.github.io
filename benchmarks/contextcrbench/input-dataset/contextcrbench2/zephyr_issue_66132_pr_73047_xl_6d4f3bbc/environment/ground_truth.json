@@ -1,0 +1,13 @@
+[
+  {
+    "path": "include/zephyr/posix/pthread.h",
+    "line": 156,
+    "original_line": 156,
+    "review_comment": [
+      "hey @cfriedt is this correct? I bumped into a library that was using `PTHREAD_RWLOCK_INITIALIZER` (boringssl) and now does not build anymore, I see that `/usr/include/pthread.h` on my system defines `PTHREAD_RWLOCK_INITIALIZER` as well\r\n\r\nIf the change is intentional does this need a migration guide entry?",
+      "@fabiobaltieri - good find. `PTHREAD_RWLOCK_INITIALIZER` is the standard macro name. Are you good to submit a fix?",
+      "yeah I can do that",
+      "there you go https://github.com/zephyrproject-rtos/zephyr/pull/73808"
+    ]
+  }
+]

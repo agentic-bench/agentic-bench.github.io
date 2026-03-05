@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "swc_issue_709_pr_715_l_8ee4f6bb"
+contextcrbench2_full_name = "swc-project/swc"
+contextcrbench2_lang = "rust"
+contextcrbench2_issue_number = "709"
+contextcrbench2_issue_title = "Error parsing optional binding pattern parameter in an ambient context"
+contextcrbench2_pr_number = "715"
+contextcrbench2_pr_title = "Allow optional binding pattern in ambient context"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "8ee4f6bb03b40ef035d81adc1603d328397c79ac"
+contextcrbench2_commit_id = "13a3e177286208e92f3398e31ea6791dd03c2962"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2020-03-10T04:12:22Z"
+contextcrbench2_entry_count = "2"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

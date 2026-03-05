@@ -1,0 +1,10 @@
+[
+  {
+    "path": "modules/httplib/url_test.go",
+    "line": 56,
+    "original_line": 56,
+    "review_comment": [
+      "Hint: here and below, the behavior now is almost the same as 1.21, to avoid any breaking. With this change, there won't be any problems like #31002 even if the reverse proxy is not correctly configured.\r\n\r\nMore details are in the comment of `GuessCurrentAppURL`"
+    ]
+  }
+]

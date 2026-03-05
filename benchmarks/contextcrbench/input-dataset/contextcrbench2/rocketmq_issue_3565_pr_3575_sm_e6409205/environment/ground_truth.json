@@ -1,0 +1,14 @@
+[
+  {
+    "path": "example/src/main/resources/MessageFilterImpl.java",
+    "line": 24,
+    "original_line": 24,
+    "review_comment": [
+      "the MessageFilter interface could also be removed.",
+      "Could you please elaborate",
+      "Because org.apache.rocketmq.common.filter.MessageFilter is not used anywhere exept here, we have org.apache.rocketmq.store.MessageFilter, so org.apache.rocketmq.common.filter.MessageFilter can be deleted.",
+      "oh.. okay, should I do that in a different pr as the tittle for this one say's Removing MessageFilterImpl , I think i should what do you think?",
+      "Ok, you can remove it later"
+    ]
+  }
+]

@@ -1,0 +1,13 @@
+[
+  {
+    "id": 32400,
+    "full_name": "systemd/systemd",
+    "lang": "c",
+    "issue_number": 19409,
+    "pr_number": 19453,
+    "diff_hunk": "@@ -688,7 +688,8 @@ static int manager_setup_prefix(Manager *m) {\n         for (ExecDirectoryType i = 0; i < _EXEC_DIRECTORY_TYPE_MAX; i++) {\n                 r = sd_path_lookup(p[i].type, p[i].suffix, &m->prefix[i]);\n                 if (r < 0)\n-                        return r;\n+                        return log_warning_errno(r, \"Failed to lookup %s path: %m\",\n+                                                 exec_directory_type_to_string(i));\n         }\n \n         return 0;\n",
+    "diff_hunk_content_with_line_number": "[688][688]          for (ExecDirectoryType i = 0; i < _EXEC_DIRECTORY_TYPE_MAX; i++) {\n[689][689]                  r = sd_path_lookup(p[i].type, p[i].suffix, &m->prefix[i]);\n[690][690]                  if (r < 0)\n[691][] -                        return r;\n[][691] +                        return log_warning_errno(r, \"Failed to lookup %s path: %m\",\n[][692] +                                                 exec_directory_type_to_string(i));\n[692][693]          }\n[693][694]  \n[694][695]          return 0;",
+    "checked_commit_id": "998df7ce0d9ee01630851ccbaccc9b08aaf6c8c6",
+    "pr_size": "l"
+  }
+]

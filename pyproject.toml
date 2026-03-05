@@ -1,0 +1,27 @@
+[project]
+name = "zenith-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "anthropic>=0.63.0",
+    "ddgs>=9.5.2",
+    "duckduckgo-search>=8.1.1",
+    "genai-prices>=0.0.54",
+    "httpx>=0.28.1",
+    "langchain-community>=0.3.27",
+    "litellm>=1.82.0",
+    "mlflow>=3.5.1",
+    "nltk>=3.9.2",
+    "openai>=1.99.9",
+    "pandas>=2.3.1",
+    "pydantic-ai[examples]>=0.7.0",
+    "python-dotenv>=1.1.1",
+    "python-json-logger>=4.0.0",
+    "requests>=2.32.4",
+    "sacrebleu>=2.5.1",
+    "scikit-learn>=1.7.2",
+    "tqdm>=4.67.1",
+    "whatthepatch>=1.0.7",
+]

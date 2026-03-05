@@ -1,0 +1,11 @@
+[
+  {
+    "path": "crates/ruff_python_formatter/tests/fixtures.rs",
+    "line": 150,
+    "original_line": 150,
+    "review_comment": [
+      "Should we skip this if `options.preview == Enabled` when using a test specific options file? ",
+      "This is the no-options-file branch; i think it's better to not mix them to avoid combinatorial explosion"
+    ]
+  }
+]

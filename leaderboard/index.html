@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic Code Review Leaderboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="styles.css" rel="stylesheet">
+    <script>
+        // Apply saved theme immediately (before render) to avoid flash
+        (function() {
+            const saved = localStorage.getItem('lb-theme') || 'light';
+            document.documentElement.setAttribute('data-theme', saved);
+        })();
+    </script>
+</head>
+<body>
+
+    <nav class="navbar navbar-expand-lg">
+        <div class="container-xl px-4">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-robot me-2"></i>
+                Agentic Code Review Leaderboard
+            </a>
+            <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark theme">
+                <span id="theme-icon"><i class="far fa-moon"></i></span>
+                <span id="theme-label">Dark</span>
+            </button>
+        </div>
+    </nav>
+
+    <div class="hero-section">
+        <div class="container text-center">
+            <h1 class="display-5 fw-bold mb-3">Agentic Code Review Leaderboard</h1>
+            <p class="lead mb-0">Benchmarking Agentic AI Performance on Code Review Tasks</p>
+            <div class="stats-row justify-content-center">
+                <div class="stat-item">
+                    <h3 id="total-agents">—</h3><p>Agents</p>
+                </div>
+                <div class="stat-item">
+                    <h3 id="total-models">—</h3><p>Base Models</p>
+                </div>
+                <div class="stat-item">
+                    <h3 id="total-reviews">—</h3><p>PRs / Diffs</p>
+                </div>
+                <div class="stat-item">
+                    <h3 id="total-comments">—</h3><p>Comments</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Leaderboard table -->
+    <div class="container-xl my-5 px-4" id="leaderboard">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0 fw-bold">
+                    <i class="fas fa-ranking-star me-2"></i> Performance Rankings
+                </h5>
+            </div>
+            <div class="card-body p-0">
+                <ul class="nav nav-tabs" id="leaderboard-tabs" role="tablist"></ul>
+                <div class="tab-content" id="leaderboard-tab-contents"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pareto frontier panel — cost vs performance scatter plot, full width above info panels -->
+    <div class="container-xl my-3 px-4">
+        <div class="info-panel" id="pareto-panel">
+            <div class="info-panel-header">
+                <i class="fas fa-chart-scatter me-2"></i>
+                Cost vs. Performance
+                <span style="font-size:.68rem;font-weight:500;background:var(--bg-surface3);color:var(--text-muted);border:1px solid var(--border);border-radius:4px;padding:1px 7px;margin-left:.5rem;vertical-align:middle">Experimental</span>
+                <span class="ms-auto" style="font-size:.75rem;font-weight:400;color:var(--text-muted)">X = total cost ($) &nbsp;·&nbsp; Y = overall score</span>
+            </div>
+            <div class="info-panel-body" id="pareto-panel-body">
+                <p class="info-panel-text text-muted small">Loading…</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Info panels -->
+    <div class="container-xl my-4 px-4">
+        <div class="info-panels-row">
+
+            <!-- Benchmarks panel — filled dynamically by script.js → renderInfoPanels() -->
+            <div class="info-panel">
+                <div class="info-panel-header">
+                    <i class="fas fa-flask me-2"></i>Benchmarks
+                </div>
+                <div class="info-panel-body" id="benchmarks-panel-body">
+                    <p class="info-panel-text text-muted">Loading…</p>
+                </div>
+            </div>
+
+            <!-- Submission panel — static HTML -->
+            <div class="info-panel">
+                <div class="info-panel-header">
+                    <i class="fas fa-upload me-2"></i>How to Submit
+                </div>
+                <div class="info-panel-body">
+                    <p class="info-panel-text">
+                        Evaluate your agent on any benchmark and submit results via a pull request.
+                        All submissions must follow the
+                        <a href="format.html"><strong>unified llm-comments format ↗</strong></a>.
+                    </p>
+                    <ol class="info-panel-steps">
+                        <li>
+                            <strong>Run your agent</strong> on the benchmark dataset:<br>
+                            <code>benchmarks/{benchmark}/input-dataset/dataset.jsonl</code>
+                        </li>
+                        <li>
+                            <strong>Format output</strong> — reformat into the
+                            <a href="format.html">unified llm-comments format</a>
+                            and save as:<br>
+                            <code>benchmarks/{benchmark}/llm-comments/{agent_id}_{YYYYMMDD-HHMM}.jsonl</code>
+                        </li>
+                        <li>
+                            <strong>Evaluate</strong><br>
+                            <code>python src/evaluator.py --benchmark {benchmark} --input path/to/your-file.jsonl</code>
+                        </li>
+                        <li>
+                            <strong>Update leaderboard</strong><br>
+                            <code>python src/leaderboard.py</code>
+                        </li>
+                        <li>
+                            <strong>Open a PR</strong> including:<br>
+                            <code>llm-comments/your-file.jsonl</code>,
+                            <code>eval-results/*_comments.jsonl</code>,
+                            <code>eval-results/*_trajectory.jsonl</code>,
+                            and updated <code>leaderboard/data/</code> files.
+                        </li>
+                    </ol>
+                </div>
+            </div>
+
+        </div>
+
+    </div>
+
+    <!-- Footer with logo bar -->
+    <footer class="py-4 mt-4">
+        <div class="container-xl px-4">
+            <!-- Powered-by logo bar -->
+            <div class="logo-bar-footer">
+                <div class="logo-slots">
+                    <!-- Atlassian: wide horizontal SVG, invert to white on dark bar -->
+                    <a href="https://www.atlassian.com" target="_blank" class="logo-slot" title="Atlassian">
+                        <img src="logos/Atlassian-logo.svg"
+                             alt="Atlassian"
+                             style="height:30px;width:auto;opacity:1">
+                    </a>
+                    <!-- University of Melbourne: square SVG with dark navy bg, show as-is -->
+                    <a href="https://www.unimelb.edu.au" target="_blank" class="logo-slot" title="University of Melbourne">
+                        <img src="logos/unimelb-logo.svg"
+                             alt="University of Melbourne"
+                             style="height:80px;width:auto;border-radius:4px">
+                    </a>
+                    <!-- Monash University: wide PNG, invert to white on dark bar -->
+                    <a href="https://www.monash.edu" target="_blank" class="logo-slot" title="Monash University">
+                        <img src="logos/monash-logo.png"
+                             alt="Monash University"
+                             style="height:60px;width:auto;opacity:1">
+                    </a>
+                </div>
+            </div>
+            <div class="text-center mt-3">
+                <p class="mb-0" style="font-size:.85rem;color:var(--text-muted)">
+                    &copy; 2026 Agentic Code Review Leaderboard &mdash; AI for Software Engineering Research.
+                </p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

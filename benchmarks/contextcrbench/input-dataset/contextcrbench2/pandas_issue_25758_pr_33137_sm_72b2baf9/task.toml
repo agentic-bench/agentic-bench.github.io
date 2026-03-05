@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "pandas_issue_25758_pr_33137_sm_72b2baf9"
+contextcrbench2_full_name = "pandas-dev/pandas"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "25758"
+contextcrbench2_issue_title = "groupby with daily frequency fails with AmbiguousTimeError on clock change day in Cuba"
+contextcrbench2_pr_number = "33137"
+contextcrbench2_pr_title = "BUG: DataFrame.resample raised AmbiguousTimeError at a midnight DST transition"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "72b2baf9f468664351cd7c37e77d692daa4f8d11"
+contextcrbench2_commit_id = "62f4fd5b38370577d057deeff01a4ed3aea8eea2"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2020-03-30T19:58:51Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

@@ -1,0 +1,1277 @@
+diff --git a/drivers/video/CMakeLists.txt b/drivers/video/CMakeLists.txt
+index e678071bdeca8..6210f8d881d07 100644
+--- a/drivers/video/CMakeLists.txt
++++ b/drivers/video/CMakeLists.txt
+@@ -16,3 +16,5 @@ zephyr_library_sources_ifdef(CONFIG_VIDEO_OV5640	ov5640.c)
+ zephyr_library_sources_ifdef(CONFIG_VIDEO_OV7670	ov7670.c)
+ zephyr_library_sources_ifdef(CONFIG_VIDEO_ESP32		video_esp32_dvp.c)
+ zephyr_library_sources_ifdef(CONFIG_VIDEO_MCUX_SDMA	video_mcux_smartdma.c)
++zephyr_library_sources_ifdef(CONFIG_VIDEO_EMUL_IMAGER	video_emul_imager.c)
++zephyr_library_sources_ifdef(CONFIG_VIDEO_EMUL_RX	video_emul_rx.c)
+diff --git a/drivers/video/Kconfig b/drivers/video/Kconfig
+index 6ff70bbcfca8d..a3b1634436282 100644
+--- a/drivers/video/Kconfig
++++ b/drivers/video/Kconfig
+@@ -74,4 +74,8 @@ source "drivers/video/Kconfig.gc2145"
+ 
+ source "drivers/video/Kconfig.mcux_sdma"
+ 
++source "drivers/video/Kconfig.emul_imager"
++
++source "drivers/video/Kconfig.emul_rx"
++
+ endif # VIDEO
+diff --git a/drivers/video/Kconfig.emul_imager b/drivers/video/Kconfig.emul_imager
+new file mode 100644
+index 0000000000000..d2752fdd53b47
+--- /dev/null
++++ b/drivers/video/Kconfig.emul_imager
+@@ -0,0 +1,18 @@
++# Copyright (c) 2024 tinyVision.ai Inc.
++# SPDX-License-Identifier: Apache-2.0
++
++config VIDEO_EMUL_IMAGER
++	bool "Software implementation of an imager"
++	depends on DT_HAS_ZEPHYR_VIDEO_EMUL_IMAGER_ENABLED
++	default y
++	help
++	  Enable driver for the emulated Imager.
++
++config VIDEO_EMUL_IMAGER_FRAMEBUFFER_SIZE
++	int "Internal framebuffer size used for link emulation purpose"
++	default 4096
++	help
++	  Configure the size of the internal framebuffer the emulated Imager
++	  driver uses to simulate MIPI transfers. This is the first field of
++	  dev->data, and the emulated video MIPI driver will `memcpy()` it
++	  into the video buffer.
+diff --git a/drivers/video/Kconfig.emul_rx b/drivers/video/Kconfig.emul_rx
+new file mode 100644
+index 0000000000000..39425d9b136bc
+--- /dev/null
++++ b/drivers/video/Kconfig.emul_rx
+@@ -0,0 +1,10 @@
++# Copyright (c) 2024 tinyVision.ai Inc.
++# SPDX-License-Identifier: Apache-2.0
++
++config VIDEO_EMUL_RX
++	bool "Software implementation of video frame RX core"
++	depends on DT_HAS_ZEPHYR_VIDEO_EMUL_RX_ENABLED
++	depends on VIDEO_EMUL_IMAGER
++	default y
++	help
++	  Enable driver for the MIPI RX emulated DMA engine.
+diff --git a/drivers/video/video_emul_imager.c b/drivers/video/video_emul_imager.c
+new file mode 100644
+index 0000000000000..63ce00be8d7cf
+--- /dev/null
++++ b/drivers/video/video_emul_imager.c
+@@ -0,0 +1,497 @@
++/*
++ * Copyright (c) 2024 tinyVision.ai Inc.
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#define DT_DRV_COMPAT zephyr_video_emul_imager
++
++#include <string.h>
++
++#include <zephyr/kernel.h>
++#include <zephyr/device.h>
++#include <zephyr/sys/util.h>
++#include <zephyr/sys/byteorder.h>
++#include <zephyr/drivers/video.h>
++#include <zephyr/drivers/video-controls.h>
++#include <zephyr/drivers/i2c.h>
++#include <zephyr/logging/log.h>
++
++LOG_MODULE_REGISTER(video_emul_imager, CONFIG_VIDEO_LOG_LEVEL);
++
++#define EMUL_IMAGER_REG_SENSOR_ID 0x0000
++#define EMUL_IMAGER_SENSOR_ID     0x99
++#define EMUL_IMAGER_REG_CTRL      0x0001
++#define EMUL_IMAGER_REG_INIT1     0x0002
++#define EMUL_IMAGER_REG_INIT2     0x0003
++#define EMUL_IMAGER_REG_TIMING1   0x0004
++#define EMUL_IMAGER_REG_TIMING2   0x0005
++#define EMUL_IMAGER_REG_TIMING3   0x0006
++#define EMUL_IMAGER_REG_EXPOSURE  0x0007
++#define EMUL_IMAGER_REG_GAIN      0x0008
++#define EMUL_IMAGER_REG_PATTERN   0x0009
++#define EMUL_IMAGER_PATTERN_OFF   0x00
++#define EMUL_IMAGER_PATTERN_BARS1 0x01
++#define EMUL_IMAGER_PATTERN_BARS2 0x02
++
++/* Emulated register bank */
++uint8_t emul_imager_fake_regs[10];
++
++enum emul_imager_fmt_id {
++	RGB565_64x20,
++	YUYV_64x20,
++};
++
++struct emul_imager_reg {
++	uint16_t addr;
++	uint8_t value;
++};
++
++struct emul_imager_mode {
++	uint8_t fps;
++	/* List of registers lists to configure the various properties of the sensor.
++	 * This permits to deduplicate the list of registers in case some lare sections
++	 * are repeated across modes, such as the resolution for different FPS.
++	 */
++	const struct emul_imager_reg *regs[2];
++	/* More fields can be added according to the needs of the sensor driver */
++};
++
++struct emul_imager_config {
++	struct i2c_dt_spec i2c;
++};
++
++struct emul_imager_data {
++	/* First field is a framebuffer for I/O emulation purpose */
++	uint8_t framebuffer[CONFIG_VIDEO_EMUL_IMAGER_FRAMEBUFFER_SIZE];
++	/* Other fields are shared with real hardware drivers */
++	const struct emul_imager_mode *mode;
++	enum emul_imager_fmt_id fmt_id;
++	struct video_format fmt;
++};
++
++/* Initial parameters of the sensors common to all modes. */
++static const struct emul_imager_reg emul_imager_init_regs[] = {
++	{EMUL_IMAGER_REG_CTRL, 0x00},
++	/* Example comment about REG_INIT1 */
++	{EMUL_IMAGER_REG_INIT1, 0x10},
++	{EMUL_IMAGER_REG_INIT2, 0x00},
++	{0},
++};
++
++/* List of registers aggregated together in "modes" that can be applied
++ * to set the timing parameters and other mode-dependent configuration.
++ */
++
++static const struct emul_imager_reg emul_imager_rgb565_64x20[] = {
++	{EMUL_IMAGER_REG_TIMING1, 0x64},
++	{EMUL_IMAGER_REG_TIMING2, 0x20},
++	{0},
++};
++static const struct emul_imager_reg emul_imager_rgb565_64x20_15fps[] = {
++	{EMUL_IMAGER_REG_TIMING3, 15},
++	{0},
++};
++static const struct emul_imager_reg emul_imager_rgb565_64x20_30fps[] = {
++	{EMUL_IMAGER_REG_TIMING3, 30},
++	{0},
++};
++static const struct emul_imager_reg emul_imager_rgb565_64x20_60fps[] = {
++	{EMUL_IMAGER_REG_TIMING3, 60},
++	{0},
++};
++struct emul_imager_mode emul_imager_rgb565_64x20_modes[] = {
++	{.fps = 15, .regs = {emul_imager_rgb565_64x20, emul_imager_rgb565_64x20_15fps}},
++	{.fps = 30, .regs = {emul_imager_rgb565_64x20, emul_imager_rgb565_64x20_30fps}},
++	{.fps = 60, .regs = {emul_imager_rgb565_64x20, emul_imager_rgb565_64x20_60fps}},
++	{0},
++};
++
++static const struct emul_imager_reg emul_imager_yuyv_64x20[] = {
++	{EMUL_IMAGER_REG_TIMING1, 0x64},
++	{EMUL_IMAGER_REG_TIMING2, 0x20},
++	{0},
++};
++static const struct emul_imager_reg emul_imager_yuyv_64x20_15fps[] = {
++	{EMUL_IMAGER_REG_TIMING3, 15},
++	{0},
++};
++static const struct emul_imager_reg emul_imager_yuyv_64x20_30fps[] = {
++	{EMUL_IMAGER_REG_TIMING3, 30},
++	{0},
++};
++struct emul_imager_mode emul_imager_yuyv_64x20_modes[] = {
++	{.fps = 15, .regs = {emul_imager_yuyv_64x20, emul_imager_yuyv_64x20_15fps}},
++	{.fps = 30, .regs = {emul_imager_yuyv_64x20, emul_imager_yuyv_64x20_30fps}},
++	{0},
++};
++
++/* Summary of all the modes of all the frame formats, with the format ID as
++ * index, matching fmts[].
++ */
++static const struct emul_imager_mode *emul_imager_modes[] = {
++	[RGB565_64x20] = emul_imager_rgb565_64x20_modes,
++	[YUYV_64x20] = emul_imager_yuyv_64x20_modes,
++};
++
++/* Video device capabilities where the supported resolutions and pixel formats are listed.
++ * The format ID is used as index to fetch the matching mode from the list above.
++ */
++#define EMUL_IMAGER_VIDEO_FORMAT_CAP(width, height, format)                                        \
++	{                                                                                          \
++		.pixelformat = (format),                                                           \
++		.width_min = (width),                                                              \
++		.width_max = (width),                                                              \
++		.height_min = (height),                                                            \
++		.height_max = (height),                                                            \
++		.width_step = 0,                                                                   \
++		.height_step = 0,                                                                  \
++	}
++static const struct video_format_cap fmts[] = {
++	[RGB565_64x20] = EMUL_IMAGER_VIDEO_FORMAT_CAP(64, 20, VIDEO_PIX_FMT_RGB565),
++	[YUYV_64x20] = EMUL_IMAGER_VIDEO_FORMAT_CAP(64, 20, VIDEO_PIX_FMT_YUYV),
++	{0},
++};
++
++/* Emulated I2C register interface, to replace with actual I2C calls for real hardware */
++static int emul_imager_read_reg(const struct device *const dev, uint8_t reg_addr, uint8_t *value)
++{
++	LOG_DBG("%s placeholder for I2C read from 0x%02x", dev->name, reg_addr);
++	switch (reg_addr) {
++	case EMUL_IMAGER_REG_SENSOR_ID:
++		*value = EMUL_IMAGER_SENSOR_ID;
++		break;
++	default:
++		*value = emul_imager_fake_regs[reg_addr];
++	}
++	return 0;
++}
++
++/* Helper to read a full integer directly from a register */
++static int emul_imager_read_int(const struct device *const dev, uint8_t reg_addr, int *value)
++{
++	uint8_t val8;
++	int ret;
++
++	ret = emul_imager_read_reg(dev, reg_addr, &val8);
++	*value = val8;
++	return ret;
++}
++
++/* Some sensors will need reg8 or reg16 variants. */
++static int emul_imager_write_reg(const struct device *const dev, uint8_t reg_addr, uint8_t value)
++{
++	LOG_DBG("%s placeholder for I2C write 0x%08x to 0x%02x", dev->name, value, reg_addr);
++	emul_imager_fake_regs[reg_addr] = value;
++	return 0;
++}
++
++static int emul_imager_write_multi(const struct device *const dev,
++				   const struct emul_imager_reg *regs)
++{
++	int ret;
++
++	for (int i = 0; regs[i].addr != 0; i++) {
++		ret = emul_imager_write_reg(dev, regs[i].addr, regs[i].value);
++		if (ret < 0) {
++			return ret;
++		}
++	}
++	return 0;
++}
++
++static int emul_imager_set_ctrl(const struct device *dev, unsigned int cid, void *value)
++{
++	switch (cid) {
++	case VIDEO_CID_EXPOSURE:
++		return emul_imager_write_reg(dev, EMUL_IMAGER_REG_EXPOSURE, (int)value);
++	case VIDEO_CID_GAIN:
++		return emul_imager_write_reg(dev, EMUL_IMAGER_REG_GAIN, (int)value);
++	case VIDEO_CID_TEST_PATTERN:
++		return emul_imager_write_reg(dev, EMUL_IMAGER_REG_PATTERN, (int)value);
++	default:
++		return -ENOTSUP;
++	}
++}
++
++static int emul_imager_get_ctrl(const struct device *dev, unsigned int cid, void *value)
++{
++	struct emul_imager_data *data = dev->data;
++
++	switch (cid) {
++	case VIDEO_CID_EXPOSURE:
++		return emul_imager_read_int(dev, EMUL_IMAGER_REG_EXPOSURE, value);
++	case VIDEO_CID_GAIN:
++		return emul_imager_read_int(dev, EMUL_IMAGER_REG_GAIN, value);
++	case VIDEO_CID_TEST_PATTERN:
++		return emul_imager_read_int(dev, EMUL_IMAGER_REG_PATTERN, value);
++	case VIDEO_CID_PIXEL_RATE:
++		*(int64_t *)value = (int64_t)data->fmt.width * data->fmt.pitch * data->mode->fps;
++		return 0;
++	default:
++		return -ENOTSUP;
++	}
++}
++
++/* Customize this function according to your "struct emul_imager_mode". */
++static int emul_imager_set_mode(const struct device *dev, const struct emul_imager_mode *mode)
++{
++	struct emul_imager_data *data = dev->data;
++	int ret;
++
++	if (data->mode == mode) {
++		return 0;
++	}
++
++	LOG_DBG("Applying mode %p at %d FPS", mode, mode->fps);
++
++	/* Apply all the configuration registers for that mode */
++	for (int i = 0; i < 2; i++) {
++		ret = emul_imager_write_multi(dev, mode->regs[i]);
++		if (ret < 0) {
++			goto err;
++		}
++	}
++
++	data->mode = mode;
++	return 0;
++err:
++	LOG_ERR("Could not apply %s mode %p (%u FPS)", dev->name, mode, mode->fps);
++	return ret;
++}
++
++static int emul_imager_set_frmival(const struct device *dev, enum video_endpoint_id ep,
++				   struct video_frmival *frmival)
++{
++	struct emul_imager_data *data = dev->data;
++	struct video_frmival_enum fie = {.format = &data->fmt, .discrete = *frmival};
++
++	if (ep != VIDEO_EP_OUT && ep != VIDEO_EP_ALL) {
++		return -EINVAL;
++	}
++
++	video_closest_frmival(dev, ep, &fie);
++	LOG_DBG("Applying frame interval number %u", fie.index);
++	return emul_imager_set_mode(dev, &emul_imager_modes[data->fmt_id][fie.index]);
++}
++
++static int emul_imager_get_frmival(const struct device *dev, enum video_endpoint_id ep,
++				   struct video_frmival *frmival)
++{
++	struct emul_imager_data *data = dev->data;
++
++	if (ep != VIDEO_EP_OUT && ep != VIDEO_EP_ALL) {
++		return -EINVAL;
++	}
++
++	frmival->numerator = 1;
++	frmival->denominator = data->mode->fps;
++	return 0;
++}
++
++static int emul_imager_enum_frmival(const struct device *dev, enum video_endpoint_id ep,
++				    struct video_frmival_enum *fie)
++{
++	const struct emul_imager_mode *mode;
++	size_t fmt_id;
++	int ret;
++
++	if (ep != VIDEO_EP_OUT && ep != VIDEO_EP_ALL) {
++		return -EINVAL;
++	}
++
++	ret = video_format_caps_index(fmts, fie->format, &fmt_id);
++	if (ret < 0) {
++		return ret;
++	}
++
++	mode = &emul_imager_modes[fmt_id][fie->index];
++
++	fie->type = VIDEO_FRMIVAL_TYPE_DISCRETE;
++	fie->discrete.numerator = 1;
++	fie->discrete.denominator = mode->fps;
++	fie->index++;
++
++	return mode->fps == 0;
++}
++
++/* White, Yellow, Cyan, Green, Magenta, Red, Blue, Black */
++static const uint16_t pattern_8bars_yuv[8][3] = {
++	{0xFF, 0x7F, 0x7F}, {0xFF, 0x00, 0xFF}, {0xFF, 0xFF, 0x00}, {0x7F, 0x00, 0x00},
++	{0x00, 0xFF, 0xFF}, {0x00, 0x00, 0xFF}, {0x00, 0xFF, 0x00}, {0x00, 0x7F, 0x7F}};
++static const uint16_t pattern_8bars_rgb[8][3] = {
++	{0xFF, 0xFF, 0xFF}, {0xFF, 0xFF, 0x00}, {0x00, 0xFF, 0xFF}, {0x00, 0xFF, 0x00},
++	{0xFF, 0x00, 0xFF}, {0xFF, 0x00, 0x00}, {0x00, 0x00, 0xFF}, {0x00, 0x00, 0x00}};
++static void emul_imager_fill_framebuffer(const struct device *const dev, struct video_format *fmt)
++{
++	struct emul_imager_data *data = dev->data;
++	uint16_t *fb16 = (uint16_t *)data->framebuffer;
++	uint16_t r, g, b, y, uv;
++
++	/* Fill the first row of the emulated framebuffer */
++	switch (fmt->pixelformat) {
++	case VIDEO_PIX_FMT_YUYV:
++		for (size_t i = 0; i < fmt->width; i++) {
++			y = pattern_8bars_yuv[i * 8 / fmt->width][0];
++			uv = pattern_8bars_yuv[i * 8 / fmt->width][1 + i % 2];
++			fb16[i] = sys_cpu_to_be16(y << 8 | uv << 0);
++		}
++		break;
++	case VIDEO_PIX_FMT_RGB565:
++		for (size_t i = 0; i < fmt->width; i++) {
++			r = pattern_8bars_rgb[i * 8 / fmt->width][0] >> (8 - 5);
++			g = pattern_8bars_rgb[i * 8 / fmt->width][1] >> (8 - 6);
++			b = pattern_8bars_rgb[i * 8 / fmt->width][2] >> (8 - 5);
++			fb16[i] = sys_cpu_to_le16((r << 11) | (g << 6) | (b << 0));
++		}
++		break;
++	default:
++		LOG_WRN("Unsupported pixel format %x, supported: %x, %x", fmt->pixelformat,
++			VIDEO_PIX_FMT_YUYV, VIDEO_PIX_FMT_RGB565);
++		memset(fb16, 0, fmt->pitch);
++	}
++
++	/* Duplicate the first row over the whole frame */
++	for (size_t i = 1; i < fmt->height; i++) {
++		memcpy(data->framebuffer + fmt->pitch * i, data->framebuffer, fmt->pitch);
++	}
++}
++
++static int emul_imager_set_fmt(const struct device *const dev, enum video_endpoint_id ep,
++			       struct video_format *fmt)
++{
++	struct emul_imager_data *data = dev->data;
++	size_t fmt_id;
++	int ret;
++
++	if (ep != VIDEO_EP_OUT && ep != VIDEO_EP_ALL) {
++		return -EINVAL;
++	}
++
++	if (fmt->pitch * fmt->height > CONFIG_VIDEO_EMUL_IMAGER_FRAMEBUFFER_SIZE) {
++		LOG_ERR("%s has %u bytes of memory, unable to support %x %ux%u (%u bytes)",
++			dev->name, CONFIG_VIDEO_EMUL_IMAGER_FRAMEBUFFER_SIZE, fmt->pixelformat,
++			fmt->width, fmt->height, fmt->pitch * fmt->height);
++		return -ENOMEM;
++	}
++
++	if (memcmp(&data->fmt, fmt, sizeof(data->fmt)) == 0) {
++		return 0;
++	}
++
++	ret = video_format_caps_index(fmts, fmt, &fmt_id);
++	if (ret < 0) {
++		LOG_ERR("Format %x %ux%u not found for %s", fmt->pixelformat, fmt->width,
++			fmt->height, dev->name);
++		return ret;
++	}
++
++	ret = emul_imager_set_mode(dev, &emul_imager_modes[fmt_id][0]);
++	if (ret < 0) {
++		return ret;
++	}
++
++	/* Change the image pattern on the framebuffer */
++	emul_imager_fill_framebuffer(dev, fmt);
++
++	data->fmt_id = fmt_id;
++	data->fmt = *fmt;
++	return 0;
++}
++
++static int emul_imager_get_fmt(const struct device *dev, enum video_endpoint_id ep,
++			       struct video_format *fmt)
++{
++	struct emul_imager_data *data = dev->data;
++
++	if (ep != VIDEO_EP_OUT && ep != VIDEO_EP_ALL) {
++		return -EINVAL;
++	}
++
++	*fmt = data->fmt;
++	return 0;
++}
++
++static int emul_imager_get_caps(const struct device *dev, enum video_endpoint_id ep,
++				struct video_caps *caps)
++{
++	if (ep != VIDEO_EP_OUT && ep != VIDEO_EP_ALL) {
++		return -EINVAL;
++	}
++
++	caps->format_caps = fmts;
++	return 0;
++}
++
++static int emul_imager_stream_start(const struct device *dev)
++{
++	return emul_imager_write_reg(dev, EMUL_IMAGER_REG_CTRL, 1);
++}
++
++static int emul_imager_stream_stop(const struct device *dev)
++{
++	return emul_imager_write_reg(dev, EMUL_IMAGER_REG_CTRL, 0);
++}
++
++static DEVICE_API(video, emul_imager_driver_api) = {
++	.set_ctrl = emul_imager_set_ctrl,
++	.get_ctrl = emul_imager_get_ctrl,
++	.set_frmival = emul_imager_set_frmival,
++	.get_frmival = emul_imager_get_frmival,
++	.enum_frmival = emul_imager_enum_frmival,
++	.set_format = emul_imager_set_fmt,
++	.get_format = emul_imager_get_fmt,
++	.get_caps = emul_imager_get_caps,
++	.stream_start = emul_imager_stream_start,
++	.stream_stop = emul_imager_stream_stop,
++};
++
++int emul_imager_init(const struct device *dev)
++{
++	struct video_format fmt;
++	uint8_t sensor_id;
++	int ret;
++
++	if (/* !i2c_is_ready_dt(&cfg->i2c) */ false) {
++		/* LOG_ERR("Bus %s is not ready", cfg->i2c.bus->name); */
++		return -ENODEV;
++	}
++
++	ret = emul_imager_read_reg(dev, EMUL_IMAGER_REG_SENSOR_ID, &sensor_id);
++	if (ret < 0 || sensor_id != EMUL_IMAGER_SENSOR_ID) {
++		LOG_ERR("Failed to get %s correct sensor ID (0x%x", dev->name, sensor_id);
++		return ret;
++	}
++
++	ret = emul_imager_write_multi(dev, emul_imager_init_regs);
++	if (ret < 0) {
++		LOG_ERR("Could not set %s initial registers", dev->name);
++		return ret;
++	}
++
++	fmt.pixelformat = fmts[0].pixelformat;
++	fmt.width = fmts[0].width_min;
++	fmt.height = fmts[0].height_min;
++	fmt.pitch = fmt.width * 2;
++
++	ret = emul_imager_set_fmt(dev, VIDEO_EP_OUT, &fmt);
++	if (ret < 0) {
++		LOG_ERR("Failed to set %s to default format %x %ux%u", dev->name, fmt.pixelformat,
++			fmt.width, fmt.height);
++	}
++
++	return 0;
++}
++
++#define EMUL_IMAGER_DEFINE(inst)                                                                   \
++	static struct emul_imager_data emul_imager_data_##inst;                                    \
++                                                                                                   \
++	static const struct emul_imager_config emul_imager_cfg_##inst = {                          \
++		.i2c = /* I2C_DT_SPEC_INST_GET(inst) */ {0},                                       \
++	};                                                                                         \
++                                                                                                   \
++	DEVICE_DT_INST_DEFINE(inst, &emul_imager_init, NULL, &emul_imager_data_##inst,             \
++			      &emul_imager_cfg_##inst, POST_KERNEL, CONFIG_VIDEO_INIT_PRIORITY,    \
++			      &emul_imager_driver_api);
++
++DT_INST_FOREACH_STATUS_OKAY(EMUL_IMAGER_DEFINE)
+diff --git a/drivers/video/video_emul_rx.c b/drivers/video/video_emul_rx.c
+new file mode 100644
+index 0000000000000..73ee8a7ff1711
+--- /dev/null
++++ b/drivers/video/video_emul_rx.c
+@@ -0,0 +1,333 @@
++/*
++ * Copyright (c) 2024 tinyVision.ai Inc.
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#define DT_DRV_COMPAT zephyr_video_emul_rx
++
++#include <string.h>
++
++#include <zephyr/kernel.h>
++#include <zephyr/device.h>
++#include <zephyr/sys/util.h>
++#include <zephyr/drivers/video.h>
++#include <zephyr/drivers/i2c.h>
++#include <zephyr/logging/log.h>
++
++LOG_MODULE_REGISTER(video_emul_rx, CONFIG_VIDEO_LOG_LEVEL);
++
++struct emul_rx_config {
++	const struct device *source_dev;
++};
++
++struct emul_rx_data {
++	const struct device *dev;
++	struct video_format fmt;
++	struct k_work work;
++	struct k_fifo fifo_in;
++	struct k_fifo fifo_out;
++};
++
++static int emul_rx_set_ctrl(const struct device *dev, unsigned int cid, void *value)
++{
++	const struct emul_rx_config *cfg = dev->config;
++
++	/* Forward all controls to the source */
++	return video_set_ctrl(cfg->source_dev, cid, value);
++}
++
++static int emul_rx_get_ctrl(const struct device *dev, unsigned int cid, void *value)
++{
++	const struct emul_rx_config *cfg = dev->config;
++
++	/* Forward all controls to the source */
++	return video_get_ctrl(cfg->source_dev, cid, value);
++}
++
++static int emul_rx_set_frmival(const struct device *dev, enum video_endpoint_id ep,
++			       struct video_frmival *frmival)
++{
++	const struct emul_rx_config *cfg = dev->config;
++
++	/* Input/output timing is driven by the source */
++	if (ep != VIDEO_EP_IN && ep != VIDEO_EP_OUT && ep != VIDEO_EP_ALL) {
++		return -EINVAL;
++	}
++	return video_set_frmival(cfg->source_dev, VIDEO_EP_OUT, frmival);
++}
++
++static int emul_rx_get_frmival(const struct device *dev, enum video_endpoint_id ep,
++			       struct video_frmival *frmival)
++{
++	const struct emul_rx_config *cfg = dev->config;
++
++	/* Input/output timing is driven by the source */
++	if (ep != VIDEO_EP_IN && ep != VIDEO_EP_OUT && ep != VIDEO_EP_ALL) {
++		return -EINVAL;
++	}
++	return video_get_frmival(cfg->source_dev, VIDEO_EP_OUT, frmival);
++}
++
++static int emul_rx_enum_frmival(const struct device *dev, enum video_endpoint_id ep,
++				struct video_frmival_enum *fie)
++{
++	const struct emul_rx_config *cfg = dev->config;
++
++	/* Input/output timing is driven by the source */
++	if (ep != VIDEO_EP_IN && ep != VIDEO_EP_OUT && ep != VIDEO_EP_ALL) {
++		return -EINVAL;
++	}
++	return video_enum_frmival(cfg->source_dev, VIDEO_EP_OUT, fie);
++}
++
++static int emul_rx_set_fmt(const struct device *const dev, enum video_endpoint_id ep,
++			   struct video_format *fmt)
++{
++	const struct emul_rx_config *cfg = dev->config;
++	struct emul_rx_data *data = dev->data;
++	int ret;
++
++	/* The same format is shared between input and output: data is just passed through */
++	if (ep != VIDEO_EP_IN && ep != VIDEO_EP_OUT && ep != VIDEO_EP_ALL) {
++		return -EINVAL;
++	}
++
++	/* Propagate the format selection to the source */
++	ret = video_set_format(cfg->source_dev, VIDEO_EP_OUT, fmt);
++	if (ret < 0) {
++		LOG_DBG("Failed to set %s format to %x %ux%u", cfg->source_dev->name,
++			fmt->pixelformat, fmt->width, fmt->height);
++		return -EINVAL;
++	}
++
++	/* Cache the format selected locally to use it for getting the size of the buffer  */
++	data->fmt = *fmt;
++	return 0;
++}
++
++static int emul_rx_get_fmt(const struct device *dev, enum video_endpoint_id ep,
++			   struct video_format *fmt)
++{
++	struct emul_rx_data *data = dev->data;
++
++	/* Input/output caps are the same as the source: data is just passed through */
++	if (ep != VIDEO_EP_IN && ep != VIDEO_EP_OUT && ep != VIDEO_EP_ALL) {
++		return -EINVAL;
++	}
++	*fmt = data->fmt;
++	return 0;
++}
++
++static int emul_rx_get_caps(const struct device *dev, enum video_endpoint_id ep,
++			    struct video_caps *caps)
++{
++	const struct emul_rx_config *cfg = dev->config;
++
++	/* Input/output caps are the same as the source: data is just passed through */
++	if (ep != VIDEO_EP_IN && ep != VIDEO_EP_OUT && ep != VIDEO_EP_ALL) {
++		return -EINVAL;
++	}
++	return video_get_caps(cfg->source_dev, VIDEO_EP_OUT, caps);
++}
++
++static int emul_rx_stream_start(const struct device *dev)
++{
++	const struct emul_rx_config *cfg = dev->config;
++
++	/* A real hardware driver would first start its own peripheral */
++	return video_stream_start(cfg->source_dev);
++}
++
++static int emul_rx_stream_stop(const struct device *dev)
++{
++	const struct emul_rx_config *cfg = dev->config;
++
++	return video_stream_stop(cfg->source_dev);
++	/* A real hardware driver would then stop its own peripheral */
++}
++
++static void emul_rx_worker(struct k_work *work)
++{
++	struct emul_rx_data *data = CONTAINER_OF(work, struct emul_rx_data, work);
++	const struct device *dev = data->dev;
++	const struct emul_rx_config *cfg = dev->config;
++	struct video_format *fmt = &data->fmt;
++	struct video_buffer *vbuf = vbuf;
++
++	LOG_DBG("Queueing a frame of %u bytes in format %x %ux%u", fmt->pitch * fmt->height,
++		fmt->pixelformat, fmt->width, fmt->height);
++
++	while ((vbuf = k_fifo_get(&data->fifo_in, K_NO_WAIT)) != NULL) {
++		vbuf->bytesused = fmt->pitch * fmt->height;
++		vbuf->line_offset = 0;
++
++		LOG_DBG("Inserting %u bytes into buffer %p", vbuf->bytesused, vbuf->buffer);
++
++		/* Simulate the MIPI/DVP hardware transferring image data from the imager to the
++		 * video buffer memory using DMA. The vbuf->size is checked in emul_rx_enqueue().
++		 */
++		memcpy(vbuf->buffer, cfg->source_dev->data, vbuf->bytesused);
++
++		/* Once the buffer is completed, submit it to the video buffer */
++		k_fifo_put(&data->fifo_out, vbuf);
++	}
++}
++
++static int emul_rx_enqueue(const struct device *dev, enum video_endpoint_id ep,
++			   struct video_buffer *vbuf)
++{
++	struct emul_rx_data *data = dev->data;
++	struct video_format *fmt = &data->fmt;
++
++	/* Can only enqueue a buffer to get data out, data input is from hardware */
++	if (ep != VIDEO_EP_OUT && ep != VIDEO_EP_ALL) {
++		return -EINVAL;
++	}
++
++	if (vbuf->size < fmt->pitch * fmt->height) {
++		LOG_ERR("Buffer too small for a full frame");
++		return -ENOMEM;
++	}
++
++	/* The buffer has not been filled yet: flag as emtpy */
++	vbuf->bytesused = 0;
++
++	/* Submit the buffer for processing in the worker, where everything happens */
++	k_fifo_put(&data->fifo_in, vbuf);
++	k_work_submit(&data->work);
++
++	return 0;
++}
++
++static int emul_rx_dequeue(const struct device *dev, enum video_endpoint_id ep,
++			   struct video_buffer **vbufp, k_timeout_t timeout)
++{
++	struct emul_rx_data *data = dev->data;
++
++	/* Can only dequeue a buffer to get data out, data input is from hardware */
++	if (ep != VIDEO_EP_OUT && ep != VIDEO_EP_ALL) {
++		return -EINVAL;
++	}
++
++	/* All the processing is expected to happen in the worker */
++	*vbufp = k_fifo_get(&data->fifo_out, timeout);
++	if (*vbufp == NULL) {
++		return -EAGAIN;
++	}
++
++	return 0;
++}
++
++static int emul_rx_flush(const struct device *dev, enum video_endpoint_id ep, bool cancel)
++{
++	struct emul_rx_data *data = dev->data;
++	struct k_work_sync sync;
++
++	/* Can only flush the buffer going out, data input is from hardware */
++	if (ep != VIDEO_EP_OUT && ep != VIDEO_EP_ALL) {
++		return -EINVAL;
++	}
++
++	if (cancel) {
++		struct video_buffer *vbuf;
++
++		/* First, stop the hardware processing */
++		emul_rx_stream_stop(dev);
++
++		/* Cancel the jobs that were not running */
++		k_work_cancel(&data->work);
++
++		/* Flush the jobs that were still running */
++		k_work_flush(&data->work, &sync);
++
++		/* Empty all the cancelled items */
++		while ((vbuf = k_fifo_get(&data->fifo_in, K_NO_WAIT))) {
++			k_fifo_put(&data->fifo_out, vbuf);
++		}
++	} else {
++		/* Process all the remaining items from the queue */
++		k_work_flush(&data->work, &sync);
++	}
++
++	return 0;
++}
++
++static DEVICE_API(video, emul_rx_driver_api) = {
++	.set_ctrl = emul_rx_set_ctrl,
++	.get_ctrl = emul_rx_get_ctrl,
++	.set_frmival = emul_rx_set_frmival,
++	.get_frmival = emul_rx_get_frmival,
++	.enum_frmival = emul_rx_enum_frmival,
++	.set_format = emul_rx_set_fmt,
++	.get_format = emul_rx_get_fmt,
++	.get_caps = emul_rx_get_caps,
++	.stream_start = emul_rx_stream_start,
++	.stream_stop = emul_rx_stream_stop,
++	.enqueue = emul_rx_enqueue,
++	.dequeue = emul_rx_dequeue,
++	.flush = emul_rx_flush,
++};
++
++int emul_rx_init(const struct device *dev)
++{
++	struct emul_rx_data *data = dev->data;
++	const struct emul_rx_config *cfg = dev->config;
++	int ret;
++
++	data->dev = dev;
++
++	if (!device_is_ready(cfg->source_dev)) {
++		LOG_ERR("Source device %s is not ready", cfg->source_dev->name);
++		return -ENODEV;
++	}
++
++	ret = video_get_format(cfg->source_dev, VIDEO_EP_OUT, &data->fmt);
++	if (ret < 0) {
++		return ret;
++	}
++
++	k_fifo_init(&data->fifo_in);
++	k_fifo_init(&data->fifo_out);
++	k_work_init(&data->work, &emul_rx_worker);
++
++	return 0;
++}
++
++/* See #80649 */
++
++/* Handle the variability of "ports{port@0{}};" vs "port{};" while going down */
++#define DT_INST_PORT_BY_ID(inst, pid)                                                              \
++	COND_CODE_1(DT_NODE_EXISTS(DT_INST_CHILD(inst, ports)),                                    \
++		    (DT_CHILD(DT_INST_CHILD(inst, ports), port_##pid)),                            \
++		    (DT_INST_CHILD(inst, port)))
++
++/* Handle the variability of "endpoint@0{};" vs "endpoint{};" while going down */
++#define DT_INST_ENDPOINT_BY_ID(inst, pid, eid)                                                     \
++	COND_CODE_1(DT_NODE_EXISTS(DT_CHILD(DT_INST_PORT_BY_ID(inst, pid), endpoint)),             \
++		    (DT_CHILD(DT_INST_PORT_BY_ID(inst, pid), endpoint)),                           \
++		    (DT_CHILD(DT_INST_PORT_BY_ID(inst, pid), endpoint_##eid)))
++
++/* Handle the variability of "ports{port@0{}};" vs "port{};" while going up */
++#define DT_ENDPOINT_PARENT_DEVICE(node)                                                            \
++	COND_CODE_1(DT_NODE_EXISTS(DT_CHILD(DT_GPARENT(node), port)),                              \
++		    (DT_GPARENT(node)), (DT_PARENT(DT_GPARENT(node))))
++
++/* Handle the "remote-endpoint-label" */
++#define DEVICE_DT_GET_REMOTE_DEVICE(node)                                                          \
++	DEVICE_DT_GET(DT_ENDPOINT_PARENT_DEVICE(                                                   \
++		DT_NODELABEL(DT_STRING_TOKEN(node, remote_endpoint_label))))
++
++#define EMUL_RX_DEFINE(n)                                                                          \
++	static const struct emul_rx_config emul_rx_cfg_##n = {                                     \
++		.source_dev = DEVICE_DT_GET_REMOTE_DEVICE(DT_INST_ENDPOINT_BY_ID(n, 0, 0)),        \
++	};                                                                                         \
++                                                                                                   \
++	static struct emul_rx_data emul_rx_data_##n = {                                            \
++		.dev = DEVICE_DT_INST_GET(n),                                                      \
++	};                                                                                         \
++                                                                                                   \
++	DEVICE_DT_INST_DEFINE(n, &emul_rx_init, NULL, &emul_rx_data_##n, &emul_rx_cfg_##n,         \
++			      POST_KERNEL, CONFIG_VIDEO_INIT_PRIORITY, &emul_rx_driver_api);
++
++DT_INST_FOREACH_STATUS_OKAY(EMUL_RX_DEFINE)
+diff --git a/dts/bindings/video/zephyr,video-emul-imager.yaml b/dts/bindings/video/zephyr,video-emul-imager.yaml
+new file mode 100644
+index 0000000000000..b3d1760eba45e
+--- /dev/null
++++ b/dts/bindings/video/zephyr,video-emul-imager.yaml
+@@ -0,0 +1,12 @@
++# Copyright 2024 tinyVision.ai Inc.
++# SPDX-License-Identifier: Apache-2.0
++
++description: Emulated Imager for testing purpose
++
++compatible: "zephyr,video-emul-imager"
++
++include: i2c-device.yaml
++
++child-binding:
++  child-binding:
++    include: video-interfaces.yaml
+diff --git a/dts/bindings/video/zephyr,video-emul-rx.yaml b/dts/bindings/video/zephyr,video-emul-rx.yaml
+new file mode 100644
+index 0000000000000..6db547604a1af
+--- /dev/null
++++ b/dts/bindings/video/zephyr,video-emul-rx.yaml
+@@ -0,0 +1,18 @@
++# Copyright 2024 tinyVision.ai Inc.
++# SPDX-License-Identifier: Apache-2.0
++
++description: Emulated Video DMA engine for testing purpose
++
++compatible: "zephyr,video-emul-rx"
++
++include: base.yaml
++
++child-binding:
++  child-binding:
++    include: video-interfaces.yaml
++    properties:
++      reg:
++        type: int
++        enum:
++          - 0 # for input endpoint
++          - 1 # for output endpoint
+diff --git a/tests/drivers/build_all/video/app.overlay b/tests/drivers/build_all/video/app.overlay
+index e394026c32b01..84678f7ee0699 100644
+--- a/tests/drivers/build_all/video/app.overlay
++++ b/tests/drivers/build_all/video/app.overlay
+@@ -15,19 +15,19 @@
+ 		#address-cells = <1>;
+ 		#size-cells = <1>;
+ 
+-		test_gpio: gpio@deadbeef {
++		test_gpio: gpio@10001000 {
+ 			compatible = "vnd,gpio";
+ 			gpio-controller;
+-			reg = <0xdeadbeef 0x1000>;
++			reg = <0x10001000 0x1000>;
+ 			#gpio-cells = <0x2>;
+ 			status = "okay";
+ 		};
+ 
+-		test_i2c: i2c@11112222 {
++		test_i2c: i2c@10002000 {
+ 			#address-cells = <1>;
+ 			#size-cells = <0>;
+ 			compatible = "vnd,i2c";
+-			reg = <0x11112222 0x1000>;
++			reg = <0x10002000 0x1000>;
+ 			status = "okay";
+ 			clock-frequency = <100000>;
+ 
+@@ -65,6 +65,38 @@
+ 				reg = <0x5>;
+ 				reset-gpios = <&test_gpio 0 0>;
+ 			};
++
++			test_i2c_video_emul_imager: video_emul_imager@6 {
++				compatible = "zephyr,video-emul-imager";
++				reg = <0x6>;
++
++				port {
++					test_video_emul_imager_ep_out: endpoint {
++						remote-endpoint-label = "test_video_emul_rx_ep_in";
++					};
++				};
++			};
++
++		};
++
++		test_video_emul_rx: video_emul_rx@10003000 {
++			compatible = "zephyr,video-emul-rx";
++			reg = <0x10003000 0x1000>;
++
++			port {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				test_video_emul_rx_ep_in: endpoint@0 {
++					reg = <0x0>;
++					remote-endpoint-label = "test_video_emul_imager_ep_out";
++				};
++
++				test_video_emul_rx_ep_out: endpoint@1 {
++					reg = <0x1>;
++					remote-endpoint-label = "application";
++				};
++			};
+ 		};
+ 	};
+ };
+diff --git a/tests/drivers/video/api/CMakeLists.txt b/tests/drivers/video/api/CMakeLists.txt
+index ff4533fefd2d4..b6c94a58d9d9d 100644
+--- a/tests/drivers/video/api/CMakeLists.txt
++++ b/tests/drivers/video/api/CMakeLists.txt
+@@ -5,3 +5,4 @@ find_package(Zephyr REQUIRED HINTS $ENV{ZEPHYR_BASE})
+ project(integration)
+ 
+ target_sources(app PRIVATE src/video_common.c)
++target_sources(app PRIVATE src/video_emul.c)
+diff --git a/tests/drivers/video/api/app.overlay b/tests/drivers/video/api/app.overlay
+new file mode 100644
+index 0000000000000..3e1e02e6a95a0
+--- /dev/null
++++ b/tests/drivers/video/api/app.overlay
+@@ -0,0 +1,53 @@
++/*
++ * Copyright (c) 2024 tinyVision.ai Inc.
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++/ {
++	test {
++		#address-cells = <1>;
++		#size-cells = <1>;
++
++		test_i2c: i2c@10002000 {
++			#address-cells = <1>;
++			#size-cells = <0>;
++			compatible = "vnd,i2c";
++			reg = <0x10002000 0x1000>;
++			clock-frequency = <100000>;
++			status = "okay";
++
++			test_video_emul_imager: video_emul_imager@6 {
++				compatible = "zephyr,video-emul-imager";
++				status = "okay";
++				reg = <0x6>;
++
++				port {
++					test_video_emul_imager_ep_out: endpoint {
++						remote-endpoint-label = "test_video_emul_rx_ep_in";
++					};
++				};
++			};
++		};
++
++		test_video_emul_rx: video_emul_rx@10003000 {
++			compatible = "zephyr,video-emul-rx";
++			reg = <0x10003000 0x1000>;
++			status = "okay";
++
++			port {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				test_video_emul_rx_ep_in: endpoint@0 {
++					reg = <0x0>;
++					remote-endpoint-label = "test_video_emul_imager_ep_out";
++				};
++
++				test_video_emul_rx_ep_out: endpoint@1 {
++					reg = <0x1>;
++					remote-endpoint-label = "application";
++				};
++			};
++		};
++	};
++};
+diff --git a/tests/drivers/video/api/src/video_emul.c b/tests/drivers/video/api/src/video_emul.c
+new file mode 100644
+index 0000000000000..d7b750dda3251
+--- /dev/null
++++ b/tests/drivers/video/api/src/video_emul.c
+@@ -0,0 +1,189 @@
++/*
++ * Copyright (c) 2024 tinyVision.ai Inc.
++ *
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include <zephyr/ztest.h>
++#include <zephyr/drivers/video.h>
++#include <zephyr/drivers/video-controls.h>
++
++const struct device *rx_dev = DEVICE_DT_GET(DT_NODELABEL(test_video_emul_rx));
++const struct device *imager_dev = DEVICE_DT_GET(DT_NODELABEL(test_video_emul_imager));
++
++ZTEST(video_common, test_video_device)
++{
++	zexpect_true(device_is_ready(rx_dev));
++	zexpect_true(device_is_ready(imager_dev));
++
++	zexpect_ok(video_stream_start(imager_dev));
++	zexpect_ok(video_stream_stop(imager_dev));
++
++	zexpect_ok(video_stream_start(rx_dev));
++	zexpect_ok(video_stream_stop(rx_dev));
++}
++
++ZTEST(video_common, test_video_format)
++{
++	struct video_caps caps = {0};
++	struct video_format fmt = {0};
++
++	zexpect_ok(video_get_caps(imager_dev, VIDEO_EP_OUT, &caps));
++
++	/* Test all the formats listed in the caps, the min and max values */
++	for (size_t i = 0; caps.format_caps[i].pixelformat != 0; i++) {
++		fmt.pixelformat = caps.format_caps[i].pixelformat;
++
++		fmt.height = caps.format_caps[i].height_min;
++		fmt.width = caps.format_caps[i].width_min;
++		zexpect_ok(video_set_format(imager_dev, VIDEO_EP_OUT, &fmt));
++		zexpect_ok(video_get_format(imager_dev, VIDEO_EP_OUT, &fmt));
++		zexpect_equal(fmt.pixelformat, caps.format_caps[i].pixelformat);
++		zexpect_equal(fmt.width, caps.format_caps[i].width_min);
++		zexpect_equal(fmt.height, caps.format_caps[i].height_min);
++
++		fmt.height = caps.format_caps[i].height_max;
++		fmt.width = caps.format_caps[i].width_min;
++		zexpect_ok(video_set_format(imager_dev, VIDEO_EP_OUT, &fmt));
++		zexpect_ok(video_get_format(imager_dev, VIDEO_EP_OUT, &fmt));
++		zexpect_equal(fmt.pixelformat, caps.format_caps[i].pixelformat);
++		zexpect_equal(fmt.width, caps.format_caps[i].width_max);
++		zexpect_equal(fmt.height, caps.format_caps[i].height_min);
++
++		fmt.height = caps.format_caps[i].height_min;
++		fmt.width = caps.format_caps[i].width_max;
++		zexpect_ok(video_set_format(imager_dev, VIDEO_EP_OUT, &fmt));
++		zexpect_ok(video_get_format(imager_dev, VIDEO_EP_OUT, &fmt));
++		zexpect_equal(fmt.pixelformat, caps.format_caps[i].pixelformat);
++		zexpect_equal(fmt.width, caps.format_caps[i].width_min);
++		zexpect_equal(fmt.height, caps.format_caps[i].height_max);
++
++		fmt.height = caps.format_caps[i].height_max;
++		fmt.width = caps.format_caps[i].width_max;
++		zexpect_ok(video_set_format(imager_dev, VIDEO_EP_OUT, &fmt));
++		zexpect_ok(video_get_format(imager_dev, VIDEO_EP_OUT, &fmt));
++		zexpect_equal(fmt.pixelformat, caps.format_caps[i].pixelformat);
++		zexpect_equal(fmt.width, caps.format_caps[i].width_max);
++		zexpect_equal(fmt.height, caps.format_caps[i].height_max);
++	}
++
++	fmt.pixelformat = 0x00000000;
++	zexpect_not_ok(video_set_format(imager_dev, VIDEO_EP_OUT, &fmt));
++	zexpect_ok(video_get_format(imager_dev, VIDEO_EP_OUT, &fmt));
++	zexpect_not_equal(fmt.pixelformat, 0x00000000, "should not store wrong formats");
++}
++
++ZTEST(video_common, test_video_frmival)
++{
++	struct video_format fmt;
++	struct video_frmival_enum fie = {.format = &fmt};
++
++	/* Pick the current format for testing the frame interval enumeration */
++	zexpect_ok(video_get_format(imager_dev, VIDEO_EP_OUT, &fmt));
++
++	/* Do a first enumeration of frame intervals, expected to work */
++	zexpect_ok(video_enum_frmival(imager_dev, VIDEO_EP_OUT, &fie));
++	zexpect_equal(fie.index, 1, "fie's index should increment by one at every iteration");
++
++	/* Test that every value of the frame interval enumerator can be applied */
++	do {
++		struct video_frmival q, a;
++		uint32_t min, max, step;
++
++		zexpect_equal_ptr(fie.format, &fmt, "the format should not be changed");
++		zexpect_true(fie.type == VIDEO_FRMIVAL_TYPE_STEPWISE ||
++			     fie.type == VIDEO_FRMIVAL_TYPE_DISCRETE);
++
++		switch (fie.type) {
++		case VIDEO_FRMIVAL_TYPE_STEPWISE:
++			/* Get everthing under the same denominator */
++			q.denominator = fie.stepwise.min.denominator *
++					fie.stepwise.max.denominator *
++					fie.stepwise.step.denominator;
++			min = fie.stepwise.max.denominator * fie.stepwise.step.denominator *
++			      fie.stepwise.min.numerator;
++			max = fie.stepwise.min.denominator * fie.stepwise.step.denominator *
++			      fie.stepwise.max.numerator;
++			step = fie.stepwise.min.denominator * fie.stepwise.max.denominator *
++			       fie.stepwise.step.numerator;
++
++			/* Test every supported frame interval */
++			for (q.numerator = min; q.numerator <= max; q.numerator += step) {
++				zexpect_ok(video_set_frmival(imager_dev, VIDEO_EP_OUT, &q));
++				zexpect_ok(video_get_frmival(imager_dev, VIDEO_EP_OUT, &a));
++				zexpect_equal(video_frmival_nsec(&q), video_frmival_nsec(&a));
++			}
++			break;
++		case VIDEO_FRMIVAL_TYPE_DISCRETE:
++			/* There is just one frame interval to test */
++			zexpect_ok(video_set_frmival(imager_dev, VIDEO_EP_OUT, &fie.discrete));
++			zexpect_ok(video_get_frmival(imager_dev, VIDEO_EP_OUT, &a));
++
++			zexpect_equal(video_frmival_nsec(&fie.discrete), video_frmival_nsec(&a));
++			break;
++		}
++	} while (video_enum_frmival(imager_dev, VIDEO_EP_OUT, &fie) == 0);
++}
++
++ZTEST(video_common, test_video_ctrl)
++{
++	int value;
++
++	/* Exposure control, expected to be supported by all imagers */
++	zexpect_ok(video_set_ctrl(imager_dev, VIDEO_CID_EXPOSURE, (void *)30));
++	zexpect_ok(video_get_ctrl(imager_dev, VIDEO_CID_EXPOSURE, &value));
++	zexpect_equal(value, 30);
++
++	/* Gain control, expected to be supported by all imagers */
++	zexpect_ok(video_set_ctrl(imager_dev, VIDEO_CID_GAIN, (void *)30));
++	zexpect_ok(video_get_ctrl(imager_dev, VIDEO_CID_GAIN, &value));
++	zexpect_equal(value, 30);
++}
++
++ZTEST(video_common, test_video_vbuf)
++{
++	struct video_caps caps;
++	struct video_format fmt;
++	struct video_buffer *vbuf = NULL;
++
++	/* Get a list of supported format */
++	zexpect_ok(video_get_caps(rx_dev, VIDEO_EP_OUT, &caps));
++
++	/* Pick set first format, just to use something supported */
++	fmt.pixelformat = caps.format_caps[0].pixelformat;
++	fmt.width = caps.format_caps[0].width_max;
++	fmt.height = caps.format_caps[0].height_max;
++	fmt.pitch = fmt.width * 2;
++	zexpect_ok(video_set_format(rx_dev, VIDEO_EP_OUT, &fmt));
++
++	/* Allocate a buffer, assuming prj.conf gives enough memory for it */
++	vbuf = video_buffer_alloc(fmt.pitch * fmt.height);
++	zexpect_not_null(vbuf);
++
++	/* Start the virtual hardware */
++	zexpect_ok(video_stream_start(rx_dev));
++
++	/* Enqueue a first buffer */
++	zexpect_ok(video_enqueue(rx_dev, VIDEO_EP_OUT, vbuf));
++
++	/* Receive the completed buffer */
++	zexpect_ok(video_dequeue(rx_dev, VIDEO_EP_OUT, &vbuf, K_FOREVER));
++	zexpect_not_null(vbuf);
++	zexpect_equal(vbuf->bytesused, vbuf->size);
++
++	/* Enqueue back the same buffer */
++	zexpect_ok(video_enqueue(rx_dev, VIDEO_EP_OUT, vbuf));
++
++	/* Process the remaining buffers */
++	zexpect_ok(video_flush(rx_dev, VIDEO_EP_OUT, false));
++
++	/* Expect the buffer to immediately be available */
++	zexpect_ok(video_dequeue(rx_dev, VIDEO_EP_OUT, &vbuf, K_FOREVER));
++	zexpect_not_null(vbuf);
++	zexpect_equal(vbuf->bytesused, vbuf->size);
++
++	/* Nothing left in the queue, possible to stop */
++	zexpect_ok(video_stream_stop(rx_dev));
++}
++
++ZTEST_SUITE(video_emul, NULL, NULL, NULL, NULL, NULL);

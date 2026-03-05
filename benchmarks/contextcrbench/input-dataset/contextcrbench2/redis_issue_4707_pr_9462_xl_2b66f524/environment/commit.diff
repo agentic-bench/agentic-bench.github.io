@@ -1,0 +1,276 @@
+diff --git a/.gitignore b/.gitignore
+index 2524e19c4dc..363acfca13b 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -28,6 +28,7 @@ src/nodes.conf
+ deps/lua/src/lua
+ deps/lua/src/luac
+ deps/lua/src/liblua.a
++deps/hdr_histogram/libhdrhistogram.a
+ tests/tls/*
+ .make-*
+ .prerequisites
+diff --git a/deps/hdr_histogram/Makefile b/deps/hdr_histogram/Makefile
+index 83d3760ae8d..64f2e547aec 100644
+--- a/deps/hdr_histogram/Makefile
++++ b/deps/hdr_histogram/Makefile
+@@ -9,12 +9,21 @@ DEBUG= -g
+ R_CC=$(CC) $(R_CFLAGS)
+ R_LD=$(CC) $(R_LDFLAGS)
+ 
+-hdr_histogram.o: hdr_histogram.h hdr_histogram.c 
++AR= ar
++ARFLAGS= rcs
++
++libhdrhistogram.a: hdr_histogram.o hdr_alloc.o
++	$(AR) $(ARFLAGS) $@ $+
++
++hdr_alloc.o: hdr_alloc.h hdr_alloc.c
++
++hdr_histogram.o: hdr_alloc.o hdr_histogram.h hdr_histogram.c
+ 
+ .c.o:
+ 	$(R_CC) -c  $< 
+ 
+ clean:
+ 	rm -f *.o
++	rm -f *.a
+ 
+ 
+diff --git a/deps/hdr_histogram/hdr_alloc.c b/deps/hdr_histogram/hdr_alloc.c
+new file mode 100644
+index 00000000000..3f5bc7e5089
+--- /dev/null
++++ b/deps/hdr_histogram/hdr_alloc.c
+@@ -0,0 +1,34 @@
++/**
++ * hdr_alloc.c
++ * Written by Filipe Oliveira and released to the public domain,
++ * as explained at http://creativecommons.org/publicdomain/zero/1.0/
++ */
++
++#include "hdr_alloc.h"
++#include <stdlib.h>
++
++hdrAllocFuncs hdrAllocFns = {
++    .mallocFn = malloc,
++    .callocFn = calloc,
++    .reallocFn = realloc,
++    .freeFn = free,
++};
++
++/* Override hdr' allocators with ones supplied by the user */
++hdrAllocFuncs hdrSetAllocators(hdrAllocFuncs *override) {
++  hdrAllocFuncs orig = hdrAllocFns;
++
++  hdrAllocFns = *override;
++
++  return orig;
++}
++
++/* Reset allocators to use build time defaults */
++void hdrResetAllocators(void) {
++  hdrAllocFns = (hdrAllocFuncs){
++      .mallocFn = malloc,
++      .callocFn = calloc,
++      .reallocFn = realloc,
++      .freeFn = free,
++  };
++}
+diff --git a/deps/hdr_histogram/hdr_alloc.h b/deps/hdr_histogram/hdr_alloc.h
+new file mode 100644
+index 00000000000..10602612f33
+--- /dev/null
++++ b/deps/hdr_histogram/hdr_alloc.h
+@@ -0,0 +1,50 @@
++
++/**
++ * hdr_alloc.h
++ * Written by Filipe Oliveira and released to the public domain,
++ * as explained at http://creativecommons.org/publicdomain/zero/1.0/
++ *
++ * Allocator selection.
++ *
++ * This file is used in order to change the HdrHistogram allocator at run
++ * time. */
++
++#ifndef HDR_ALLOC_H
++#define HDR_ALLOC_H
++
++#include <stddef.h> /* for size_t */
++#include <stdint.h>
++
++/* Structure pointing to our actually configured allocators */
++typedef struct hdrAllocFuncs {
++  void *(*mallocFn)(size_t);
++  void *(*callocFn)(size_t, size_t);
++  void *(*reallocFn)(void *, size_t);
++  void (*freeFn)(void *);
++} hdrAllocFuncs;
++
++/* hdr' configured allocator function pointer struct */
++extern hdrAllocFuncs hdrAllocFns;
++
++hdrAllocFuncs hdrSetAllocators(hdrAllocFuncs *ha);
++void hdrResetAllocators(void);
++
++static inline void *hdr_malloc(size_t size) {
++  return hdrAllocFns.mallocFn(size);
++}
++
++static inline void *hdr_calloc(size_t nmemb, size_t size) {
++  /* Overflow check as the user can specify any arbitrary allocator */
++  if (SIZE_MAX / size < nmemb)
++    return NULL;
++
++  return hdrAllocFns.callocFn(nmemb, size);
++}
++
++static inline void *hdr_realloc(void *ptr, size_t size) {
++  return hdrAllocFns.reallocFn(ptr, size);
++}
++
++static inline void hdr_free(void *ptr) { hdrAllocFns.freeFn(ptr); }
++
++#endif /* HDR_ALLOC_H */
+diff --git a/deps/hdr_histogram/hdr_histogram.c b/deps/hdr_histogram/hdr_histogram.c
+index 5f5286f2f86..38be144e830 100644
+--- a/deps/hdr_histogram/hdr_histogram.c
++++ b/deps/hdr_histogram/hdr_histogram.c
+@@ -15,6 +15,7 @@
+ 
+ #include "hdr_histogram.h"
+ #include "hdr_atomic.h"
++#include "hdr_alloc.h"
+ 
+ /*  ######   #######  ##     ## ##    ## ########  ######  */
+ /* ##    ## ##     ## ##     ## ###   ##    ##    ##    ## */
+@@ -392,16 +393,16 @@ int hdr_init(
+         return r;
+     }
+ 
+-    counts = (int64_t*) calloc((size_t) cfg.counts_len, sizeof(int64_t));
++    counts = (int64_t*) hdr_calloc((size_t) cfg.counts_len, sizeof(int64_t));
+     if (!counts)
+     {
+         return ENOMEM;
+     }
+ 
+-    histogram = (struct hdr_histogram*) calloc(1, sizeof(struct hdr_histogram));
++    histogram = (struct hdr_histogram*) hdr_calloc(1, sizeof(struct hdr_histogram));
+     if (!histogram)
+     {
+-        free(counts);
++        hdr_free(counts);
+         return ENOMEM;
+     }
+ 
+@@ -416,8 +417,8 @@ int hdr_init(
+ void hdr_close(struct hdr_histogram* h)
+ {
+     if (h) {
+-	free(h->counts);
+-	free(h);
++	hdr_free(h->counts);
++	hdr_free(h);
+     }
+ }
+ 
+diff --git a/deps/hdr_histogram/hdr_histogram.h b/deps/hdr_histogram/hdr_histogram.h
+index c26c56b203d..58bb9e6144c 100644
+--- a/deps/hdr_histogram/hdr_histogram.h
++++ b/deps/hdr_histogram/hdr_histogram.h
+@@ -13,7 +13,7 @@
+ #include <stdint.h>
+ #include <stdbool.h>
+ #include <stdio.h>
+-
++#include <stddef.h> /* for size_t */
+ struct hdr_histogram
+ {
+     int64_t lowest_trackable_value;
+diff --git a/src/Makefile b/src/Makefile
+index fe365e91b46..74d79d7fd31 100644
+--- a/src/Makefile
++++ b/src/Makefile
+@@ -363,7 +363,7 @@ endif
+ 
+ # redis-server
+ $(REDIS_SERVER_NAME): $(REDIS_SERVER_OBJ)
+-	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/hdr_histogram.o $(FINAL_LIBS)
++	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/lua/src/liblua.a ../deps/hdr_histogram/libhdrhistogram.a $(FINAL_LIBS)
+ 
+ # redis-sentinel
+ $(REDIS_SENTINEL_NAME): $(REDIS_SERVER_NAME)
+@@ -383,7 +383,7 @@ $(REDIS_CLI_NAME): $(REDIS_CLI_OBJ)
+ 
+ # redis-benchmark
+ $(REDIS_BENCHMARK_NAME): $(REDIS_BENCHMARK_OBJ)
+-	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/hdr_histogram/hdr_histogram.o $(FINAL_LIBS)
++	$(REDIS_LD) -o $@ $^ ../deps/hiredis/libhiredis.a ../deps/hdr_histogram/libhdrhistogram.a $(FINAL_LIBS)
+ 
+ DEP = $(REDIS_SERVER_OBJ:%.o=%.d) $(REDIS_CLI_OBJ:%.o=%.d) $(REDIS_BENCHMARK_OBJ:%.o=%.d)
+ -include $(DEP)
+diff --git a/src/server.c b/src/server.c
+index 19022d25be5..db3f11fdd3a 100644
+--- a/src/server.c
++++ b/src/server.c
+@@ -1796,6 +1796,15 @@ void initServerConfig(void) {
+     appendServerSaveParams(300,100);  /* save after 5 minutes and 100 changes */
+     appendServerSaveParams(60,10000); /* save after 1 minute and 10000 changes */
+ 
++    /* Specify the allocation function for the hdr histogram */
++    hdrAllocFuncs hdrallocfn = {
++        .mallocFn = zmalloc,
++        .callocFn = zcalloc_num,
++        .reallocFn = zrealloc,
++        .freeFn = zfree,
++    };
++    hdrSetAllocators(&hdrallocfn);
++
+     /* Replication related */
+     server.masterhost = NULL;
+     server.masterport = 6379;
+diff --git a/src/server.h b/src/server.h
+index 86e610e4a43..ada1eceb1d8 100644
+--- a/src/server.h
++++ b/src/server.h
+@@ -51,6 +51,7 @@
+ #include <lua.h>
+ #include <signal.h>
+ #include "hdr_histogram.h"
++#include "hdr_alloc.h"
+ 
+ #ifdef HAVE_LIBSYSTEMD
+ #include <systemd/sd-daemon.h>
+diff --git a/src/zmalloc.c b/src/zmalloc.c
+index 827f23c85d4..c339d8d4da7 100644
+--- a/src/zmalloc.c
++++ b/src/zmalloc.c
+@@ -181,6 +181,14 @@ void *ztrycalloc_usable(size_t size, size_t *usable) {
+ #endif
+ }
+ 
++/* Allocate memory and zero it or panic.
++ * We need this wrapper to have a calloc compatible signature */
++void *zcalloc_num(size_t num, size_t size) {
++    void *ptr = ztrycalloc_usable(num*size, NULL);
++    if (!ptr) zmalloc_oom_handler(num*size);
++    return ptr;
++}
++
+ /* Allocate memory and zero it or panic */
+ void *zcalloc(size_t size) {
+     void *ptr = ztrycalloc_usable(size, NULL);
+diff --git a/src/zmalloc.h b/src/zmalloc.h
+index b3e20d77f6b..fb448f7f203 100644
+--- a/src/zmalloc.h
++++ b/src/zmalloc.h
+@@ -98,6 +98,7 @@
+ 
+ void *zmalloc(size_t size);
+ void *zcalloc(size_t size);
++void *zcalloc_num(size_t num, size_t size);
+ void *zrealloc(void *ptr, size_t size);
+ void *ztrymalloc(size_t size);
+ void *ztrycalloc(size_t size);

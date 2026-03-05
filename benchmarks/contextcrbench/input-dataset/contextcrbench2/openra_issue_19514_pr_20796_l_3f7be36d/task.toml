@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "openra_issue_19514_pr_20796_l_3f7be36d"
+contextcrbench2_full_name = "OpenRA/OpenRA"
+contextcrbench2_lang = "c_sharp"
+contextcrbench2_issue_number = "19514"
+contextcrbench2_issue_title = "Use nullable reference types (C# 8.0)"
+contextcrbench2_pr_number = "20796"
+contextcrbench2_pr_title = "Enable nullable reference types on ~100 types."
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "3f7be36d74acb1c983d5255465e6899446847192"
+contextcrbench2_commit_id = "3f7be36d74acb1c983d5255465e6899446847192"
+contextcrbench2_created_at = "2023-04-08T13:02:11Z"
+contextcrbench2_entry_count = "3"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

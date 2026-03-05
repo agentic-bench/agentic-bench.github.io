@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "aspnetcore_issue_56215_pr_56219_l_c2fa4d78"
+contextcrbench2_full_name = "dotnet/aspnetcore"
+contextcrbench2_lang = "c_sharp"
+contextcrbench2_issue_number = "56215"
+contextcrbench2_issue_title = "Properties with the [DefaultValue] attribute should have a default value in the generated OpenAPI document"
+contextcrbench2_pr_number = "56219"
+contextcrbench2_pr_title = "Add support for processing DefaultValueAttribute in OpenApi schemas"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "c2fa4d789abc6d5c405c49d1b2bb0a02313f4002"
+contextcrbench2_commit_id = "36922e9f0c21d21dcf41de44371a50f70c04da30"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2024-06-13T16:49:21Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

@@ -1,0 +1,6 @@
+{
+  "issue_title": "Add `--no-header`",
+  "issue_body": "For compatibility with `pip-compile`.",
+  "pr_title": "Add `--no-annotate` and `--no-header` flags",
+  "pr_body": "Closes #1107.\r\nCloses #1108."
+}

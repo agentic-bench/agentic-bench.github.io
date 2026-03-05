@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "core_issue_132478_pr_134782_sm_a60b4345"
+contextcrbench2_full_name = "home-assistant/core"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "132478"
+contextcrbench2_issue_title = "Météo-France setup failed because of rain sensor request failed"
+contextcrbench2_pr_number = "134782"
+contextcrbench2_pr_title = "Fix Météo-France setup in non French cities (because of failed next rain sensor)"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "a60b43455999bf24282a0178b0f56c8119688df5"
+contextcrbench2_commit_id = "a60b43455999bf24282a0178b0f56c8119688df5"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2025-01-06T14:31:58Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

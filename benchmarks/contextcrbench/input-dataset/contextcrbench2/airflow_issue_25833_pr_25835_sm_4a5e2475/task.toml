@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "airflow_issue_25833_pr_25835_sm_4a5e2475"
+contextcrbench2_full_name = "apache/airflow"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "25833"
+contextcrbench2_issue_title = "Airflow Amazon provider S3Hook().download_file() fail when needs encryption arguments (SSECustomerKey etc..) "
+contextcrbench2_pr_number = "25835"
+contextcrbench2_pr_title = "Use the extra_args in get_key()"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "4a5e247536b2b7cb304f2f8dc5961d94278affe1"
+contextcrbench2_commit_id = "4a5e247536b2b7cb304f2f8dc5961d94278affe1"
+contextcrbench2_created_at = "2022-08-19T19:41:27Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

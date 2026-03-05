@@ -1,0 +1,284 @@
+diff --git a/src/OpenApi/src/Services/OpenApiDocumentService.cs b/src/OpenApi/src/Services/OpenApiDocumentService.cs
+index 05d4f7500970..d436cd6eb3c7 100644
+--- a/src/OpenApi/src/Services/OpenApiDocumentService.cs
++++ b/src/OpenApi/src/Services/OpenApiDocumentService.cs
+@@ -2,6 +2,7 @@
+ // The .NET Foundation licenses this file to you under the MIT license.
+ 
+ using System.Collections.Concurrent;
++using System.ComponentModel.DataAnnotations;
+ using System.Diagnostics;
+ using System.Diagnostics.CodeAnalysis;
+ using System.Globalization;
+@@ -11,6 +12,7 @@
+ using Microsoft.AspNetCore.Http.Metadata;
+ using Microsoft.AspNetCore.Mvc;
+ using Microsoft.AspNetCore.Mvc.ApiExplorer;
++using Microsoft.AspNetCore.Mvc.Infrastructure;
+ using Microsoft.AspNetCore.Mvc.ModelBinding;
+ using Microsoft.AspNetCore.Routing;
+ using Microsoft.AspNetCore.WebUtilities;
+@@ -262,9 +264,7 @@ private async Task<OpenApiResponse> GetResponseAsync(ApiDescription apiDescripti
+                     "Path" => ParameterLocation.Path,
+                     _ => throw new InvalidOperationException($"Unsupported parameter source: {parameter.Source.Id}")
+                 },
+-                // Per the OpenAPI specification, parameters that are sourced from the path
+-                // are always required, regardless of the requiredness status of the parameter.
+-                Required = parameter.Source == BindingSource.Path || parameter.IsRequired,
++                Required = IsRequired(parameter),
+                 Schema = await _componentService.GetOrCreateSchemaAsync(parameter.Type, parameter, cancellationToken),
+             };
+             parameters ??= [];
+@@ -273,6 +273,15 @@ private async Task<OpenApiResponse> GetResponseAsync(ApiDescription apiDescripti
+         return parameters;
+     }
+ 
++    private static bool IsRequired(ApiParameterDescription parameter)
++    {
++        var hasRequiredAttribute = parameter.ParameterDescriptor is IParameterInfoParameterDescriptor parameterInfoDescriptor &&
++            parameterInfoDescriptor.ParameterInfo.GetCustomAttributes(inherit: true).Any(attr => attr is RequiredAttribute);
++        // Per the OpenAPI specification, parameters that are sourced from the path
++        // are always required, regardless of the requiredness status of the parameter.
++        return parameter.Source == BindingSource.Path || parameter.IsRequired || hasRequiredAttribute;
++    }
++
+     private async Task<OpenApiRequestBody?> GetRequestBodyAsync(ApiDescription description, CancellationToken cancellationToken)
+     {
+         // Only one parameter can be bound from the body in each request.
+@@ -301,7 +310,7 @@ private async Task<OpenApiRequestBody> GetFormRequestBody(IList<ApiRequestFormat
+ 
+         var requestBody = new OpenApiRequestBody
+         {
+-            Required = formParameters.Any(parameter => parameter.IsRequired),
++            Required = formParameters.Any(IsRequired),
+             Content = new Dictionary<string, OpenApiMediaType>()
+         };
+ 
+@@ -435,7 +444,7 @@ private async Task<OpenApiRequestBody> GetJsonRequestBody(IList<ApiRequestFormat
+ 
+         var requestBody = new OpenApiRequestBody
+         {
+-            Required = bodyParameter.IsRequired,
++            Required = IsRequired(bodyParameter),
+             Content = new Dictionary<string, OpenApiMediaType>()
+         };
+ 
+diff --git a/src/OpenApi/src/Services/Schemas/OpenApiSchemaService.cs b/src/OpenApi/src/Services/Schemas/OpenApiSchemaService.cs
+index 1bdb8317a92a..adc83311227e 100644
+--- a/src/OpenApi/src/Services/Schemas/OpenApiSchemaService.cs
++++ b/src/OpenApi/src/Services/Schemas/OpenApiSchemaService.cs
+@@ -4,8 +4,10 @@
+ using System.ComponentModel.DataAnnotations;
+ using System.Diagnostics;
+ using System.IO.Pipelines;
++using System.Linq;
+ using System.Text.Json;
+ using System.Text.Json.Nodes;
++using System.Text.Json.Serialization.Metadata;
+ using JsonSchemaMapper;
+ using Microsoft.AspNetCore.Http;
+ using Microsoft.AspNetCore.Http.Json;
+@@ -30,7 +32,29 @@ internal sealed class OpenApiSchemaService(
+ {
+     private readonly OpenApiSchemaStore _schemaStore = serviceProvider.GetRequiredKeyedService<OpenApiSchemaStore>(documentName);
+     private readonly OpenApiOptions _openApiOptions = optionsMonitor.Get(documentName);
+-    private readonly JsonSerializerOptions _jsonSerializerOptions = jsonOptions.Value.SerializerOptions;
++    private readonly JsonSerializerOptions _jsonSerializerOptions = new(jsonOptions.Value.SerializerOptions)
++    {
++        // In order to properly handle the `RequiredAttribute` on type properties, add a modifier to support
++        // setting `JsonPropertyInfo.IsRequired` based on the presence of the `RequiredAttribute`.
++        TypeInfoResolver = jsonOptions.Value.SerializerOptions.TypeInfoResolver?.WithAddedModifier(jsonTypeInfo =>
++        {
++            if (jsonTypeInfo.Type is Type type)
++            {
++                if (jsonTypeInfo.Kind != JsonTypeInfoKind.Object)
++                {
++                    return;
++                }
++                foreach (var propertyInfo in jsonTypeInfo.Properties)
++                {
++                    var hasRequiredAttribute = propertyInfo.AttributeProvider?
++                        .GetCustomAttributes(inherit: false)
++                        .Any(attr => attr is RequiredAttribute);
++                    propertyInfo.IsRequired |= hasRequiredAttribute ?? false;
++                }
++            }
++        })
++    };
++
+     private readonly JsonSchemaMapperConfiguration _configuration = new()
+     {
+         OnSchemaGenerated = (context, schema) =>
+@@ -59,7 +83,6 @@ internal sealed class OpenApiSchemaService(
+             {
+                 schema.ApplyValidationAttributes(validationAttributes);
+             }
+-
+         }
+     };
+ 
+diff --git a/src/OpenApi/test/Services/OpenApiSchemaService/OpenApiComponentService.ParameterSchemas.cs b/src/OpenApi/test/Services/OpenApiSchemaService/OpenApiComponentService.ParameterSchemas.cs
+index e891d425f171..84e9b403025c 100644
+--- a/src/OpenApi/test/Services/OpenApiSchemaService/OpenApiComponentService.ParameterSchemas.cs
++++ b/src/OpenApi/test/Services/OpenApiSchemaService/OpenApiComponentService.ParameterSchemas.cs
+@@ -344,6 +344,31 @@ await VerifyOpenApiDocument(builder, document =>
+         });
+     }
+ 
++    [Fact]
++    public async Task GetOpenApiParameters_HandlesParametersWithRequiredAttribute()
++    {
++        // Arrange
++        var builder = CreateBuilder();
++
++        // Act -- route parameters are always required so we test other
++        // parameter sources here.
++        builder.MapGet("/api-1", ([Required] string id) => { });
++        builder.MapGet("/api-2", ([Required] int? age) => { });
++        builder.MapGet("/api-3", ([Required] Guid guid) => { });
++        builder.MapGet("/api-4", ([Required][FromHeader] DateTime date) => { });
++
++        // Assert
++        await VerifyOpenApiDocument(builder, document =>
++        {
++            foreach (var path in document.Paths.Values)
++            {
++                var operation = path.Operations[OperationType.Get];
++                var parameter = Assert.Single(operation.Parameters);
++                Assert.True(parameter.Required);
++            }
++        });
++    }
++
+     public static object[][] ArrayBasedQueryParameters =>
+     [
+         [(int[] id) => { }, "integer", false],
+diff --git a/src/OpenApi/test/Services/OpenApiSchemaService/OpenApiComponentService.RequestBodySchemas.cs b/src/OpenApi/test/Services/OpenApiSchemaService/OpenApiComponentService.RequestBodySchemas.cs
+index a46882ea6c88..fa7610d1b1bf 100644
+--- a/src/OpenApi/test/Services/OpenApiSchemaService/OpenApiComponentService.RequestBodySchemas.cs
++++ b/src/OpenApi/test/Services/OpenApiSchemaService/OpenApiComponentService.RequestBodySchemas.cs
+@@ -1,6 +1,7 @@
+ // Licensed to the .NET Foundation under one or more agreements.
+ // The .NET Foundation licenses this file to you under the MIT license.
+ 
++using System.ComponentModel.DataAnnotations;
+ using System.IO.Pipelines;
+ using Microsoft.AspNetCore.Builder;
+ using Microsoft.AspNetCore.Mvc;
+@@ -54,6 +55,56 @@ await VerifyOpenApiDocument(builder, document =>
+         });
+     }
+ 
++    [Fact]
++    public async Task GetOpenApiRequestBody_RespectsRequiredAttributeOnBodyParameter()
++    {
++        // Arrange
++        var builder = CreateBuilder();
++
++        // Act
++        builder.MapPost("/required-poco", ([Required] Todo todo) => { });
++        builder.MapPost("/non-required-poco", (Todo todo) => { });
++        builder.MapPost("/required-form", ([Required][FromForm] Todo todo) => { });
++        builder.MapPost("/non-required-form", ([FromForm] Todo todo) => { });
++
++        // Assert
++        await VerifyOpenApiDocument(builder, document =>
++        {
++            Assert.True(GetRequestBodyForPath(document, "/required-poco").Required);
++            Assert.False(GetRequestBodyForPath(document, "/non-required-poco").Required);
++            Assert.True(GetRequestBodyForPath(document, "/required-form").Required);
++            Assert.False(GetRequestBodyForPath(document, "/non-required-form").Required);
++        });
++
++        static OpenApiRequestBody GetRequestBodyForPath(OpenApiDocument document, string path)
++        {
++            var operation = document.Paths[path].Operations[OperationType.Post];
++            return operation.RequestBody;
++        }
++    }
++
++    [Fact]
++    public async Task GetOpenApiRequestBody_RespectsRequiredAttributeOnBodyProperties()
++    {
++        // Arrange
++        var builder = CreateBuilder();
++
++        // Act
++        builder.MapPost("/required-properties", (RequiredTodo todo) => { });
++
++        // Assert
++        await VerifyOpenApiDocument(builder, document =>
++        {
++            var operation = document.Paths["/required-properties"].Operations[OperationType.Post];
++            var requestBody = operation.RequestBody;
++            var content = Assert.Single(requestBody.Content);
++            var schema = content.Value.Schema;
++            Assert.Collection(schema.Required,
++                property => Assert.Equal("title", property),
++                property => Assert.Equal("completed", property));
++        });
++    }
++
+     [Fact]
+     public async Task GetOpenApiRequestBody_GeneratesSchemaForFileTypes()
+     {
+diff --git a/src/OpenApi/test/Services/OpenApiSchemaService/OpenApiComponentService.ResponseSchemas.cs b/src/OpenApi/test/Services/OpenApiSchemaService/OpenApiComponentService.ResponseSchemas.cs
+index c9edafae041d..015fc8a9dff4 100644
+--- a/src/OpenApi/test/Services/OpenApiSchemaService/OpenApiComponentService.ResponseSchemas.cs
++++ b/src/OpenApi/test/Services/OpenApiSchemaService/OpenApiComponentService.ResponseSchemas.cs
+@@ -136,6 +136,28 @@ await VerifyOpenApiDocument(builder, document =>
+         });
+     }
+ 
++    [Fact]
++    public async Task GetOpenApiResponse_RespectsRequiredAttributeOnBodyProperties()
++    {
++        // Arrange
++        var builder = CreateBuilder();
++
++        // Act
++        builder.MapPost("/required-properties", () => new RequiredTodo { Title = "Test Title", Completed = true });
++
++        // Assert
++        await VerifyOpenApiDocument(builder, document =>
++        {
++            var operation = document.Paths["/required-properties"].Operations[OperationType.Post];
++            var response = operation.Responses["200"];
++            var content = Assert.Single(response.Content);
++            var schema = content.Value.Schema;
++            Assert.Collection(schema.Required,
++                property => Assert.Equal("title", property),
++                property => Assert.Equal("completed", property));
++        });
++    }
++
+     [Fact]
+     public async Task GetOpenApiResponse_HandlesInheritedTypeResponse()
+     {
+diff --git a/src/OpenApi/test/SharedTypes.cs b/src/OpenApi/test/SharedTypes.cs
+index edf8f45c29b5..465ca62711dc 100644
+--- a/src/OpenApi/test/SharedTypes.cs
++++ b/src/OpenApi/test/SharedTypes.cs
+@@ -4,8 +4,8 @@
+ // This file contains shared types that are used across tests, sample apps,
+ // and benchmark apps.
+ 
++using System.ComponentModel.DataAnnotations;
+ using System.Text.Json.Serialization;
+-using Microsoft.AspNetCore.Http;
+ 
+ internal record Todo(int Id, string Title, bool Completed, DateTime CreatedAt);
+ 
+@@ -72,3 +72,12 @@ internal class PaginatedItems<T>(int pageIndex, int pageSize, long totalItems, i
+     public int TotalPages { get; set; } = totalPages;
+     public IEnumerable<T> Items { get; set; } = items;
+ }
++
++internal class RequiredTodo
++{
++    [Required]
++    public string Title { get; set; } = string.Empty;
++    [Required]
++    public bool Completed { get; set; }
++    public string Assignee { get; set; } = string.Empty;
++}

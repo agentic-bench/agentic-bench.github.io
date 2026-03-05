@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "vite_issue_6851_pr_6818_sm_7d52fe86"
+contextcrbench2_full_name = "vitejs/vite"
+contextcrbench2_lang = "typescript"
+contextcrbench2_issue_number = "6851"
+contextcrbench2_issue_title = "Reusing variable names between module scripts in entry html causes devServer to fail"
+contextcrbench2_pr_number = "6818"
+contextcrbench2_pr_title = "fix: reusing variable names in html module scripts (fix #6851)"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "7d52fe8641121f071c11a8f66257598294eb3d3b"
+contextcrbench2_commit_id = "f7e8ade6eac8d0335a4b635911df9cbfd4cc962f"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2022-02-19T15:16:45Z"
+contextcrbench2_entry_count = "2"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

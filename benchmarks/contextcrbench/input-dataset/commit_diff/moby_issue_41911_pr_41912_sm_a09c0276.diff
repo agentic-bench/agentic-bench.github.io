@@ -1,0 +1,90 @@
+diff --git a/builder/dockerfile/dispatchers.go b/builder/dockerfile/dispatchers.go
+index 36335df952f6b..f755f12650df3 100644
+--- a/builder/dockerfile/dispatchers.go
++++ b/builder/dockerfile/dispatchers.go
+@@ -92,6 +92,9 @@ func dispatchLabel(d dispatchRequest, c *instructions.LabelCommand) error {
+ // exist here. If you do not wish to have this automatic handling, use COPY.
+ //
+ func dispatchAdd(d dispatchRequest, c *instructions.AddCommand) error {
++	if c.Chmod != "" {
++		return errors.New("the --chmod option requires BuildKit. Refer to https://docs.docker.com/go/buildkit/ to learn how to build images with BuildKit enabled")
++	}
+ 	downloader := newRemoteSourceDownloader(d.builder.Output, d.builder.Stdout)
+ 	copier := copierFromDispatchRequest(d, downloader, nil)
+ 	defer copier.Cleanup()
+@@ -111,6 +114,9 @@ func dispatchAdd(d dispatchRequest, c *instructions.AddCommand) error {
+ // Same as 'ADD' but without the tar and remote url handling.
+ //
+ func dispatchCopy(d dispatchRequest, c *instructions.CopyCommand) error {
++	if c.Chmod != "" {
++		return errors.New("the --chmod option requires BuildKit. Refer to https://docs.docker.com/go/buildkit/ to learn how to build images with BuildKit enabled")
++	}
+ 	var im *imageMount
+ 	var err error
+ 	if c.From != "" {
+@@ -346,6 +352,12 @@ func dispatchRun(d dispatchRequest, c *instructions.RunCommand) error {
+ 	if !system.IsOSSupported(d.state.operatingSystem) {
+ 		return system.ErrNotSupportedOperatingSystem
+ 	}
++
++	if len(c.FlagsUsed) > 0 {
++		// classic builder RUN currently does not support any flags, so fail on the first one
++		return errors.Errorf("the --%s option requires BuildKit. Refer to https://docs.docker.com/go/buildkit/ to learn how to build images with BuildKit enabled", c.FlagsUsed[0])
++	}
++
+ 	stateRunConfig := d.state.runConfig
+ 	cmdFromArgs, argsEscaped := resolveCmdLine(c.ShellDependantCmdLine, stateRunConfig, d.state.operatingSystem, c.Name(), c.String())
+ 	buildArgs := d.state.buildArgs.FilterAllowed(stateRunConfig.Env)
+diff --git a/builder/dockerfile/dispatchers_test.go b/builder/dockerfile/dispatchers_test.go
+index d5f6bb96a9888..8aa99a6513c38 100644
+--- a/builder/dockerfile/dispatchers_test.go
++++ b/builder/dockerfile/dispatchers_test.go
+@@ -3,6 +3,7 @@ package dockerfile // import "github.com/docker/docker/builder/dockerfile"
+ import (
+ 	"bytes"
+ 	"context"
++	"fmt"
+ 	"runtime"
+ 	"strings"
+ 	"testing"
+@@ -570,3 +571,40 @@ func TestRunIgnoresHealthcheck(t *testing.T) {
+ 	assert.NilError(t, dispatch(sb, run))
+ 	assert.Check(t, is.DeepEqual(expectedTest, sb.state.runConfig.Healthcheck.Test))
+ }
++
++func TestDispatchUnsupportedOptions(t *testing.T) {
++	b := newBuilderWithMockBackend()
++	sb := newDispatchRequest(b, '`', nil, NewBuildArgs(make(map[string]*string)), newStagesBuildResults())
++	sb.state.baseImage = &mockImage{}
++	sb.state.operatingSystem = runtime.GOOS
++
++	t.Run("ADD with chmod", func(t *testing.T) {
++		cmd := &instructions.AddCommand{SourcesAndDest: []string{".", "."}, Chmod: "0655"}
++		err := dispatch(sb, cmd)
++		assert.Error(t, err, "the --chmod option requires BuildKit. Refer to https://docs.docker.com/go/buildkit/ to learn how to build images with BuildKit enabled")
++	})
++
++	t.Run("COPY with chmod", func(t *testing.T) {
++		cmd := &instructions.CopyCommand{SourcesAndDest: []string{".", "."}, Chmod: "0655"}
++		err := dispatch(sb, cmd)
++		assert.Error(t, err, "the --chmod option requires BuildKit. Refer to https://docs.docker.com/go/buildkit/ to learn how to build images with BuildKit enabled")
++	})
++
++	t.Run("RUN with unsupported options", func(t *testing.T) {
++		cmd := &instructions.RunCommand{
++			ShellDependantCmdLine: instructions.ShellDependantCmdLine{
++				CmdLine:      strslice.StrSlice{"echo foo"},
++				PrependShell: true,
++			},
++		}
++
++		// classic builder "RUN" currently doesn't support any flags, but testing
++		// both "known" flags and "bogus" flags for completeness, and in case
++		// one or more of these flags will be supported in future
++		for _, f := range []string{"mount", "network", "security", "any-flag"} {
++			cmd.FlagsUsed = []string{f}
++			err := dispatch(sb, cmd)
++			assert.Error(t, err, fmt.Sprintf("the --%s option requires BuildKit. Refer to https://docs.docker.com/go/buildkit/ to learn how to build images with BuildKit enabled", f))
++		}
++	})
++}

@@ -1,0 +1,69 @@
+diff --git a/activesupport/CHANGELOG.md b/activesupport/CHANGELOG.md
+index 117f4c6daa66d..c1588bad7c45c 100644
+--- a/activesupport/CHANGELOG.md
++++ b/activesupport/CHANGELOG.md
+@@ -1,3 +1,20 @@
++*   Allow setting a logger to a subclass of `ActiveSupport::LogSubscriber`
++
++    Any subclass of `ActiveSupport::LogSubscriber` may have a custom logger set
++    to it, without altering the one set on the base class or any other
++    subclasses:
++
++    ```ruby
++    MySubscriber.logger = Logger.new('myfile.log')
++    ```
++
++    If not set, it still defaults to `ActiveSupport::LogSubscriber.logger`,
++    which in turn defaults to `Rails.logger` when in Rails.
++
++    Fixes [#42745](https://github.com/rails/rails/issues/42745).
++
++    *Sergio Nogueira Filho*
++
+ *   Faster tests by parallelizing only when overhead is justified by the number
+     of them.
+ 
+diff --git a/activesupport/lib/active_support/log_subscriber.rb b/activesupport/lib/active_support/log_subscriber.rb
+index 29a6941c04aa4..5df751012b192 100644
+--- a/activesupport/lib/active_support/log_subscriber.rb
++++ b/activesupport/lib/active_support/log_subscriber.rb
+@@ -81,7 +81,10 @@ class LogSubscriber < Subscriber
+ 
+     class << self
+       def logger
+-        @logger ||= if defined?(Rails) && Rails.respond_to?(:logger)
++        return @logger if @logger
++        return superclass.logger if self != LogSubscriber
++
++        if defined?(Rails) && Rails.respond_to?(:logger)
+           Rails.logger
+         end
+       end
+@@ -104,7 +107,7 @@ def fetch_public_methods(subscriber, inherit_all)
+     end
+ 
+     def logger
+-      LogSubscriber.logger
++      self.class.logger
+     end
+ 
+     def start(name, id, payload)
+diff --git a/activesupport/test/log_subscriber_test.rb b/activesupport/test/log_subscriber_test.rb
+index d4bd082defac9..9c0361a84a63e 100644
+--- a/activesupport/test/log_subscriber_test.rb
++++ b/activesupport/test/log_subscriber_test.rb
+@@ -139,4 +139,14 @@ def test_logging_does_not_die_on_failures
+     assert_equal 1, @logger.logged(:error).size
+     assert_match 'Could not log "puke.my_log_subscriber" event. RuntimeError: puke', @logger.logged(:error).last
+   end
++
++  def test_event_is_sent_to_set_logger
++    logger = MockLogger.new
++    MyLogSubscriber.logger = logger
++    ActiveSupport::LogSubscriber.attach_to :my_log_subscriber, @log_subscriber
++    instrument "some_event.my_log_subscriber"
++    wait
++    assert_equal %w(some_event.my_log_subscriber), logger.logged(:info)
++    MyLogSubscriber.logger = nil
++  end
+ end

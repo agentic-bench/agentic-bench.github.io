@@ -1,0 +1,77 @@
+diff --git a/crypto/evp/evp_lib.c b/crypto/evp/evp_lib.c
+index dd58cc500bae5..f29d592e0fbcd 100644
+--- a/crypto/evp/evp_lib.c
++++ b/crypto/evp/evp_lib.c
+@@ -387,7 +387,7 @@ int evp_cipher_cache_constants(EVP_CIPHER *cipher)
+ 
+ int EVP_CIPHER_get_block_size(const EVP_CIPHER *cipher)
+ {
+-    return cipher != NULL ? cipher->block_size : 0;
++    return cipher->block_size;
+ }
+ 
+ int EVP_CIPHER_CTX_get_block_size(const EVP_CIPHER_CTX *ctx)
+diff --git a/providers/implementations/macs/cmac_prov.c b/providers/implementations/macs/cmac_prov.c
+index 1b3893598d888..fa0b576b97123 100644
+--- a/providers/implementations/macs/cmac_prov.c
++++ b/providers/implementations/macs/cmac_prov.c
+@@ -101,8 +101,12 @@ static void *cmac_dup(void *vsrc)
+ static size_t cmac_size(void *vmacctx)
+ {
+     struct cmac_data_st *macctx = vmacctx;
++    const EVP_CIPHER_CTX *cipherctx = CMAC_CTX_get0_cipher_ctx(macctx->ctx);
+ 
+-    return EVP_CIPHER_CTX_get_block_size(CMAC_CTX_get0_cipher_ctx(macctx->ctx));
++    if (EVP_CIPHER_CTX_get0_cipher(cipherctx) == NULL)
++        return 0;
++
++    return EVP_CIPHER_CTX_get_block_size(cipherctx);
+ }
+ 
+ static int cmac_setkey(struct cmac_data_st *macctx,
+diff --git a/test/evp_test.c b/test/evp_test.c
+index f5bc10f829103..cef7b1b9e83bc 100644
+--- a/test/evp_test.c
++++ b/test/evp_test.c
+@@ -1513,7 +1513,8 @@ static int mac_test_run_mac(EVP_TEST *t)
+     MAC_DATA *expected = t->data;
+     EVP_MAC_CTX *ctx = NULL;
+     unsigned char *got = NULL;
+-    size_t got_len = 0, size = 0, size_val = 0;
++    size_t got_len = 0, size = 0;
++    size_t size_before_init, size_after_init, size_val = 0;
+     int i, block_size = -1, output_size = -1;
+     OSSL_PARAM params[21], sizes[3], *psizes = sizes;
+     size_t params_n = 0;
+@@ -1621,20 +1622,24 @@ static int mac_test_run_mac(EVP_TEST *t)
+         t->err = "MAC_CREATE_ERROR";
+         goto err;
+     }
+-    /* get mac-size before init */
+-    size = EVP_MAC_CTX_get_mac_size(ctx);
++    size_before_init = EVP_MAC_CTX_get_mac_size(ctx);
+     if (!EVP_MAC_init(ctx, expected->key, expected->key_len, params)) {
+         t->err = "MAC_INIT_ERROR";
+         goto err;
+     }
+-    if (size != 0) {
+-        /* check mac-size after init */
+-        if (size_val == 0 && !TEST_size_t_eq(size, EVP_MAC_CTX_get_mac_size(ctx))) {
++    size_after_init = EVP_MAC_CTX_get_mac_size(ctx);
++    if (!TEST_false(size_before_init == 0 && size_after_init == 0)) {
++        t->err = "MAC SIZE not set";
++        goto err;
++    }
++    if (size_before_init != 0) {
++        /* mac-size not modified by init params */
++        if (size_val == 0 && !TEST_size_t_eq(size_before_init, size_after_init)) {
+             t->err = "MAC SIZE check failed";
+             goto err;
+         }
+-        /* mac-size may have been modified by init params */
+-        if (size_val != 0 && !TEST_size_t_eq(size_val, EVP_MAC_CTX_get_mac_size(ctx))) {
++        /* mac-size modified by init params */
++        if (size_val != 0 && !TEST_size_t_eq(size_val, size_after_init)) {
+             t->err = "MAC SIZE check failed";
+             goto err;
+         }

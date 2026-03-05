@@ -1,0 +1,10 @@
+[
+  {
+    "path": "lib/ansible/module_utils/facts/hardware/darwin.py",
+    "line": 98,
+    "original_line": 98,
+    "review_comment": [
+      "saving 1 allocation or lookup `page_size = int(self.sysclt.get('hw.pagesize', 4096))`"
+    ]
+  }
+]

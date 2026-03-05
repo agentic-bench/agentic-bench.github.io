@@ -1,0 +1,24 @@
+[
+  {
+    "id": 53629,
+    "full_name": "PowerShell/PowerShell",
+    "lang": "c_sharp",
+    "issue_number": 11445,
+    "pr_number": 11448,
+    "diff_hunk": "@@ -650,7 +650,7 @@ internal override void Dispose(bool isDisposing)\n                 {\n                     // Object already disposed.\n                 }\n-                \n+\n                 _commandMessageQueue.Dispose();\n             }\n         }",
+    "diff_hunk_content_with_line_number": "[650][650]                  {\n[651][651]                      // Object already disposed.\n[652][652]                  }\n[653][] -                \n[][653] +\n[654][654]                  _commandMessageQueue.Dispose();\n[655][655]              }\n[656][656]          }",
+    "checked_commit_id": "5335323dc203717a7abc51b650fdf5ea37a3dfbc",
+    "pr_size": "sm"
+  },
+  {
+    "id": 53631,
+    "full_name": "PowerShell/PowerShell",
+    "lang": "c_sharp",
+    "issue_number": 11445,
+    "pr_number": 11448,
+    "diff_hunk": "@@ -650,7 +650,7 @@ internal override void Dispose(bool isDisposing)\n                 {\n                     // Object already disposed.\n                 }\n-                \n+\n                 _commandMessageQueue.Dispose();\n             }\n         }",
+    "diff_hunk_content_with_line_number": "[650][650]                  {\n[651][651]                      // Object already disposed.\n[652][652]                  }\n[653][] -                \n[][653] +\n[654][654]                  _commandMessageQueue.Dispose();\n[655][655]              }\n[656][656]          }",
+    "checked_commit_id": "5335323dc203717a7abc51b650fdf5ea37a3dfbc",
+    "pr_size": "sm"
+  }
+]

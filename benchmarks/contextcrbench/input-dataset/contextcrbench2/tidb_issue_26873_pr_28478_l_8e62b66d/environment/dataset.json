@@ -1,0 +1,35 @@
+[
+  {
+    "id": 40426,
+    "full_name": "pingcap/tidb",
+    "lang": "go",
+    "issue_number": 26873,
+    "pr_number": 28478,
+    "diff_hunk": "@@ -566,7 +574,10 @@ func ExtractEqAndInCondition(sctx sessionctx.Context, conditions []expression.Ex\n \t\t\t\t// Maybe we can improve it later.\n \t\t\t\tcolumnValues[i] = &valueInfo{mutable: true}\n \t\t\t}\n-\t\t\tsctx.GetSessionVars().StmtCtx.MaybeOverOptimized4PlanCache = true\n+\t\t\tif expression.MaybeOverOptimized4PlanCache(sctx, conditions) {\n+\t\t\t\t// TODO: optimize it more elaborately, e.g. return [2 3, 2 3] as accesses for 'where a = 2 and b = 3 and c >= ? and c <= ?'\n+\t\t\t\treturn nil, conditions, nil, nil, false\n+\t\t\t}\n \t\t}\n \t}\n \tfor i, offset := range offsets {\n",
+    "diff_hunk_content_with_line_number": "[566][574]  \t\t\t\t// Maybe we can improve it later.\n[567][575]  \t\t\t\tcolumnValues[i] = &valueInfo{mutable: true}\n[568][576]  \t\t\t}\n[569][] -\t\t\tsctx.GetSessionVars().StmtCtx.MaybeOverOptimized4PlanCache = true\n[][577] +\t\t\tif expression.MaybeOverOptimized4PlanCache(sctx, conditions) {\n[][578] +\t\t\t\t// TODO: optimize it more elaborately, e.g. return [2 3, 2 3] as accesses for 'where a = 2 and b = 3 and c >= ? and c <= ?'\n[][579] +\t\t\t\treturn nil, conditions, nil, nil, false\n[][580] +\t\t\t}\n[570][581]  \t\t}\n[571][582]  \t}\n[572][583]  \tfor i, offset := range offsets {",
+    "checked_commit_id": "8e62b66d3a6bf82653075410979bfde10abe5859",
+    "pr_size": "l"
+  },
+  {
+    "id": 40427,
+    "full_name": "pingcap/tidb",
+    "lang": "go",
+    "issue_number": 26873,
+    "pr_number": 28478,
+    "diff_hunk": "@@ -791,7 +791,7 @@ func SplitDNFItems(onExpr Expression) []Expression {\n // If the Expression is a non-constant value, it means the result is unknown.\n func EvaluateExprWithNull(ctx sessionctx.Context, schema *Schema, expr Expression) Expression {\n \tif MaybeOverOptimized4PlanCache(ctx, []Expression{expr}) {\n-\t\tctx.GetSessionVars().StmtCtx.MaybeOverOptimized4PlanCache = true\n+\t\treturn expr\n \t}\n \treturn evaluateExprWithNull(ctx, schema, expr)\n }\n",
+    "diff_hunk_content_with_line_number": "[791][791]  // If the Expression is a non-constant value, it means the result is unknown.\n[792][792]  func EvaluateExprWithNull(ctx sessionctx.Context, schema *Schema, expr Expression) Expression {\n[793][793]  \tif MaybeOverOptimized4PlanCache(ctx, []Expression{expr}) {\n[794][] -\t\tctx.GetSessionVars().StmtCtx.MaybeOverOptimized4PlanCache = true\n[][794] +\t\treturn expr\n[795][795]  \t}\n[796][796]  \treturn evaluateExprWithNull(ctx, schema, expr)\n[797][797]  }",
+    "checked_commit_id": "8e62b66d3a6bf82653075410979bfde10abe5859",
+    "pr_size": "l"
+  },
+  {
+    "id": 40428,
+    "full_name": "pingcap/tidb",
+    "lang": "go",
+    "issue_number": 26873,
+    "pr_number": 28478,
+    "diff_hunk": "@@ -343,8 +343,6 @@ func (ds *DataSource) derivePathStatsAndTryHeuristics() error {\n \tif selected != nil {\n \t\tds.possibleAccessPaths[0] = selected\n \t\tds.possibleAccessPaths = ds.possibleAccessPaths[:1]\n-\t\t// TODO: Can we make a more careful check on whether the optimization depends on mutable constants?\n-\t\tds.ctx.GetSessionVars().StmtCtx.MaybeOverOptimized4PlanCache = true\n \t\tif ds.ctx.GetSessionVars().StmtCtx.InVerboseExplain {\n \t\t\tvar tableName string\n \t\t\tif ds.TableAsName.O == \"\" {\n",
+    "diff_hunk_content_with_line_number": "[343][343]  \tif selected != nil {\n[344][344]  \t\tds.possibleAccessPaths[0] = selected\n[345][345]  \t\tds.possibleAccessPaths = ds.possibleAccessPaths[:1]\n[346][] -\t\t// TODO: Can we make a more careful check on whether the optimization depends on mutable constants?\n[347][] -\t\tds.ctx.GetSessionVars().StmtCtx.MaybeOverOptimized4PlanCache = true\n[348][346]  \t\tif ds.ctx.GetSessionVars().StmtCtx.InVerboseExplain {\n[349][347]  \t\t\tvar tableName string\n[350][348]  \t\t\tif ds.TableAsName.O == \"\" {",
+    "checked_commit_id": "8e62b66d3a6bf82653075410979bfde10abe5859",
+    "pr_size": "l"
+  }
+]

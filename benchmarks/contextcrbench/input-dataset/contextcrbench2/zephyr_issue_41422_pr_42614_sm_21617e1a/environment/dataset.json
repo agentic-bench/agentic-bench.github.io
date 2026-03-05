@@ -1,0 +1,13 @@
+[
+  {
+    "id": 26429,
+    "full_name": "zephyrproject-rtos/zephyr",
+    "lang": "c",
+    "issue_number": 41422,
+    "pr_number": 42614,
+    "diff_hunk": "@@ -68,8 +68,14 @@ static int32_t next_timeout(void)\n {\n \tstruct _timeout *to = first();\n \tint32_t ticks_elapsed = elapsed();\n-\tint32_t ret = to == NULL ? MAX_WAIT\n-\t\t: CLAMP(to->dticks - ticks_elapsed, 0, MAX_WAIT);\n+\tint32_t ret;\n+\n+\tif ((to == NULL) ||\n+\t    ((int64_t)(to->dticks - ticks_elapsed) > (int64_t)INT_MAX)) {\n+\t\tret = MAX_WAIT;\n+\t} else {\n+\t\tret = MAX(0, to->dticks - ticks_elapsed);\n+\t}\n \n #ifdef CONFIG_TIMESLICING\n \tif (_current_cpu->slice_ticks && _current_cpu->slice_ticks < ret) {\n",
+    "diff_hunk_content_with_line_number": "[68][68]  {\n[69][69]  \tstruct _timeout *to = first();\n[70][70]  \tint32_t ticks_elapsed = elapsed();\n[71][] -\tint32_t ret = to == NULL ? MAX_WAIT\n[72][] -\t\t: CLAMP(to->dticks - ticks_elapsed, 0, MAX_WAIT);\n[][71] +\tint32_t ret;\n[][72] +\n[][73] +\tif ((to == NULL) ||\n[][74] +\t    ((int64_t)(to->dticks - ticks_elapsed) > (int64_t)INT_MAX)) {\n[][75] +\t\tret = MAX_WAIT;\n[][76] +\t} else {\n[][77] +\t\tret = MAX(0, to->dticks - ticks_elapsed);\n[][78] +\t}\n[73][79]  \n[74][80]  #ifdef CONFIG_TIMESLICING\n[75][81]  \tif (_current_cpu->slice_ticks && _current_cpu->slice_ticks < ret) {",
+    "checked_commit_id": "21617e1aa45f5dd148efc10a3fbee94a7894b17d",
+    "pr_size": "sm"
+  }
+]

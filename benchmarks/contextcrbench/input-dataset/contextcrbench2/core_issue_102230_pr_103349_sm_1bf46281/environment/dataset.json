@@ -1,0 +1,13 @@
+[
+  {
+    "id": 19212,
+    "full_name": "home-assistant/core",
+    "lang": "python",
+    "issue_number": 102230,
+    "pr_number": 103349,
+    "diff_hunk": "@@ -71,7 +71,8 @@ class WeatherFlowSensorEntityDescription(\n \n     def get_native_value(self, device: WeatherFlowDevice) -> datetime | StateType:\n         \"\"\"Return the parsed sensor value.\"\"\"\n-        raw_sensor_data = getattr(device, self.key)\n+        if (raw_sensor_data := getattr(device, self.key)) is None:\n+            return None\n         return self.raw_data_conv_fn(raw_sensor_data)\n \n ",
+    "diff_hunk_content_with_line_number": "[71][71]  \n[72][72]      def get_native_value(self, device: WeatherFlowDevice) -> datetime | StateType:\n[73][73]          \"\"\"Return the parsed sensor value.\"\"\"\n[74][] -        raw_sensor_data = getattr(device, self.key)\n[][74] +        if (raw_sensor_data := getattr(device, self.key)) is None:\n[][75] +            return None\n[75][76]          return self.raw_data_conv_fn(raw_sensor_data)\n[76][77]  \n[77][78]  ",
+    "checked_commit_id": "1bf462816fd5669e20543cb6dfb88aff7c0a26a3",
+    "pr_size": "sm"
+  }
+]

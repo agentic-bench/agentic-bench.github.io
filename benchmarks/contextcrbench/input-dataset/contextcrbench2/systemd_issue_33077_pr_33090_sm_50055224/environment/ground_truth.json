@@ -1,0 +1,11 @@
+[
+  {
+    "path": "src/pcrlock/pcrlock-firmware.c",
+    "line": 107,
+    "original_line": 107,
+    "review_comment": [
+      "If you touch this, eqzero() can be used.",
+      "these things can be done later, let's keep changes after rc3 down to a minimum please"
+    ]
+  }
+]

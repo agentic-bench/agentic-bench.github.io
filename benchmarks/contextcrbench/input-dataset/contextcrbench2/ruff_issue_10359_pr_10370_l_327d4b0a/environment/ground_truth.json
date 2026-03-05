@@ -1,0 +1,10 @@
+[
+  {
+    "path": "crates/ruff_linter/src/settings/mod.rs",
+    "line": 172,
+    "original_line": 172,
+    "review_comment": [
+      "Nit: I think it would be good to move out as much code as possible from the macro. we could possibly do this by having a `DisplaySet` and `DisplayMap` struct that we would instantiate here (and call into) rather than implementing the logic inside of the macro. This has the added benefit that the logic can be reused elsewhere"
+    ]
+  }
+]

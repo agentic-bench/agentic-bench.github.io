@@ -1,0 +1,739 @@
+diff --git a/include/net/net_context.h b/include/net/net_context.h
+index 85f1b84219dc6..35c357bab3a74 100644
+--- a/include/net/net_context.h
++++ b/include/net/net_context.h
+@@ -312,6 +312,9 @@ __net_socket struct net_context {
+ #endif
+ #if defined(CONFIG_NET_CONTEXT_SNDTIMEO)
+ 		k_timeout_t sndtimeo;
++#endif
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++		bool keepalive;
+ #endif
+ 	} options;
+ 
+@@ -1060,6 +1063,18 @@ enum net_context_option {
+ 	NET_OPT_SOCKS5		= 3,
+ 	NET_OPT_RCVTIMEO        = 4,
+ 	NET_OPT_SNDTIMEO        = 5,
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++	NET_OPT_KEEPALIVE		= 6,
++#endif
++};
++
++enum net_context_tcp_option {
++	TCP_OPT_NODELAY			= 1,
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++	TCP_OPT_KEEPIDLE		= 2,
++	TCP_OPT_KEEPINTVL		= 3,
++	TCP_OPT_KEEPCNT			= 4,
++#endif
+ };
+ 
+ /**
+@@ -1076,6 +1091,20 @@ int net_context_set_option(struct net_context *context,
+ 			   enum net_context_option option,
+ 			   const void *value, size_t len);
+ 
++/**
++ * @brief Set tcp connection option for this context.
++ *
++ * @param context The network context to use.
++ * @param option Option to set
++ * @param value Option value
++ * @param len Option length
++ *
++ * @return 0 if ok, <0 if error
++ */
++int net_context_tcp_set_option(struct net_context *context,
++			   enum net_context_tcp_option option,
++			   const void *value, size_t len);
++
+ /**
+  * @brief Get connection option value for this context.
+  *
+@@ -1090,6 +1119,20 @@ int net_context_get_option(struct net_context *context,
+ 			   enum net_context_option option,
+ 			   void *value, size_t *len);
+ 
++/**
++ * @brief Get TCP connection option value for this context.
++ *
++ * @param context The network context to use.
++ * @param option Option to set
++ * @param value Option value
++ * @param len Option length (returned to caller)
++ *
++ * @return 0 if ok, <0 if error
++ */
++int net_context_tcp_get_option(struct net_context *context,
++			    enum net_context_tcp_option option,
++			    void *value, size_t *len);
++
+ /**
+  * @typedef net_context_cb_t
+  * @brief Callback used while iterating over network contexts
+diff --git a/include/net/socket.h b/include/net/socket.h
+index f41b902ba5ec3..ae08f212e8931 100644
+--- a/include/net/socket.h
++++ b/include/net/socket.h
+@@ -835,6 +835,8 @@ struct ifreq {
+ /** sockopt: Async error (ignored, for compatibility) */
+ #define SO_ERROR 4
+ 
++/** sockopt: Keep alive */
++#define SO_KEEPALIVE 5
+ /**
+  * sockopt: Receive timeout
+  * Applies to receive functions like recv(), but not to connect()
+@@ -854,6 +856,12 @@ struct ifreq {
+ /* Socket options for IPPROTO_TCP level */
+ /** sockopt: Disable TCP buffering (ignored, for compatibility) */
+ #define TCP_NODELAY 1
++/** sockopt: Use seconds for get/setsockopt */
++#define TCP_KEEPIDLE 2
++/** sockopt: Use seconds for get/setsockopt */
++#define TCP_KEEPINTVL 3
++/** sockopt: Use number of probes sent for get/setsockopt */
++#define TCP_KEEPCNT 4
+ 
+ /* Socket options for IPPROTO_IPV6 level */
+ /** sockopt: Don't support IPv4 access (ignored, for compatibility) */
+diff --git a/subsys/net/ip/Kconfig b/subsys/net/ip/Kconfig
+index 97be41ed732ed..9a5865ed310d0 100644
+--- a/subsys/net/ip/Kconfig
++++ b/subsys/net/ip/Kconfig
+@@ -447,6 +447,40 @@ config NET_TCP_RECV_QUEUE_TIMEOUT
+ 	  SEQ 2. But if we receive SEQs 5,4,3,7 then the SEQ 7 is discarded
+ 	  because the list would not be sequential as number 6 is be missing.
+ 
++config NET_TCP_KEEPALIVE
++	bool "TCP Keep-Alives msg"
++	depends on NET_TCP
++	default y
++	help
++	  TCP Keep-Alives
++	  Enable TCP_KEEPIDLE, TCP_KEEPINTVL and TCP_KEEPCNT
++	  options processing. Note that TCP_KEEPIDLE and TCP_KEEPINTVL have to be
++	  set in seconds.
++
++config NET_TCP_KEEPIDLE_DEFAULT
++	int "TCP_KEEPIDLE value"
++	depends on NET_TCP_KEEPALIVE
++	default 5
++	help
++	  The time (in seconds) the connection needs to remain idle before TCP starts
++	  sending keepalive probes, if the socket option SO_KEEPALIVE has been set on
++	  this socket.
++
++config NET_TCP_KEEPINTVL_DEFAULT
++	int "KEEPINTVL value"
++	depends on NET_TCP_KEEPALIVE
++	default 5
++	help
++	  The time (in seconds) between individual keepalive probes.
++
++config NET_TCP_KEEPCNT_DEFAULT
++	int "KEEPCNT value"
++	depends on NET_TCP_KEEPALIVE
++	default 3
++	help
++	  The maximum number of keepalive probes TCP should send before dropping the
++	  connection.
++
+ config NET_TCP_WORKQ_STACK_SIZE
+ 	int "TCP work queue thread stack size"
+ 	default 1024
+diff --git a/subsys/net/ip/net_context.c b/subsys/net/ip/net_context.c
+index 2538cfd93dbcd..02c77cacb9e1e 100644
+--- a/subsys/net/ip/net_context.c
++++ b/subsys/net/ip/net_context.c
+@@ -1237,6 +1237,20 @@ static int get_context_sndtimeo(struct net_context *context,
+ #endif
+ }
+ 
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++static int get_context_keepalive(struct net_context *context,
++				void *value, size_t *len)
++{
++	*((uint32_t *)value) = context->options.keepalive;
++
++	if (len) {
++		*len = sizeof(uint32_t);
++	}
++
++	return 0;
++}
++#endif
++
+ /* If buf is not NULL, then use it. Otherwise read the data to be written
+  * to net_pkt from msghdr.
+  */
+@@ -2166,6 +2180,97 @@ static int set_context_proxy(struct net_context *context,
+ #endif
+ }
+ 
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++static int set_context_keep_idle(struct net_context *context,
++			     const void *value, size_t len)
++{
++	struct tcp *p = NULL;
++
++	if (len != sizeof(uint32_t)) {
++		return -EINVAL;
++	}
++	p = (struct tcp *)context->tcp;
++	p->keep_idle = *((uint32_t *)value);
++
++	return 0;
++}
++
++static int set_context_keep_intvl(struct net_context *context,
++			     const void *value, size_t len)
++{
++	struct tcp *p = NULL;
++
++	if (len != sizeof(uint32_t)) {
++		return -EINVAL;
++	}
++
++	p = (struct tcp *)context->tcp;
++	p->keep_intvl = *((uint32_t *)value);
++
++	return 0;
++}
++
++static int set_context_keep_cnt(struct net_context *context,
++			     const void *value, size_t len)
++{
++	struct tcp *p = NULL;
++
++	if (len != sizeof(uint32_t)) {
++		return -EINVAL;
++	}
++
++	p = (struct tcp *)context->tcp;
++	p->keep_cnt = *((uint32_t *)value);
++
++	return 0;
++}
++
++static int get_context_keep_idle(struct net_context *context,
++			      void *value, size_t *len)
++{
++	struct tcp *p = NULL;
++
++	p = (struct tcp *)context->tcp;
++	*((uint32_t *)value) = p->keep_idle;
++
++	if (len) {
++		*len = sizeof(uint32_t);
++	}
++
++	return 0;
++}
++
++static int get_context_keep_intvl(struct net_context *context,
++			      void *value, size_t *len)
++{
++	struct tcp *p = NULL;
++
++	p = (struct tcp *)context->tcp;
++	*((uint32_t *)value) = p->keep_intvl;
++
++	if (len) {
++		*len = sizeof(uint32_t);
++	}
++
++	return 0;
++}
++
++static int get_context_keep_cnt(struct net_context *context,
++			      void *value, size_t *len)
++{
++	struct tcp *p = NULL;
++
++	p = (struct tcp *)context->tcp;
++	*((uint32_t *)value) = p->keep_cnt;
++
++	if (len) {
++		*len = sizeof(uint32_t);
++	}
++
++	return 0;
++}
++#endif
++
+ static int set_context_rcvtimeo(struct net_context *context,
+ 				const void *value, size_t len)
+ {
+@@ -2198,6 +2303,16 @@ static int set_context_sndtimeo(struct net_context *context,
+ #endif
+ }
+ 
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++static int set_context_keepalive(struct net_context *context,
++				const void *value, size_t len)
++{
++	context->options.keepalive = *(const int *)value ? true : false;
++
++	return 0;
++}
++#endif
++
+ int net_context_set_option(struct net_context *context,
+ 			   enum net_context_option option,
+ 			   const void *value, size_t len)
+@@ -2228,6 +2343,46 @@ int net_context_set_option(struct net_context *context,
+ 	case NET_OPT_SNDTIMEO:
+ 		ret = set_context_sndtimeo(context, value, len);
+ 		break;
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++	case NET_OPT_KEEPALIVE:
++		ret = set_context_keepalive(context, value, len);
++		break;
++#endif
++	}
++
++	k_mutex_unlock(&context->lock);
++
++	return ret;
++}
++
++int net_context_tcp_set_option(struct net_context *context,
++			   enum net_context_tcp_option option,
++			   const void *value, size_t len)
++{
++	int ret = 0;
++
++	NET_ASSERT(context);
++
++	if (!PART_OF_ARRAY(contexts, context)) {
++		return -EINVAL;
++	}
++
++	k_mutex_lock(&context->lock, K_FOREVER);
++
++	switch (option) {
++	case TCP_OPT_NODELAY:
++		break;
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++	case TCP_OPT_KEEPIDLE:
++		ret = set_context_keep_idle(context, value, len);
++		break;
++	case TCP_OPT_KEEPINTVL:
++		ret = set_context_keep_intvl(context, value, len);
++		break;
++	case TCP_OPT_KEEPCNT:
++		ret = set_context_keep_cnt(context, value, len);
++		break;
++#endif
+ 	}
+ 
+ 	k_mutex_unlock(&context->lock);
+@@ -2265,6 +2420,46 @@ int net_context_get_option(struct net_context *context,
+ 	case NET_OPT_SNDTIMEO:
+ 		ret = get_context_sndtimeo(context, value, len);
+ 		break;
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++	case NET_OPT_KEEPALIVE:
++		ret = get_context_keepalive(context, value, len);
++		break;
++#endif
++	}
++
++	k_mutex_unlock(&context->lock);
++
++	return ret;
++}
++
++int net_context_tcp_get_option(struct net_context *context,
++			    enum net_context_tcp_option option,
++			    void *value, size_t *len)
++{
++	int ret = 0;
++
++	NET_ASSERT(context);
++
++	if (!PART_OF_ARRAY(contexts, context)) {
++		return -EINVAL;
++	}
++
++	k_mutex_lock(&context->lock, K_FOREVER);
++
++	switch (option) {
++	case TCP_OPT_NODELAY:
++		break;
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++	case TCP_OPT_KEEPIDLE:
++		ret = get_context_keep_idle(context, value, len);
++		break;
++	case TCP_OPT_KEEPINTVL:
++		ret = get_context_keep_intvl(context, value, len);
++		break;
++	case TCP_OPT_KEEPCNT:
++		ret = get_context_keep_cnt(context, value, len);
++		break;
++#endif
+ 	}
+ 
+ 	k_mutex_unlock(&context->lock);
+diff --git a/subsys/net/ip/tcp2.c b/subsys/net/ip/tcp2.c
+index b2e10d5d98851..49de8286693cb 100644
+--- a/subsys/net/ip/tcp2.c
++++ b/subsys/net/ip/tcp2.c
+@@ -528,6 +528,9 @@ static void tcp_send_timer_cancel(struct tcp *conn)
+ 	}
+ 
+ 	k_work_cancel_delayable(&conn->send_timer);
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++	k_work_cancel_delayable(&conn->keepalive_timer);
++#endif /*CONFIG_NET_TCP_KEEPALIVE */
+ 
+ 	{
+ 		struct net_pkt *pkt = tcp_slist(conn, &conn->send_queue, get,
+@@ -1117,6 +1120,75 @@ static void tcp_fin_timeout(struct k_work *work)
+ 	net_context_unref(conn->context);
+ }
+ 
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++static void tcp_send_keepalive_probe(struct k_work *work)
++{
++	struct tcp *conn = CONTAINER_OF(work, struct tcp, keepalive_timer);
++	struct net_pkt *pkt;
++	int ret = 0;
++
++	if (!(net_context_get_state(conn->context) & NET_CONTEXT_CONNECTED)) {
++		NET_DBG("conn: %p TCP connection not established", conn);
++		return;
++	}
++	if (!conn->context->options.keepalive) {
++		NET_DBG("conn: %p keepalive is not enabled", conn);
++		return;
++	}
++	conn->keep_cur++;
++	if (conn->keep_cur > conn->keep_cnt) {
++		NET_DBG("conn: %p keepalive failed to detect multiple times, close it", conn);
++		tcp_conn_unref(conn);
++		return;
++	}
++
++	NET_DBG("conn: %p keepalive probe", conn);
++	k_work_reschedule_for_queue(
++		&tcp_work_q, &conn->keepalive_timer,
++		K_SECONDS(conn->keep_intvl));
++
++	pkt = tcp_pkt_alloc(conn, sizeof(struct tcphdr));
++	if (!pkt) {
++		ret = -ENOBUFS;
++		goto out;
++	}
++
++	ret = ip_header_add(conn, pkt);
++	if (ret < 0) {
++		tcp_pkt_unref(pkt);
++		goto out;
++	}
++
++	ret = tcp_header_add(conn, pkt, ACK, conn->seq - 1);
++	if (ret < 0) {
++		tcp_pkt_unref(pkt);
++		goto out;
++	}
++
++	ret = tcp_finalize_pkt(pkt);
++	if (ret < 0) {
++		tcp_pkt_unref(pkt);
++		goto out;
++	}
++
++	NET_DBG("%s", log_strdup(tcp_th(pkt)));
++
++	if (tcp_send_cb) {
++		ret = tcp_send_cb(pkt);
++		goto out;
++	}
++
++	sys_slist_append(&conn->send_queue, &pkt->next);
++
++	if (tcp_send_process_no_lock(conn)) {
++		tcp_conn_unref(conn);
++	}
++
++out:
++	return;
++}
++#endif /*CONFIG_NET_TCP_KEEPALIVE */
++
+ static void tcp_conn_ref(struct tcp *conn)
+ {
+ 	int ref_count = atomic_inc(&conn->ref_count) + 1;
+@@ -1172,6 +1244,12 @@ static struct tcp *tcp_conn_alloc(void)
+ 	k_work_init_delayable(&conn->fin_timer, tcp_fin_timeout);
+ 	k_work_init_delayable(&conn->send_data_timer, tcp_resend_data);
+ 	k_work_init_delayable(&conn->recv_queue_timer, tcp_cleanup_recv_queue);
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++	conn->keep_idle = CONFIG_NET_TCP_KEEPIDLE_DEFAULT;
++	conn->keep_intvl = CONFIG_NET_TCP_KEEPINTVL_DEFAULT;
++	conn->keep_cnt = CONFIG_NET_TCP_KEEPCNT_DEFAULT;
++	k_work_init_delayable(&conn->keepalive_timer, tcp_send_keepalive_probe);
++#endif /*CONFIG_NET_TCP_KEEPALIVE */
+ 
+ 	tcp_conn_ref(conn);
+ 
+@@ -1728,6 +1806,13 @@ static void tcp_in(struct tcp *conn, struct net_pkt *pkt)
+ 					      NET_CONTEXT_CONNECTED);
+ 
+ 			if (conn->accepted_conn) {
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++				conn->context->options.keepalive = \
++				conn->accepted_conn->context->options.keepalive;
++				conn->keep_idle = conn->accepted_conn->keep_idle;
++				conn->keep_intvl = conn->accepted_conn->keep_intvl;
++				conn->keep_cnt = conn->accepted_conn->keep_cnt;
++#endif
+ 				conn->accepted_conn->accept_cb(
+ 					conn->context,
+ 					&conn->accepted_conn->context->remote,
+@@ -1737,6 +1822,15 @@ static void tcp_in(struct tcp *conn, struct net_pkt *pkt)
+ 				/* Make sure the accept_cb is only called once.
+ 				 */
+ 				conn->accepted_conn = NULL;
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++				if (conn->context->options.keepalive) {
++					NET_DBG("conn: %p keepalive probe start", conn);
++					conn->keep_cur = 0;
++					k_work_reschedule_for_queue(
++						&tcp_work_q, &conn->keepalive_timer,
++						K_SECONDS(conn->keep_idle));
++				}
++#endif /*CONFIG_NET_TCP_KEEPALIVE */
+ 			}
+ 
+ 			if (len) {
+@@ -1775,9 +1869,23 @@ static void tcp_in(struct tcp *conn, struct net_pkt *pkt)
+ 			 * priority.
+ 			 */
+ 			connection_ok = true;
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++			if (conn->context->options.keepalive) {
++				NET_DBG("conn: %p keepalive probe start", conn);
++				conn->keep_cur = 0;
++				k_work_reschedule_for_queue(
++					&tcp_work_q, &conn->keepalive_timer,
++					K_SECONDS(conn->keep_idle));
++			}
++#endif /*CONFIG_NET_TCP_KEEPALIVE */
+ 		}
+ 		break;
+ 	case TCP_ESTABLISHED:
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++		if (th && net_tcp_seq_cmp(th_ack(th), conn->seq - 1) > 0) {
++			conn->keep_cur = 0;
++		}
++#endif /*CONFIG_NET_TCP_KEEPALIVE */
+ 		/* full-close */
+ 		if (th && FL(&fl, ==, (FIN | ACK), th_seq(th) == conn->ack)) {
+ 			if (net_tcp_seq_cmp(th_ack(th), conn->seq) > 0) {
+@@ -1869,6 +1977,13 @@ static void tcp_in(struct tcp *conn, struct net_pkt *pkt)
+ 				if (!tcp_data_received(conn, pkt, &len)) {
+ 					break;
+ 				}
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++				if (conn->context->options.keepalive) {
++					k_work_reschedule_for_queue(
++						&tcp_work_q, &conn->keepalive_timer,
++						K_SECONDS(conn->keep_idle));
++				}
++#endif /*CONFIG_NET_TCP_KEEPALIVE */
+ 			} else if (net_tcp_seq_greater(conn->ack, th_seq(th))) {
+ 				tcp_out(conn, ACK); /* peer has resent */
+ 
+@@ -2141,6 +2256,14 @@ int net_tcp_queue_data(struct net_context *context, struct net_pkt *pkt)
+ 		/* We should not free the pkt if there was an error. It will be
+ 		 * freed in net_context.c:context_sendto()
+ 		 */
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++		if ((net_context_get_state(conn->context) & NET_CONTEXT_CONNECTED) &&
++			context->options.keepalive) {
++			k_work_reschedule_for_queue(
++				&tcp_work_q, &conn->keepalive_timer,
++				K_SECONDS(conn->keep_idle));
++		}
++#endif /*CONFIG_NET_TCP_KEEPALIVE */
+ 		tcp_pkt_unref(pkt);
+ 	}
+ out:
+diff --git a/subsys/net/ip/tcp2_priv.h b/subsys/net/ip/tcp2_priv.h
+index 332251db715f8..d57803fdd0208 100644
+--- a/subsys/net/ip/tcp2_priv.h
++++ b/subsys/net/ip/tcp2_priv.h
+@@ -229,6 +229,7 @@ struct tcp { /* TCP connection */
+ 	struct k_work_delayable recv_queue_timer;
+ 	struct k_work_delayable send_data_timer;
+ 	struct k_work_delayable timewait_timer;
++	struct k_work_delayable keepalive_timer;
+ 	union {
+ 		/* Because FIN and establish timers are never happening
+ 		 * at the same time, share the timer between them to
+@@ -253,6 +254,12 @@ struct tcp { /* TCP connection */
+ 	bool in_retransmission : 1;
+ 	bool in_connect : 1;
+ 	bool in_close : 1;
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++	uint32_t keep_idle;
++	uint32_t keep_intvl;
++	uint32_t keep_cnt;
++	uint32_t keep_cur;
++#endif /*CONFIG_NET_TCP_KEEPALIVE */
+ };
+ 
+ #define _flags(_fl, _op, _mask, _cond)					\
+diff --git a/subsys/net/lib/sockets/sockets.c b/subsys/net/lib/sockets/sockets.c
+index d6da5ed07f3e9..6d5e53fd84fcc 100644
+--- a/subsys/net/lib/sockets/sockets.c
++++ b/subsys/net/lib/sockets/sockets.c
+@@ -1642,7 +1642,18 @@ int zsock_getsockopt_ctx(struct net_context *ctx, int level, int optname,
+ 
+ 			return 0;
+ 		}
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++		case SO_KEEPALIVE:
++			ret = net_context_get_option(ctx,
++						     NET_OPT_KEEPALIVE,
++						     optval, optlen);
++			if (ret < 0) {
++				errno = -ret;
++				return -1;
++			}
+ 
++			return 0;
++#endif
+ 		case SO_TXTIME:
+ 			if (IS_ENABLED(CONFIG_NET_CONTEXT_TXTIME)) {
+ 				ret = net_context_get_option(ctx,
+@@ -1671,6 +1682,52 @@ int zsock_getsockopt_ctx(struct net_context *ctx, int level, int optname,
+ 		}
+ 		}
+ 
++		break;
++	case IPPROTO_TCP:
++		switch (optname) {
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++		case TCP_KEEPIDLE:
++			/* set conn->keep_idle
++			 * use seconds for get/setsockopt
++			 */
++			ret = net_context_tcp_get_option(ctx,
++						     TCP_OPT_KEEPIDLE,
++						     optval, optlen);
++			if (ret < 0) {
++				errno = -ret;
++				return -1;
++			}
++
++			return 0;
++		case TCP_KEEPINTVL:
++			/* set conn->keep_intvl
++			 * use seconds for get/setsockopt
++			 */
++			ret = net_context_tcp_get_option(ctx,
++						     TCP_OPT_KEEPINTVL,
++						     optval, optlen);
++			if (ret < 0) {
++				errno = -ret;
++				return -1;
++			}
++
++			return 0;
++		case TCP_KEEPCNT:
++			/* set conn->keep_cnt
++			 * The maximum number of keepalive probes TCP should
++			 * send before dropping the connection.
++			 */
++			ret = net_context_tcp_get_option(ctx,
++						     TCP_OPT_KEEPCNT,
++						     optval, optlen);
++			if (ret < 0) {
++				errno = -ret;
++				return -1;
++			}
++
++			return 0;
++#endif
++		}
+ 		break;
+ 	}
+ 
+@@ -1729,6 +1786,22 @@ int zsock_setsockopt_ctx(struct net_context *ctx, int level, int optname,
+ 			 */
+ 			return 0;
+ 
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++		case SO_KEEPALIVE:
++			/* Enable keep connections alive
++			 */
++			ret = net_context_set_option(ctx,
++						     NET_OPT_KEEPALIVE,
++						     optval, optlen);
++				if (ret < 0) {
++					errno = -ret;
++					return -1;
++				}
++
++				return 0;
++			break;
++#endif
++
+ 		case SO_PRIORITY:
+ 			if (IS_ENABLED(CONFIG_NET_CONTEXT_PRIORITY)) {
+ 				ret = net_context_set_option(ctx,
+@@ -1893,6 +1966,48 @@ int zsock_setsockopt_ctx(struct net_context *ctx, int level, int optname,
+ 			 * existing apps.
+ 			 */
+ 			return 0;
++#if IS_ENABLED(CONFIG_NET_TCP_KEEPALIVE)
++		case TCP_KEEPIDLE:
++			/* set conn->keep_idle
++			 * Use seconds for get/setsockopt
++			 */
++			ret = net_context_tcp_set_option(ctx,
++						     TCP_OPT_KEEPIDLE,
++						     optval, optlen);
++			if (ret < 0) {
++				errno = -ret;
++				return -1;
++			}
++
++			return 0;
++		case TCP_KEEPINTVL:
++			/* set conn->keep_intvl
++			 * Use seconds for get/setsockopt
++			 */
++			ret = net_context_tcp_set_option(ctx,
++						     TCP_OPT_KEEPINTVL,
++						     optval, optlen);
++			if (ret < 0) {
++				errno = -ret;
++				return -1;
++			}
++
++			return 0;
++		case TCP_KEEPCNT:
++			/* get conn->keep_cnt
++			 * The maximum number of keepalive probes TCP should
++			 * send before dropping the connection.
++			 */
++			ret = net_context_tcp_set_option(ctx,
++						     TCP_OPT_KEEPCNT,
++						     optval, optlen);
++			if (ret < 0) {
++				errno = -ret;
++				return -1;
++			}
++
++			return 0;
++#endif
+ 		}
+ 		break;
+ 

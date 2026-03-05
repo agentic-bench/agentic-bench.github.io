@@ -1,0 +1,13 @@
+[
+  {
+    "id": 23361,
+    "full_name": "ansible/ansible",
+    "lang": "python",
+    "issue_number": 84773,
+    "pr_number": 84779,
+    "diff_hunk": "@@ -94,6 +94,8 @@ def get_memory_facts(self):\n \n         total_used = 0\n         page_size = 4096\n+        if 'hw.pagesize' in self.sysctl:\n+            page_size = int(self.sysctl['hw.pagesize'])\n \n         vm_stat_command = self.module.get_bin_path('vm_stat')\n         if vm_stat_command is None:\n",
+    "diff_hunk_content_with_line_number": "[94][94]  \n[95][95]          total_used = 0\n[96][96]          page_size = 4096\n[][97] +        if 'hw.pagesize' in self.sysctl:\n[][98] +            page_size = int(self.sysctl['hw.pagesize'])\n[97][99]  \n[98][100]          vm_stat_command = self.module.get_bin_path('vm_stat')\n[99][101]          if vm_stat_command is None:",
+    "checked_commit_id": "0f4fcb636de4545f871cb8c5f37edc958cb701f4",
+    "pr_size": "xl"
+  }
+]

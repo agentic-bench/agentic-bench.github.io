@@ -1,0 +1,11 @@
+[
+  {
+    "path": "src/Orleans.Core/CodeGeneration/TypeUtils.cs",
+    "line": 570,
+    "original_line": 570,
+    "review_comment": [
+      "if we do include a property to enable more verbose logging, it would be nice to not skip logging BadImageFormatException, potentially with `Trace` level. But even for our own troubleshooting, I think we should enable that regardless of when we add the msbuild property support",
+      "CodeGen is not on ILogger yet, but I add the IsVerbose to log it in case of verbose logging set."
+    ]
+  }
+]

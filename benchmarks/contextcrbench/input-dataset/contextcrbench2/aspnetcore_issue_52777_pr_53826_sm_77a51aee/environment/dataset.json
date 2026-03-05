@@ -1,0 +1,13 @@
+[
+  {
+    "id": 12873,
+    "full_name": "dotnet/aspnetcore",
+    "lang": "c_sharp",
+    "issue_number": 52777,
+    "pr_number": 53826,
+    "diff_hunk": "@@ -1066,6 +1066,15 @@ private void HandleExceptionViaErrorBoundary(Exception error, ComponentState? er\n         // already on the sync context (and if not, we have a bug we want to know about).\n         Dispatcher.AssertAccess();\n \n+        // We don't allow NavigationException instances to be caught by error boundaries.\n+        // These are special exceptions whose purpose is to be as invisible as possible to\n+        // user code and bubble all the way up to get handled by the framework as a redirect.\n+        if (error is NavigationException)\n+        {\n+            HandleException(error);\n+            return;\n+        }\n+\n         // Find the closest error boundary, if any\n         var candidate = errorSourceOrNull;\n         while (candidate is not null)\n",
+    "diff_hunk_content_with_line_number": "[1066][1066]          // already on the sync context (and if not, we have a bug we want to know about).\n[1067][1067]          Dispatcher.AssertAccess();\n[1068][1068]  \n[][1069] +        // We don't allow NavigationException instances to be caught by error boundaries.\n[][1070] +        // These are special exceptions whose purpose is to be as invisible as possible to\n[][1071] +        // user code and bubble all the way up to get handled by the framework as a redirect.\n[][1072] +        if (error is NavigationException)\n[][1073] +        {\n[][1074] +            HandleException(error);\n[][1075] +            return;\n[][1076] +        }\n[][1077] +\n[1069][1078]          // Find the closest error boundary, if any\n[1070][1079]          var candidate = errorSourceOrNull;\n[1071][1080]          while (candidate is not null)",
+    "checked_commit_id": "77a51aeedf2d96502b76acffa7efaa12a8d3d3b4",
+    "pr_size": "sm"
+  }
+]

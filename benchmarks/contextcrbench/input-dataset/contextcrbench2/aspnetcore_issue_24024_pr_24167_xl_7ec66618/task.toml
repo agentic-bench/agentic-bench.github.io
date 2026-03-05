@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "aspnetcore_issue_24024_pr_24167_xl_7ec66618"
+contextcrbench2_full_name = "dotnet/aspnetcore"
+contextcrbench2_lang = "c_sharp"
+contextcrbench2_issue_number = "24024"
+contextcrbench2_issue_title = "Incorporate Microsoft.Identity.Web templates into our project templates"
+contextcrbench2_pr_number = "24167"
+contextcrbench2_pr_title = "Update RazorPages, MVC, WebApi templates to use Identity.Web"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "7ec666180ece83f395a1d15725317189389c4121"
+contextcrbench2_commit_id = "404de4599d9cb345c49bdc848c8c1ab4d10ff524"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2020-07-21T19:58:02Z"
+contextcrbench2_entry_count = "6"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

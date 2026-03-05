@@ -1,0 +1,20 @@
+[
+  {
+    "path": "test/bio_base64_test.c",
+    "line": 9,
+    "original_line": 9,
+    "review_comment": [
+      "file is missing license and copyright",
+      "Done, thanks."
+    ]
+  },
+  {
+    "path": "test/bio_base64_test.c",
+    "line": 25,
+    "original_line": 26,
+    "review_comment": [
+      "nit: if you reverse bytes and suffix, you'll eliminate the alignment gap this would otherwise create on 64 bit systems.",
+      "Sure, but in the test code I prefer the logical sequence of prefix, data, suffix, and the alignment gap is inconsequential."
+    ]
+  }
+]

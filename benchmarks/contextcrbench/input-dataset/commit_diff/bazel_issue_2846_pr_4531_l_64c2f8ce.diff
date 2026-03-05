@@ -1,0 +1,468 @@
+diff --git a/src/main/java/com/google/devtools/build/lib/remote/RemoteActionContextProvider.java b/src/main/java/com/google/devtools/build/lib/remote/RemoteActionContextProvider.java
+index d6124d8616f974..0a1507d92136cc 100644
+--- a/src/main/java/com/google/devtools/build/lib/remote/RemoteActionContextProvider.java
++++ b/src/main/java/com/google/devtools/build/lib/remote/RemoteActionContextProvider.java
+@@ -37,16 +37,19 @@ final class RemoteActionContextProvider extends ActionContextProvider {
+   private final AbstractRemoteActionCache cache;
+   private final GrpcRemoteExecutor executor;
+   private final DigestUtil digestUtil;
++  private final RemoteStats stats;
+ 
+   RemoteActionContextProvider(
+       CommandEnvironment env,
+       @Nullable AbstractRemoteActionCache cache,
+       @Nullable GrpcRemoteExecutor executor,
+-      DigestUtil digestUtil) {
++      DigestUtil digestUtil,
++      @Nullable RemoteStats stats) {
+     this.env = env;
+     this.executor = executor;
+     this.cache = cache;
+     this.digestUtil = digestUtil;
++    this.stats = stats;
+   }
+ 
+   @Override
+@@ -81,7 +84,8 @@ public Iterable<? extends ActionContext> getActionContexts() {
+               commandId,
+               cache,
+               executor,
+-              digestUtil);
++              digestUtil,
++              stats);
+       return ImmutableList.of(new RemoteSpawnStrategy(env.getExecRoot(), spawnRunner));
+     }
+   }
+diff --git a/src/main/java/com/google/devtools/build/lib/remote/RemoteModule.java b/src/main/java/com/google/devtools/build/lib/remote/RemoteModule.java
+index 235f97137c2406..c6c8c82acec04e 100644
+--- a/src/main/java/com/google/devtools/build/lib/remote/RemoteModule.java
++++ b/src/main/java/com/google/devtools/build/lib/remote/RemoteModule.java
+@@ -15,12 +15,16 @@
+ package com.google.devtools.build.lib.remote;
+ 
+ import com.google.common.annotations.VisibleForTesting;
++import com.google.common.base.Joiner;
+ import com.google.common.collect.ImmutableList;
++import com.google.common.eventbus.Subscribe;
+ import com.google.devtools.build.lib.authandtls.AuthAndTLSOptions;
+ import com.google.devtools.build.lib.authandtls.GoogleAuthUtils;
+ import com.google.devtools.build.lib.buildeventstream.PathConverter;
+ import com.google.devtools.build.lib.buildtool.BuildRequest;
++import com.google.devtools.build.lib.buildtool.buildevent.BuildCompleteEvent;
+ import com.google.devtools.build.lib.events.Event;
++import com.google.devtools.build.lib.events.Reporter;
+ import com.google.devtools.build.lib.exec.ExecutorBuilder;
+ import com.google.devtools.build.lib.runtime.BlazeModule;
+ import com.google.devtools.build.lib.runtime.Command;
+@@ -90,8 +94,14 @@ public void serverInit(OptionsProvider startupOptions, ServerBuilder builder)
+     builder.addPathToUriConverter(converter);
+   }
+ 
++  private Reporter reporter;
++  private RemoteStats stats;
++
+   @Override
+   public void beforeCommand(CommandEnvironment env) {
++    stats = new RemoteStats();
++    this.reporter = env.getReporter();
++
+     env.getEventBus().register(this);
+     String buildRequestId = env.getBuildRequestId().toString();
+     String commandId = env.getCommandId().toString();
+@@ -153,7 +163,7 @@ public void beforeCommand(CommandEnvironment env) {
+         executor = null;
+       }
+ 
+-      actionContextProvider = new RemoteActionContextProvider(env, cache, executor, digestUtil);
++      actionContextProvider = new RemoteActionContextProvider(env, cache, executor, digestUtil, stats);
+     } catch (IOException e) {
+       env.getReporter().handle(Event.error(e.getMessage()));
+       env.getBlazeModuleEnvironment().exit(new AbruptExitException(ExitCode.COMMAND_LINE_ERROR));
+@@ -179,4 +189,9 @@ public static boolean remoteEnabled(RemoteOptions options) {
+     return SimpleBlobStoreFactory.isRemoteCacheOptions(options)
+         || GrpcRemoteCache.isRemoteCacheOptions(options);
+   }
++
++  @Subscribe
++  public void buildComplete(BuildCompleteEvent event) {
++    reporter.handle(Event.info(stats.Summary()));
++  }
+ }
+diff --git a/src/main/java/com/google/devtools/build/lib/remote/RemoteSpawnRunner.java b/src/main/java/com/google/devtools/build/lib/remote/RemoteSpawnRunner.java
+index e0ba1fb4f406c7..41fa030c290feb 100644
+--- a/src/main/java/com/google/devtools/build/lib/remote/RemoteSpawnRunner.java
++++ b/src/main/java/com/google/devtools/build/lib/remote/RemoteSpawnRunner.java
+@@ -82,6 +82,7 @@ class RemoteSpawnRunner implements SpawnRunner {
+   private final String buildRequestId;
+   private final String commandId;
+   private final DigestUtil digestUtil;
++  private final RemoteStats stats;
+ 
+   // Used to ensure that a warning is reported only once.
+   private final AtomicBoolean warningReported = new AtomicBoolean();
+@@ -96,7 +97,8 @@ class RemoteSpawnRunner implements SpawnRunner {
+       String commandId,
+       @Nullable AbstractRemoteActionCache remoteCache,
+       @Nullable GrpcRemoteExecutor remoteExecutor,
+-      DigestUtil digestUtil) {
++      DigestUtil digestUtil,
++      @Nullable RemoteStats stats) {
+     this.execRoot = execRoot;
+     this.options = options;
+     this.fallbackRunner = fallbackRunner;
+@@ -107,12 +109,19 @@ class RemoteSpawnRunner implements SpawnRunner {
+     this.buildRequestId = buildRequestId;
+     this.commandId = commandId;
+     this.digestUtil = digestUtil;
++    this.stats = stats;
+   }
+ 
+   @Override
+   public SpawnResult exec(Spawn spawn, SpawnExecutionPolicy policy)
+       throws ExecException, InterruptedException, IOException {
++    if (stats != null) {
++      stats.addSpawn();
++    }
+     if (!Spawns.mayBeExecutedRemotely(spawn) || remoteCache == null) {
++      if (stats != null) {
++        stats.addLocal();
++      }
+       return fallbackRunner.exec(spawn, policy);
+     }
+ 
+@@ -156,6 +165,9 @@ public SpawnResult exec(Spawn spawn, SpawnExecutionPolicy policy)
+                     + actionKey.getDigest());
+           }
+           try {
++            if (stats != null) {
++              stats.addRemoteCacheHit();
++            }
+             return downloadRemoteResults(cachedResult, policy.getFileOutErr());
+           } catch (CacheNotFoundException e) {
+             // No cache hit, so we fall through to local or remote execution.
+@@ -193,7 +205,11 @@ public SpawnResult exec(Spawn spawn, SpawnExecutionPolicy policy)
+       }
+ 
+       try {
+-        return downloadRemoteResults(result, policy.getFileOutErr());
++        SpawnResult r = downloadRemoteResults(result, policy.getFileOutErr());
++        if(stats != null) {
++          stats.addRemoteExec();
++        }
++        return r;
+       } catch (IOException e) {
+         return execLocallyOrFail(spawn, policy, inputMap, actionKey, uploadLocalResults, e);
+       }
+diff --git a/src/main/java/com/google/devtools/build/lib/remote/RemoteStats.java b/src/main/java/com/google/devtools/build/lib/remote/RemoteStats.java
+new file mode 100644
+index 00000000000000..c8457f2632f266
+--- /dev/null
++++ b/src/main/java/com/google/devtools/build/lib/remote/RemoteStats.java
+@@ -0,0 +1,49 @@
++package com.google.devtools.build.lib.remote;
++
++import com.google.devtools.build.lib.concurrent.ThreadSafety.ThreadSafe;
++import java.util.concurrent.atomic.AtomicInteger;
++
++/** Collecting always-on stats on a remote run */
++@ThreadSafe
++public class RemoteStats {
++  AtomicInteger total_spawns;
++  AtomicInteger remote_cache_hit;
++  AtomicInteger remote_exec;
++  AtomicInteger local;
++
++  public RemoteStats() {
++    total_spawns = new AtomicInteger();
++    remote_cache_hit = new AtomicInteger();
++    remote_exec = new AtomicInteger();
++    local = new AtomicInteger();
++  }
++
++  public void addSpawn() {
++    total_spawns.incrementAndGet();
++  }
++
++  public void addRemoteCacheHit() { remote_cache_hit.incrementAndGet(); };
++
++  // Spawns remotely executed
++  public void addRemoteExec() { remote_exec.incrementAndGet(); }
++
++  // Spawns that are intentionally executed locally (as opposed to fall back mechanism)
++  public void addLocal() { local.incrementAndGet(); }
++
++  public String Summary() {
++    // We are assuming this is called after all the increments. Calling it at concurrently
++    // might produce inconsistent stats.
++    int remote = remote_exec.get() + remote_cache_hit.get();
++
++    // Actions that were attempted, but were neither successful remote nor local had to be
++    // fallbacks to local from remote.
++    int fallback = total_spawns.get() - remote - local.get();
++
++    String result = String.format("Remote stats: %d/%d remote actions cached, %d local",
++        remote_cache_hit.get(), remote, local.get());
++    if(fallback > 0) {
++      result += String.format(" (%d fallback)", fallback);
++    }
++    return result;
++  }
++}
+diff --git a/src/test/java/com/google/devtools/build/lib/remote/GrpcRemoteExecutionClientTest.java b/src/test/java/com/google/devtools/build/lib/remote/GrpcRemoteExecutionClientTest.java
+index c278581c2cbe8d..6ab97dd8560eb0 100644
+--- a/src/test/java/com/google/devtools/build/lib/remote/GrpcRemoteExecutionClientTest.java
++++ b/src/test/java/com/google/devtools/build/lib/remote/GrpcRemoteExecutionClientTest.java
+@@ -252,7 +252,8 @@ public PathFragment getExecPath() {
+             "command-id",
+             remoteCache,
+             executor,
+-            DIGEST_UTIL);
++            DIGEST_UTIL,
++            null);
+     inputDigest = fakeFileCache.createScratchInput(simpleSpawn.getInputFiles().get(0), "xyz");
+   }
+ 
+diff --git a/src/test/java/com/google/devtools/build/lib/remote/RemoteSpawnRunnerTest.java b/src/test/java/com/google/devtools/build/lib/remote/RemoteSpawnRunnerTest.java
+index bd6c12eda15a92..947b88bbc7d256 100644
+--- a/src/test/java/com/google/devtools/build/lib/remote/RemoteSpawnRunnerTest.java
++++ b/src/test/java/com/google/devtools/build/lib/remote/RemoteSpawnRunnerTest.java
+@@ -134,7 +134,8 @@ public void nonCachableSpawnsShouldNotBeCached_remote() throws Exception {
+             "command-id",
+             cache,
+             executor,
+-            digestUtil);
++            digestUtil,
++            null);
+ 
+     ExecuteResponse succeeded = ExecuteResponse.newBuilder().setResult(
+         ActionResult.newBuilder().setExitCode(0).build()).build();
+@@ -192,7 +193,8 @@ public void nonCachableSpawnsShouldNotBeCached_local() throws Exception {
+             "command-id",
+             cache,
+             null,
+-            digestUtil);
++            digestUtil,
++            null);
+ 
+     // Throw an IOException to trigger the local fallback.
+     when(executor.executeRemotely(any(ExecuteRequest.class))).thenThrow(IOException.class);
+@@ -244,7 +246,8 @@ public void failedActionShouldOnlyUploadOutputs() throws Exception {
+                 "command-id",
+                 cache,
+                 null,
+-                digestUtil));
++                digestUtil,
++                null));
+ 
+     Spawn spawn = newSimpleSpawn();
+     SpawnExecutionPolicy policy = new FakeSpawnExecutionPolicy(spawn);
+@@ -292,7 +295,8 @@ public void dontAcceptFailedCachedAction() throws Exception {
+                 "command-id",
+                 cache,
+                 null,
+-                digestUtil));
++                digestUtil,
++                null));
+ 
+     try {
+       runner.exec(spawn, policy);
+@@ -326,7 +330,8 @@ public void printWarningIfCacheIsDown() throws Exception {
+             "command-id",
+             cache,
+             null,
+-            digestUtil);
++            digestUtil,
++            null);
+ 
+     Spawn spawn = newSimpleSpawn();
+     SpawnExecutionPolicy policy = new FakeSpawnExecutionPolicy(spawn);
+@@ -377,7 +382,8 @@ public void noRemoteExecutorFallbackFails() throws Exception {
+             "command-id",
+             cache,
+             null,
+-            digestUtil);
++            digestUtil,
++            null);
+ 
+     Spawn spawn = newSimpleSpawn();
+     SpawnExecutionPolicy policy = new FakeSpawnExecutionPolicy(spawn);
+@@ -416,7 +422,8 @@ public void remoteCacheErrorFallbackFails() throws Exception {
+             "command-id",
+             cache,
+             null,
+-            digestUtil);
++            digestUtil,
++            null);
+ 
+     Spawn spawn = newSimpleSpawn();
+     SpawnExecutionPolicy policy = new FakeSpawnExecutionPolicy(spawn);
+@@ -452,7 +459,8 @@ public void testLocalFallbackFailureRemoteExecutorFailure() throws Exception {
+             "command-id",
+             cache,
+             executor,
+-            digestUtil);
++            digestUtil,
++            null);
+ 
+     when(cache.getCachedActionResult(any(ActionKey.class))).thenReturn(null);
+     when(executor.executeRemotely(any(ExecuteRequest.class))).thenThrow(new IOException());
+@@ -490,7 +498,8 @@ public void cacheDownloadFailureTriggersRemoteExecution() throws Exception {
+             "command-id",
+             cache,
+             executor,
+-            digestUtil);
++            digestUtil,
++            null);
+ 
+     ActionResult cachedResult = ActionResult.newBuilder().setExitCode(0).build();
+     when(cache.getCachedActionResult(any(ActionKey.class))).thenReturn(cachedResult);
+@@ -531,7 +540,8 @@ public void testRemoteExecutionTimeout() throws Exception {
+             "command-id",
+             cache,
+             executor,
+-            digestUtil);
++            digestUtil,
++            null);
+ 
+     ActionResult cachedResult = ActionResult.newBuilder().setExitCode(0).build();
+     when(cache.getCachedActionResult(any(ActionKey.class))).thenReturn(null);
+@@ -567,7 +577,8 @@ public void testRemoteExecutionTimeoutDoesNotTriggerFallback() throws Exception
+             "command-id",
+             cache,
+             executor,
+-            digestUtil);
++            digestUtil,
++            null);
+ 
+     ActionResult cachedResult = ActionResult.newBuilder().setExitCode(0).build();
+     when(cache.getCachedActionResult(any(ActionKey.class))).thenReturn(null);
+@@ -601,7 +612,8 @@ public void testRemoteExecutionCommandFailureDoesNotTriggerFallback() throws Exc
+             "command-id",
+             cache,
+             executor,
+-            digestUtil);
++            digestUtil,
++            null);
+ 
+     ActionResult cachedResult = ActionResult.newBuilder().setExitCode(0).build();
+     when(cache.getCachedActionResult(any(ActionKey.class))).thenReturn(null);
+@@ -641,7 +653,8 @@ public void testExitCode_executorfailure() throws Exception {
+             "command-id",
+             cache,
+             executor,
+-            digestUtil);
++            digestUtil,
++            null);
+ 
+     when(cache.getCachedActionResult(any(ActionKey.class))).thenReturn(null);
+     when(executor.executeRemotely(any(ExecuteRequest.class))).thenThrow(new IOException());
+@@ -677,7 +690,8 @@ public void testExitCode_executionfailure() throws Exception {
+             "command-id",
+             cache,
+             executor,
+-            digestUtil);
++            digestUtil,
++            null);
+ 
+     when(cache.getCachedActionResult(any(ActionKey.class))).thenThrow(new IOException());
+ 
+diff --git a/src/test/shell/bazel/remote_execution_test.sh b/src/test/shell/bazel/remote_execution_test.sh
+index 87ad193dcbca4d..7474d245620dcf 100755
+--- a/src/test/shell/bazel/remote_execution_test.sh
++++ b/src/test/shell/bazel/remote_execution_test.sh
+@@ -1,3 +1,4 @@
++
+ #!/bin/bash
+ #
+ # Copyright 2016 The Bazel Authors. All rights reserved.
+@@ -507,6 +508,90 @@ EOF
+   expect_log "Remote connection/protocol failed"
+ }
+ 
++
++# Bazel corrects outputs remote statistics
++function test_remote_stats() {
++  mkdir -p a
++  cat > a/BUILD <<'EOF'
++genrule(
++  name = "foo",
++  srcs = [],
++  outs = ["foo.txt"],
++  cmd = "echo \"hello world\" > \"$@\"",
++)
++
++genrule(
++  name = "foo2",
++  srcs = ["foo.txt"],
++  outs = ["foo2.txt"],
++  cmd = "cat $(location foo.txt) > $@",
++)
++EOF
++  bazel build \
++      --spawn_strategy=remote \
++      --remote_executor=localhost:${worker_port} \
++      --remote_cache=localhost:${worker_port} \
++      //a:foo >& $TEST_log \
++      || fail "Failed to build //a:foo with remote execution"
++  expect_log "Remote stats" "Expected remote stats message"
++  # This is a clean build. We expect no cache hits and some remote executions.
++  expect_log " 0/[1-9][0-9]* remote actions cached"
++  expect_not_log "fallback"
++  
++
++  bazel clean --expunge >& $TEST_log
++  bazel build \
++      --spawn_strategy=remote \
++      --remote_executor=localhost:${worker_port} \
++      --remote_cache=localhost:${worker_port} \
++      //a:foo >& $TEST_log \
++      || fail "Failed to rebuild //a:foo with remote execution"
++  expect_not_log " 0/[1-9][0-9]* remote actions cached"
++  # Should get no remote execution since everything is cached.
++  # So, should have the same number cached as uncached.
++  expect_log " \([1-9][0-9]*\)/\1 remote actions cached"
++  expect_not_log "fallback"
++
++  bazel clean --expunge >& $TEST_log
++  bazel build \
++      --spawn_strategy=remote \
++      --remote_executor=localhost:${worker_port} \
++      --remote_cache=localhost:${worker_port} \
++      //a:foo2 >& $TEST_log \
++      || fail "Failed to build //a:foo2 with remote execution"
++  # foo2 depends on foo which is cached, but also adds new work.
++  # Expect a mixture of cached and remote actions: both numbers should be non-zero
++  # and they should not be the same.
++  expect_log " [1-9][0-9]*/[1-9][0-9]* remote actions cached"
++  expect_not_log " \([1-9][0-9]*\)/\1 remote actions cached"
++  expect_not_log "fallback"
++}
++
++# Bazel corrects outputs remote statistics
++function test_remote_stats() {
++  mkdir -p a
++  cat > a/BUILD <<'EOF'
++genrule(
++  name = "foo",
++  srcs = [],
++  outs = ["foo.txt"],
++  cmd = "echo \"hello world\" > \"$@\"",
++)
++EOF
++  bazel build \
++      --spawn_strategy=remote \
++      --remote_executor=bazel-test-does-not-exist \
++      --remote_cache=bazel-test-does-not-exist \
++      --remote_local_fallback=true \
++      //a:foo >& $TEST_log \
++      || fail "Failed to build //a:foo with fallback"
++  expect_log "Remote stats" "Expected remote stats message"
++  # Could not reach remote worker. Expect no remote actions or cache hits. Expect non-zero
++  # fallback actions
++  expect_log " 0/0 remote actions cached"
++  expect_log " ([1-9][0-9]* fallback)"
++}
++
+ # TODO(alpha): Add a test that fails remote execution when remote worker
+ # supports sandbox.
+ 

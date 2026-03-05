@@ -1,0 +1,6 @@
+{
+  "issue_title": "Enforce `Requires-Python` for direct URL requirements",
+  "issue_body": "Like https://github.com/astral-sh/uv/issues/2192 for non-editables.",
+  "pr_title": "Error when direct URL requirements don't match `Requires-Python`",
+  "pr_body": "## Summary\r\n\r\nCloses https://github.com/astral-sh/uv/issues/2195.\r\n\r\n## Test Plan\r\n\r\n`cargo test`\r\n"
+}

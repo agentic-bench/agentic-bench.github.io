@@ -1,0 +1,24 @@
+[
+  {
+    "id": 29680,
+    "full_name": "go-gitea/gitea",
+    "lang": "go",
+    "issue_number": 24906,
+    "pr_number": 28954,
+    "diff_hunk": "@@ -195,6 +196,8 @@ type EditRepoOption struct {\n \tAllowRebaseMerge *bool `json:\"allow_rebase_explicit,omitempty\"`\n \t// either `true` to allow squash-merging pull requests, or `false` to prevent squash-merging.\n \tAllowSquash *bool `json:\"allow_squash_merge,omitempty\"`\n+\t// either `true` to allow fast-forward-only merging pull requests, or `false` to prevent fast-forward-only merging.\n+\tAllowFastForwardOnly *bool `json:\"allow_fast_forward_only_merge,omitempty\"`\n \t// either `true` to allow mark pr as merged manually, or `false` to prevent it.\n \tAllowManualMerge *bool `json:\"allow_manual_merge,omitempty\"`\n \t// either `true` to enable AutodetectManualMerge, or `false` to prevent it. Note: In some special cases, misjudgments can occur.",
+    "diff_hunk_content_with_line_number": "[195][196]  \tAllowRebaseMerge *bool `json:\"allow_rebase_explicit,omitempty\"`\n[196][197]  \t// either `true` to allow squash-merging pull requests, or `false` to prevent squash-merging.\n[197][198]  \tAllowSquash *bool `json:\"allow_squash_merge,omitempty\"`\n[][199] +\t// either `true` to allow fast-forward-only merging pull requests, or `false` to prevent fast-forward-only merging.\n[][200] +\tAllowFastForwardOnly *bool `json:\"allow_fast_forward_only_merge,omitempty\"`\n[198][201]  \t// either `true` to allow mark pr as merged manually, or `false` to prevent it.\n[199][202]  \tAllowManualMerge *bool `json:\"allow_manual_merge,omitempty\"`\n[200][203]  \t// either `true` to enable AutodetectManualMerge, or `false` to prevent it. Note: In some special cases, misjudgments can occur.",
+    "checked_commit_id": "7ede430c28cafba7e3b345ac732f3fe052edcdc6",
+    "pr_size": "l"
+  },
+  {
+    "id": 29681,
+    "full_name": "go-gitea/gitea",
+    "lang": "go",
+    "issue_number": 24906,
+    "pr_number": 28954,
+    "diff_hunk": "@@ -0,0 +1,21 @@\n+// Copyright 2023 The Gitea Authors. All rights reserved.\n+// SPDX-License-Identifier: MIT\n+\n+package pull\n+\n+import (\n+\trepo_model \"code.gitea.io/gitea/models/repo\"\n+\t\"code.gitea.io/gitea/modules/git\"\n+\t\"code.gitea.io/gitea/modules/log\"\n+)\n+\n+// doMergeStyleFastForwardOnly merges the tracking into the current HEAD - which is assumed to be staging branch (equal to the pr.BaseBranch)\n+func doMergeStyleFastForwardOnly(ctx *mergeContext) error {\n+\tcmd := git.NewCommand(ctx, \"merge\", \"--ff-only\").AddDynamicArguments(trackingBranch)\n+\tif err := runMergeCommand(ctx, repo_model.MergeStyleFastForwardOnly, cmd); err != nil {\n+\t\tlog.Error(\"%-v Unable to merge tracking into base: %v\", ctx.pr, err)\n+\t\treturn err\n+\t}\n+\n+\treturn nil\n+}\n",
+    "diff_hunk_content_with_line_number": "[][1] +// Copyright 2023 The Gitea Authors. All rights reserved.\n[][2] +// SPDX-License-Identifier: MIT\n[][3] +\n[][4] +package pull\n[][5] +\n[][6] +import (\n[][7] +\trepo_model \"code.gitea.io/gitea/models/repo\"\n[][8] +\t\"code.gitea.io/gitea/modules/git\"\n[][9] +\t\"code.gitea.io/gitea/modules/log\"\n[][10] +)\n[][11] +\n[][12] +// doMergeStyleFastForwardOnly merges the tracking into the current HEAD - which is assumed to be staging branch (equal to the pr.BaseBranch)\n[][13] +func doMergeStyleFastForwardOnly(ctx *mergeContext) error {\n[][14] +\tcmd := git.NewCommand(ctx, \"merge\", \"--ff-only\").AddDynamicArguments(trackingBranch)\n[][15] +\tif err := runMergeCommand(ctx, repo_model.MergeStyleFastForwardOnly, cmd); err != nil {\n[][16] +\t\tlog.Error(\"%-v Unable to merge tracking into base: %v\", ctx.pr, err)\n[][17] +\t\treturn err\n[][18] +\t}\n[][19] +\n[][20] +\treturn nil\n[][21] +}",
+    "checked_commit_id": "7ede430c28cafba7e3b345ac732f3fe052edcdc6",
+    "pr_size": "l"
+  }
+]

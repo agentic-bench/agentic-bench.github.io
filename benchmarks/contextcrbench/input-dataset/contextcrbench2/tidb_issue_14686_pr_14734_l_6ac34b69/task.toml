@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "tidb_issue_14686_pr_14734_l_6ac34b69"
+contextcrbench2_full_name = "pingcap/tidb"
+contextcrbench2_lang = "go"
+contextcrbench2_issue_number = "14686"
+contextcrbench2_issue_title = "config: add a new configuration entry to control if new collations are enabled in TiDB."
+contextcrbench2_pr_number = "14734"
+contextcrbench2_pr_title = "*: add a configuration entry to control if new collations are enabled"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "6ac34b6943ea12f1fb0bd092ef0acfe678ed90fb"
+contextcrbench2_commit_id = "6ac34b6943ea12f1fb0bd092ef0acfe678ed90fb"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2020-02-11T11:58:55Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

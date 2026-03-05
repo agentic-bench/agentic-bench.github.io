@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "airflow_issue_9112_pr_9556_l_c987638b"
+contextcrbench2_full_name = "apache/airflow"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "9112"
+contextcrbench2_issue_title = "API Endpoint - Batch"
+contextcrbench2_pr_number = "9556"
+contextcrbench2_pr_title = "API Endpoint - DagRuns Batch"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "c987638bb8e957df2d03133d3cf8da0da6005f44"
+contextcrbench2_commit_id = "104746fac0b5b89c51dc15aa5146f10eb422566e"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2020-07-03T20:39:52Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]
