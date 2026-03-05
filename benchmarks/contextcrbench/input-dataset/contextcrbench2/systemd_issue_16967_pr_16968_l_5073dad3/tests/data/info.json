@@ -1,8 +1,0 @@
-{
-    "task_id": "systemd_issue_16967_pr_16968_l_5073dad3",
-    "repo": "systemd",
-    "issue_number": 16967,
-    "pr_number": 16968,
-    "checked_commit_id": "5073dad394ce6ad3da95db05b6cc996fa6b95c72",
-    "entry_count": 1
-}

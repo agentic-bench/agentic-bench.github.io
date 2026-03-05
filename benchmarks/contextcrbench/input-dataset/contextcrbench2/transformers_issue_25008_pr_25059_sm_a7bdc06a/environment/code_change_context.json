@@ -1,6 +1,0 @@
-{
-  "issue_title": "[bug] `token` not supported in `AutoModel`",
-  "issue_body": "\r\nI see `use_auth_token` is already deprecated and will be replaced by `token`,\r\nhttps://github.com/huggingface/transformers/blob/b257c46a075419c09e5ce5c5aa39bc346ecdb9a5/src/transformers/modeling_utils.py#L2196-L2204\r\n\r\n But `AutoModel` doesn't accept the new argument `token` yet. Especially in https://github.com/huggingface/transformers/blob/b257c46a075419c09e5ce5c5aa39bc346ecdb9a5/src/transformers/configuration_utils.py#L631-L638\r\n\r\nDirectly call `LlamaForCausalLM` instead of `AutoModelForCausalLM` is a temporary workaround to get rid of the deprecation warning.\r\n\r\n### Reproduction\r\n\r\n```python3\r\ntransformers.AutoModelForCausalLM.from_pretrained('meta-llama/Llama-2-7b-chat-hf',use_auth_token='XXX')\r\ntransformers.LlamaForCausalLM.from_pretrained('meta-llama/Llama-2-7b-chat-hf',token='XXX')\r\n```\r\n\r\n### Expected behavior\r\n\r\n`AutoModel` should support new `token` argument.",
-  "pr_title": "Fix `token` in auto classes",
-  "pr_body": "# What does this PR do?\r\n\r\nFix `token` in auto classes.\r\n\r\nFix #25008\r\n\r\nWe (me) should start to:\r\n  - add (some) explicit arguments to `from_pretrained` for auto classes\r\n  - (probably) clean-up the usage of `use_auth_token` even internally\r\n\r\nBut let's do this in separate PR(s), I promise."
-}

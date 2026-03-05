@@ -1,8 +1,0 @@
-{
-    "task_id": "systemd_issue_32946_pr_32960_sm_c7e506ca",
-    "repo": "systemd",
-    "issue_number": 32946,
-    "pr_number": 32960,
-    "checked_commit_id": "c7e506ca313d32ed5634f4c14f44378a029eec94",
-    "entry_count": 1
-}

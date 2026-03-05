@@ -1,6 +1,0 @@
-{
-  "issue_title": "Bug: Title bar close/minimize/maximize buttons color don't match the app theme",
-  "issue_body": "**Requirements**\r\n- Title bar buttons should match the app theme rather than the system theme",
-  "pr_title": "Remove WindowDecorationsHelper, fix theme in properties window",
-  "pr_body": "**Resolved / Related Issues**\r\nItems resolved / related issues by this PR.\r\n- For #9780 (\"Window Decoration api isn't working on the properties windows (we should remove the relevant code before release)\")\r\n- Closes #9911\r\n\r\n**Changes**\r\n- Removed AppWindowTitleBar.IsCustomizationSupported() check, not necessary as of winappsdk 1.2 (titlebar API supported down to 1809)\r\n- Removed WindowDecorationsHelper, uwp only + same reason as above\r\n- Removed code for custom titlebar close button (it was commented), we now use the standard close button\r\n- Fix wrong background in properties window when theme changes\r\n- Fix crash when clicking \"share\", remove call to GetForCurrentView() (uwp only)\r\n- Restore code for changing titlebar buttons on theme change\r\n- Improve positioning of properties window (do not go out of screen bounds)\r\n\r\n**Validation**\r\nHow did you test these changes?\r\n- [x] Built and ran the app\r\n"
-}

@@ -1,6 +1,0 @@
-{
-  "issue_title": "The Postgres adapter's \"table name too long\" error message is confusing",
-  "issue_body": "The PR #45136 enforces a maximum table name length when creating tables.\r\n\r\nThe error message is:\r\n`Table name '#{table_name}' is too long; the limit is #{table_name_length} characters`\r\n\r\nThe issue is `table_name_length` for Postgres returns 58 characters. All the Postgres docs show a max table length of 63 characters. The reason it's different is that we're reducing it by 5 characters to allow for `_pkey` suffix Postgres adds.\r\n\r\nI encountered the error when upgrading an app to Rails 7.1 and it wasn't immediately obvious to me why my table name that was 60 characters long should be an issue.  I had to check the Rails source code to find out why it wasn't working.\r\n\r\nMy suggestion is to add something to the error message to save people having to dig through the Rails code to figure out why the max allowed by Rails is less than the max allowed by Postgres.\r\n\r\nI'm happy to submit a PR if it's something the core team are happy to add.",
-  "pr_title": "Make the table name too long error message more explicit for Postgres",
-  "pr_body": "Fixes #49557\r\n\r\nMakes it explicit why the enforced limit for max table name length is less than the default Postgres limit."
-}

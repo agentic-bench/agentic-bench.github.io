@@ -1,8 +1,0 @@
-{
-    "task_id": "vllm_issue_195_pr_592_xl_ca898195",
-    "repo": "vllm",
-    "issue_number": 195,
-    "pr_number": 592,
-    "checked_commit_id": "ca898195a8c0cc3928d55451e2f7850c4b409db6",
-    "entry_count": 1
-}

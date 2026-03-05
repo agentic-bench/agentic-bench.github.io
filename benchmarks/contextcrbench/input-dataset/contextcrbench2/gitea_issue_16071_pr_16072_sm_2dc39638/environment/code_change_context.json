@@ -1,6 +1,0 @@
-{
-  "issue_title": "infer panic in queue/unique_queue_disk_channel.go",
-  "issue_body": "```\r\npanic: interface conversion: queue.Queue is *queue.LevelUniqueQueue, not *queue.LevelQueue\r\n\r\ngoroutine 222 [running]:\r\ncode.gitea.io/gitea/modules/queue.(*PersistableChannelUniqueQueue).Run.func4(0xc002c487e0)\r\n        /home/lunny/shares/data/Projects/gitea/gitea/modules/queue/unique_queue_disk_channel.go:191 +0x24d\r\ncreated by code.gitea.io/gitea/modules/queue.(*PersistableChannelUniqueQueue).Run\r\n        /home/lunny/shares/data/Projects/gitea/gitea/modules/queue/unique_queue_disk_channel.go:189 +0x290\r\n```",
-  "pr_title": "Fix panic in unique persistable channel queue",
-  "pr_body": "There is an incorrect casting in the wrapped queue.\r\n\r\nFix #16071\r\n\r\nSigned-off-by: Andrew Thornton <art27@cantab.net>\r\n"
-}

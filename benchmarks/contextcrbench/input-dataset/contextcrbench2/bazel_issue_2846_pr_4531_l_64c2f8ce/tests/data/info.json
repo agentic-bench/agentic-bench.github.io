@@ -1,8 +1,0 @@
-{
-    "task_id": "bazel_issue_2846_pr_4531_l_64c2f8ce",
-    "repo": "bazel",
-    "issue_number": 2846,
-    "pr_number": 4531,
-    "checked_commit_id": "64c2f8cee94ed90973a143b52312cf31a65a2ebf",
-    "entry_count": 10
-}

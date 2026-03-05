@@ -1,6 +1,0 @@
-{
-  "issue_title": "Rooms in the online-play longue screen aren't scrollable by dragging",
-  "issue_body": "### Discussed in https://github.com/ppy/osu/discussions/14014\r\n\r\n<div type='discussions-op-text'>\r\n\r\n<sup>Originally posted by **Tudi20** July 26, 2021</sup>\r\nSame for playlists obviously\r\n\r\n![2021-07-26-01-15-01](https://user-images.githubusercontent.com/13798839/126916513-3bb19a4e-026a-466c-aa50-7da982584387.gif)\r\n</div>",
-  "pr_title": "Fix rooms in online-play longue screen no longer scrollable by dragging",
-  "pr_body": "Closes #14015 \r\n\r\nThis was regressed by #13861, on this commit specifically https://github.com/ppy/osu/pull/13861/commits/b4ca6b6188d90c4db0436a19ec57364b6942ac41.\r\n\r\nOnce a drawable under a scroll container handles a `OnMouseDown` event, the scroll container will no longer be in the input queue to receive drags on that specific mouse holding.\r\n\r\nTherefore in order to still be draggable, the drawable must only handle `OnClick` without `OnMouseDown`.\r\n\r\n@peppy requesting your review to confirm I'm not missing something with this, tested both multiplayer longue with protected rooms and playlists longue, and everything is working as it should be."
-}

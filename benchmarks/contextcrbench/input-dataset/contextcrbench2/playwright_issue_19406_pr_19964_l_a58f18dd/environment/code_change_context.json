@@ -1,6 +1,0 @@
-{
-  "issue_title": "[BUG] Codegen with frame locators uses internal selectors",
-  "issue_body": "Repro\r\n1. `npx playwright codegen https://www.w3schools.com/tags/tryit.asp?filename=tryhtml_iframe`\r\n2. Click on e.g. \"Log in\"\r\n<img width=\"830\" alt=\"image\" src=\"https://user-images.githubusercontent.com/17984549/207050722-eb0bde05-55c4-4a91-adef-579f61eda42e.png\">\r\n\r\n\r\nExpected: selector without internal: prefix\r\nActual: Selector with internal:pref\r\n\r\n`await page.frameLocator('#iframeResult').frameLocator('internal:attr=[title=\"W3Schools Free Online Web Tutorials\"i]').getByRole('link', { name: 'Log in' }).dblclick();`",
-  "pr_title": "fix: use no internal selectors for frame locators",
-  "pr_body": "Fixes https://github.com/microsoft/playwright/issues/19406"
-}

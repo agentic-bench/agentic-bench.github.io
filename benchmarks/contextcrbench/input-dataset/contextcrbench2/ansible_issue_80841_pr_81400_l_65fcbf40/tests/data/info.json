@@ -1,8 +1,0 @@
-{
-    "task_id": "ansible_issue_80841_pr_81400_l_65fcbf40",
-    "repo": "ansible",
-    "issue_number": 80841,
-    "pr_number": 81400,
-    "checked_commit_id": "65fcbf40b3ce6980ccc1c3147dbadd6ef3b64522",
-    "entry_count": 1
-}

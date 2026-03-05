@@ -1,6 +1,0 @@
-{
-  "issue_title": "Update the auto-updater manifest",
-  "issue_body": "As the new builds cannot use the existing \"single golden zip release\" update-style system, we need a new update file format.\r\n\r\nThis is a great opportunity to revisit the manifest format and make an actual documented file format.",
-  "pr_title": "Implemented the new manifest format",
-  "pr_body": "Fixed some issues with the manifest urls.\r\nChanged to records and nullable in some places.\r\nRegenerated the test-keys to use RSA208.\r\nChanged to using built-in JSON for manifest.\r\nThis fixes #5145"
-}

@@ -1,6 +1,0 @@
-{
-  "issue_title": "Add an option to interpret request headers as Latin1 encoded",
-  "issue_body": "We have customers interested in treating incoming request headers as Latin1-encoded but our default logic only supports UTF-8.\r\n\r\nIn a 3.1 patch we should provide:\r\n* A config setting to change the default encoding to Latin1\r\n* When enabled, Kestrel will widen each incoming byte to a UTF-16 character and build a `string` from that set of characters, **instead** of interpreting bytes as UTF-8.\r\n* We will continue to reject control characters from the ASCII set (0x00-0x1F and 0x7F), but **not** reject control characters from the widened Latin1 set (because they would collide with other interpretations of this data, like UTF-8).\r\n\r\nThis would allow a consumer to reinterpret the data in this string as a UTF-8 sequence if desired.\r\n\r\nIn 5.0 we'll look at broader work to improve this experience. The 3.1 goals are scoped down to specific requests we've received.",
-  "pr_title": "Add option to interpret request headers as Latin1",
-  "pr_body": "TODONE: Add tests.\r\n\r\nFixes #17399\r\n"
-}

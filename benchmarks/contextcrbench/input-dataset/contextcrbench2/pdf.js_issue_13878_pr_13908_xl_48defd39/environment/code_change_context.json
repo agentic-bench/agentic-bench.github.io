@@ -1,6 +1,0 @@
-{
-  "issue_title": "XFA - Searching a text is broken",
-  "issue_body": "Since the rendering is done thanks to HTML we should likely use the \"normal\" firefox search feature (at least for the builtin viewer)",
-  "pr_title": "[api-minor] XFA - Support text search in XFA documents.",
-  "pr_body": "Moves the logic out of TextLayerBuilder to handle\r\nhighlighting matches into a new separate class `TextHighlighter`\r\nthat can be used with regular PDFs and XFA PDFs.\r\n\r\nTo mimic the current find functionality in XFA, two arrays\r\nfrom the XFA rendering are created to get the text content\r\nand map those to DOM nodes.\r\n\r\nFixes #13878"
-}

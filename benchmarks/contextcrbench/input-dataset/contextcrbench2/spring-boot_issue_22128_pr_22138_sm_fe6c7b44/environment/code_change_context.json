@@ -1,6 +1,0 @@
-{
-  "issue_title": "EnumSet.copyOf calls fail with empty collections",
-  "issue_body": "Both `SecurityFilterAutoConfiguration` and `SessionRepositoryFilterConfiguration` use `EnumSet::copyOf` in a stream. If the stream ends up being empty then the `copyOf` method will throw an exception.",
-  "pr_title": "Accept empty filter dispatcher types in auto-configurations",
-  "pr_body": "Hi,\r\n\r\nthis PR fixes #22128 by using\r\n\r\n- `Collectors.toCollection(() -> EnumSet.noneOf(DispatcherType.class))` rather than\r\n- `Collectors.collectingAndThen(Collectors.toSet(), EnumSet::copyOf)`\r\n\r\nto prevent exceptions when the underlying collection is empty.\r\n\r\nLet me know what you think.\r\nCheers,\r\nChristoph"
-}

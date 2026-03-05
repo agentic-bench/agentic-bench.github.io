@@ -1,6 +1,0 @@
-{
-  "issue_title": "systemd-journal-upload: support custom HTTP headers and compression",
-  "issue_body": "### Component\r\n\r\nsystemd-journal-upload\r\n\r\n### Is your feature request related to a problem? Please describe\r\n\r\nAdding ability to [ingest data from journald directly into VictoriaLogs](https://github.com/VictoriaMetrics/VictoriaMetrics/pull/7105) and noticed that systemd-journal-upload doesn't support data compression and custom HTTP headers, which could be useful for data transfer optimisations and provide additional data for server about how to manipulate received data\r\n\r\n### Describe the solution you'd like\r\n\r\nAdd ability to set custom HTTP headers in a same manner, how it's done for journald `DefaultEnvironment` and add `Compress` bool flag, which enables zstd compression if it's supported on a server\r\n\r\n### Describe alternatives you've considered\r\n\r\nalternative 3rd-party solutions\r\n\r\n### The systemd version you checked that didn't have the feature you are asking for\r\n\r\n_No response_",
-  "pr_title": "systemd-journal-upload: added custom http headers",
-  "pr_body": "fixes https://github.com/systemd/systemd/issues/34568"
-}

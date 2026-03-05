@@ -1,6 +1,0 @@
-{
-  "issue_title": "gh v2.22.0 not able to edit issues or pr against ghe",
-  "issue_body": "### Describe the bug\r\n```\r\n\u276f gh --version\r\ngh version 2.22.0 (2023-01-25)\r\nhttps://github.com/cli/cli/releases/tag/v2.22.0\r\n```\r\n\r\nwhile trying to edit an issue or pr i get following error message:\r\n```\r\n\u276f gh issue edit 855\r\nMessage: Field 'projectItems' doesn't exist on type 'Issue', Locations: [{Line:1 Column:145}]\r\nMessage: Variable $endCursor is declared by IssueProjectItems but not used, Locations: [{Line:1 Column:1}]\r\n```\r\nthis worked before the upgrade to 2.22.0 with version 2.21.2 \r\n\r\ni also added the new scope to my token.\r\n\r\nremote github is GHE 3.6.7\r\n\r\n### Steps to reproduce the behavior\r\n\r\n1. gh pr edit <number>\r\n3. See error\r\n\r\n### Expected vs actual behavior\r\n\r\nI should be able to edit the issue by choosing which fileds to edit\r\n\r\n",
-  "pr_title": "Fix ignoring ProjectsV2-specific errors for GHES",
-  "pr_body": "It was a capitalization issue when scanning error message text.\r\n\r\nFixes https://github.com/cli/cli/issues/6917\r\nFollowup to https://github.com/cli/cli/pull/6735"
-}

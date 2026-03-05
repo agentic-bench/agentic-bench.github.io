@@ -1,8 +1,0 @@
-{
-    "task_id": "redis_issue_12701_pr_12702_sm_63fb8475",
-    "repo": "redis",
-    "issue_number": 12701,
-    "pr_number": 12702,
-    "checked_commit_id": "63fb8475e0c3aff9ef91752ec4d4b357fea41407",
-    "entry_count": 1
-}

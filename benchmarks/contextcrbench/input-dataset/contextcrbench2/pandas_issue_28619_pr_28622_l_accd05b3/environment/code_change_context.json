@@ -1,6 +1,0 @@
-{
-  "issue_title": "Allow users to pass backend option to `.plot()`",
-  "issue_body": "Once you have installed another plotting library with a pandas.plotting entrypoint it would be nice to be able to toggle back and forth between different backends even within on session.\r\n\r\n## What currently exists\r\n```python\r\npd.options.plotting.backend = 'holoviews'\r\n```\r\n\r\n## Proposed additional API\r\n\r\n```python\r\ndf.plot(backend='holoviews')\r\n\r\n```\r\n\r\nThis would be particularly useful when a particular backend doesn't support a certain type of plot, or you need to use a backend to get some specific functionality but don't want to use if for your whole notebook.\r\n \r\n@datapythonista - @TomAugspurger mentioned that you might have opinions on this.\r\n",
-  "pr_title": "ENH: Allow plotting backend to be an option",
-  "pr_body": "- [x] closes #28619\r\n- [x] tests added / passed\r\n- [x] passes `black pandas`\r\n- [x] passes `git diff upstream/master -u -- \"*.py\" | flake8 --diff`\r\n- [x] whatsnew entry\r\n"
-}

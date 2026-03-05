@@ -1,6 +1,0 @@
-{
-  "issue_title": "Allow for the configuration of font fallback",
-  "issue_body": "I am a Chinese developer, sometimes I have to use Chinese, or my Chinese version system will display some prompts in Chinese.  \r\n\r\nHowever, this terminal cannot specify multiple fonts in setting, for example: `\"editor.fontFamily\": \"DejaVu Sans Mono, Noto Sans CJK SC\"`(an example from vscode).\r\n\r\nI hope this terminal can support multiple fonts setting in the future, thank you.",
-  "pr_title": "Add support for customizing font fallback",
-  "pr_body": "This adds support for specifying more than one font family using a\r\nsyntax that is similar to CSS' `font-family` property.\r\nThe implementation is straight-forward and is effectively\r\njust a wrapper around `IDWriteFontFallbackBuilder`.\r\n\r\nCloses #2664\r\n\r\n## PR Checklist\r\n* Font fallback\r\n  * Write \"\u300c\u732b\u300d\"\r\n  * Use \"Consolas\" and remember the shape of the glyphs\r\n  * Use \"Consolas, MS Gothic\" and check that it changed \u2705\r\n* Settings UI autocompletion\r\n  * It completes \u2705\r\n  * It filters \u2705\r\n  * It recognizes commas and starts a new name \u2705\r\n* All invalid font names are listed in the warning message \u2705"
-}

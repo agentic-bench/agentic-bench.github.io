@@ -1,8 +1,0 @@
-{
-    "task_id": "vllm_issue_14828_pr_14850_sm_ec8b6819",
-    "repo": "vllm",
-    "issue_number": 14828,
-    "pr_number": 14850,
-    "checked_commit_id": "ec8b6819d5e6d3b3a814d32cebcc89b8ef289e69",
-    "entry_count": 1
-}

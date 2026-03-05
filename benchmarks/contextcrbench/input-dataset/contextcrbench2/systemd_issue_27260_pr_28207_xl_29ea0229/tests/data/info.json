@@ -1,8 +1,0 @@
-{
-    "task_id": "systemd_issue_27260_pr_28207_xl_29ea0229",
-    "repo": "systemd",
-    "issue_number": 27260,
-    "pr_number": 28207,
-    "checked_commit_id": "29ea02297a4a70b2a0d63e744270f6c707669bc6",
-    "entry_count": 1
-}

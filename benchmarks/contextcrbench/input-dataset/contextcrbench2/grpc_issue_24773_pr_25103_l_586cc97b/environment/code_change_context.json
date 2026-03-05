@@ -1,6 +1,0 @@
-{
-  "issue_title": "Incomplete implementation of MockClientAsyncReaderWriter",
-  "issue_body": "When trying to use [mock_stream's MockClientAsyncReaderWriter](https://github.com/grpc/grpc/blob/master/include/grpcpp/test/mock_stream.h#L126-L144), it ends up not describing a concrete type, due to the following implementations being missing:\r\n\r\n```cpp\r\n// from AsyncWriterInterface\r\nvirtual void Write(const W& msg, ::grpc::WriteOptions options, void* tag) = 0;\r\n\r\n// ClientAsyncStreamingInterface\r\nvirtual void StartCall(void* tag) = 0;\r\n```\r\n\r\nCan these be added, or is there a reason they were not?",
-  "pr_title": "Added mock_stream_test",
-  "pr_body": "Completed mock_stream and added the test to prevent potential breakage due to missing mocked methods.\r\n\r\nFixes #24773"
-}

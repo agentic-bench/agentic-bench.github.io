@@ -1,6 +1,0 @@
-{
-  "issue_title": "DPMS",
-  "issue_body": "Would it be possible for sway to handle turning on and off the monitor? Orbment currently has https://github.com/Cloudef/orbment/blob/master/plugins/core-dpms/core-dpms.c to handle this. \n\nCould something like this be implemented inside sway with a config option or maybe with swaylock?\n",
-  "pr_title": "DPMS and lock handling",
-  "pr_body": "This pull request adds DPMS and lock handling and requires some wlroots changes also, that is in a separate pullrequest for wlroots. \r\nThis pullrequest have the following parts:\r\n* idle notifications on mouse and keyhandling\r\n* swayidle daemon that recieves idle notifications sends dpms commands and locks screen\r\n* modifications to output command, adding dpms\r\n\r\nFixes #541 "
-}

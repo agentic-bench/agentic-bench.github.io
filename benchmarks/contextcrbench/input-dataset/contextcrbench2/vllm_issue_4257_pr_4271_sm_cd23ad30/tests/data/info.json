@@ -1,8 +1,0 @@
-{
-    "task_id": "vllm_issue_4257_pr_4271_sm_cd23ad30",
-    "repo": "vllm",
-    "issue_number": 4257,
-    "pr_number": 4271,
-    "checked_commit_id": "cd23ad308f59de5a72ce5e00a5af9b9b16e91222",
-    "entry_count": 1
-}

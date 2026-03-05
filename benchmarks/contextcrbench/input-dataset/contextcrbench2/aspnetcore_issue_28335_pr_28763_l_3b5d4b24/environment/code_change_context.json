@@ -1,6 +1,0 @@
-{
-  "issue_title": "HTTP/3 reset",
-  "issue_body": "Support `IHttpResetFeature` with HTTP/3",
-  "pr_title": "HTTP/3: Add trailers and reset features",
-  "pr_body": "Fixes https://github.com/dotnet/aspnetcore/issues/28335\r\nFixes https://github.com/dotnet/aspnetcore/issues/28334\r\n\r\nAdd support for trailing headers and error code.\r\n\r\nActual changes are in https://github.com/dotnet/aspnetcore/commit/777b07aee1b30043893529b051a9ebd52ae89020"
-}

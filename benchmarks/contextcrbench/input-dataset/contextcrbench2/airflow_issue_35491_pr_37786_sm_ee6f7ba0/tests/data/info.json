@@ -1,8 +1,0 @@
-{
-    "task_id": "airflow_issue_35491_pr_37786_sm_ee6f7ba0",
-    "repo": "airflow",
-    "issue_number": 35491,
-    "pr_number": 37786,
-    "checked_commit_id": "ee6f7ba0022c2b1bab799f00816383442a8d671a",
-    "entry_count": 6
-}

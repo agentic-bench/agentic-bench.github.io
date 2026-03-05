@@ -1,6 +1,0 @@
-{
-  "issue_title": "The build process requires no space between closing `}` and `)`",
-  "issue_body": "Our build process requires no space between closing `}` and `)` for variable modules (i.e. those with paths containing `/var/`). This makes it impossible to follow our style guide and write those modules in this way:\n\n``` js\ndefine( function() {\n    /* code */\n} );\n```\n\ninstead of currently required:\n\n``` js\ndefine( function() {\n    /* code */\n} );\n```\n\nThere may be other cases like that in used regexes.\n\nI'll assign this to @timmywil since it's his code. I hope you don't mind, Timmy. :-)\n",
-  "pr_title": "Build: space between curly and paren is optional",
-  "pr_body": "Fixes gh-2399\n"
-}

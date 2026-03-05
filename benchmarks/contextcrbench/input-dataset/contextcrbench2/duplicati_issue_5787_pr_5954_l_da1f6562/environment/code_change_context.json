@@ -1,6 +1,0 @@
-{
-  "issue_title": "Investigate how the TrayIcon can stay in a disconnected state",
-  "issue_body": "It appears that the TrayIcon can enter a state where it keeps asking for authentication but gets rejected.\r\n\r\nMore [details on the forum](https://forum.duplicati.com/t/release-2-1-0-101-canary-2024-12-06/19616/15).",
-  "pr_title": "Improved TrayIcon detached.",
-  "pr_body": "Implemented support for disconnected state with TrayIcon.\r\nAdded some notification support (Windows and Linux).\r\nChanged some logic to prevent hangs on clicks.\r\n\r\nUpdated logic for reconnect.\r\nThis fixes a case where using a wrong password could cause an infinite loop.\r\n\r\nThis fixes #5923\r\nThis fixes #5775\r\nThis fixes #5787\r\nThis fixes #5796\r\nThis fixes #5716"
-}

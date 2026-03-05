@@ -1,8 +1,0 @@
-{
-    "task_id": "redis_issue_9876_pr_10104_xl_b0cfc133",
-    "repo": "redis",
-    "issue_number": 9876,
-    "pr_number": 10104,
-    "checked_commit_id": "b0cfc133282e8ecd249fd41b7988288be5970b5d",
-    "entry_count": 1
-}

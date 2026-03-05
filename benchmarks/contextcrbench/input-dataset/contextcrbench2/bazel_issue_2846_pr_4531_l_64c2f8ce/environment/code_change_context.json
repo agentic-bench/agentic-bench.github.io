@@ -1,6 +1,0 @@
-{
-  "issue_title": "Print remote cache statistics",
-  "issue_body": "We should print statistics about how many cache hits / misses we had when the remote cache is enabled.\r\n\r\nThis is technically a feature request, but we really shouldn't release this without printing stats.",
-  "pr_title": "remote: output stats on each run",
-  "pr_body": "Initial implementation for outputting a summary of actions ran\r\nwhen using RemoteSpawnRunner. Breaks down by cached/uncached and\r\nlocal vs non-local.\r\n\r\nCurrently it surfaces a number of local steps that are for Bazel's\r\nbookkeeping: I've seen CreateRunfiles, though there could be more\r\nin that category. As a follow up, we need to decide what to do about\r\nthose: users would expect to see 100% remote execution if everything\r\nis working properly.\r\n\r\nRELNOTES: Bazel now adds action summary statistics when using remote execution.\r\nFIXES: #2846"
-}

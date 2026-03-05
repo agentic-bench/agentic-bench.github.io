@@ -1,6 +1,0 @@
-{
-  "issue_title": "LE Audio: Add subgroup support for broadcast source",
-  "issue_body": "**Is your enhancement proposal related to a problem? Please describe.**\r\nCurrently the broadcast source API only support creating a single subgroup. \r\n\r\n**Describe the solution you'd like**\r\nUpdate the API so that the application can request multiple subgroups, with each their own set of streams, metadata and codec configurations. \r\n\r\n**Describe alternatives you've considered**\r\nN/A\r\n\r\n**Additional context**\r\n![image](https://user-images.githubusercontent.com/2520413/177124744-73277ff4-ed7f-49de-9865-1f21d9170c4c.png)\r\n",
-  "pr_title": "LE Audio: Broadcast source subgroup support",
-  "pr_body": "Updates the BAP broadcast API to support setting multiple subgroups as well as BIS specific codec configuration data. \r\n\r\nDepends on https://github.com/zephyrproject-rtos/zephyr/pull/49872\r\nfixes https://github.com/zephyrproject-rtos/zephyr/issues/47243\r\nfixes https://github.com/zephyrproject-rtos/zephyr/issues/47242"
-}

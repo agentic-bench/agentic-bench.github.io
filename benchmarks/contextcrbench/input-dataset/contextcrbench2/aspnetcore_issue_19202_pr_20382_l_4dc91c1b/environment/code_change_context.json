@@ -1,6 +1,0 @@
-{
-  "issue_title": "Figure out WebAssemblyHttpMessageHandlerOptions",
-  "issue_body": "This API is a \ud83d\udca9.",
-  "pr_title": "Create a ref-assembly package for HttpHandler",
-  "pr_body": "Fixes https://github.com/dotnet/aspnetcore/issues/19202\r\n\r\n------------------------\r\n\r\nThis adds a package to carry a ref assembly for WebAssemblyHttpHandler. The current contents resemble what's currently in the runtime, we can update it once the HttpHandler changes are in the runtime. I choose `Microsoft.AspNetCore.Components.WebAssembly.HttpHandler` as the package name since it's meant to be a stop-gap until the runtime package is available in .NET 5.0. We can move this code over to dotnet/Blazor once we're ok with the shape of this change.\r\n"
-}

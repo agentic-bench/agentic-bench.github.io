@@ -1,8 +1,0 @@
-{
-    "task_id": "tidb_issue_46577_pr_46665_sm_f22177b0",
-    "repo": "tidb",
-    "issue_number": 46577,
-    "pr_number": 46665,
-    "checked_commit_id": "f22177b0c0ee3d4ec7cf52881e37fd86c8ad7e9c",
-    "entry_count": 1
-}

@@ -1,6 +1,0 @@
-{
-  "issue_title": "Unwanted leading '\\' displayed in prompt of systemd-nspawn inside run0 session",
-  "issue_body": "### systemd version the issue has been seen with\n\n257\n\n### Used distribution\n\nArchlinux\n\n### Linux kernel version used\n\nlinux-6.1.120-1-lts61\n\n### CPU architectures issue was seen on\n\nx86_64\n\n### Component\n\nsystemd-nspawn, systemd-run\n\n### Expected behaviour you didn't see\n\nThe prompt is correctly displayed in the container (i.e. without leading '\\')\n\n### Unexpected behaviour you saw\n\nThe prompt is displayed with a leading '\\' (with no color)\n\n### Steps to reproduce the problem\n\nLaunch a run0 session (authenticate), and then launch a systemd-nspawn container with a prompt containing '\\[' as first character\n\n### Additional program output to the terminal or log subsystem illustrating the issue\n\n```sh\n\\root@thehost:~# echo $PS1\r\n\\[\\033[01;31m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$\r\n\\root@thehost:~#\n```\n",
-  "pr_title": "ptyfwd: fix OSC sequence termination handling",
-  "pr_body": "Fixes #35631."
-}

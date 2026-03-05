@@ -1,6 +1,0 @@
-{
-  "issue_title": "TCP connection does not support keepalive function",
-  "issue_body": "The keepalive function in tcp is very important. When will Zephyr OS support this function?",
-  "pr_title": "Implement TCP keepalive support",
-  "pr_body": "TCP connection supports keep alive msg (RFC1122)\r\n\r\nFixes #34044"
-}

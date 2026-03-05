@@ -1,6 +1,0 @@
-{
-  "issue_title": "[red-knot] Out-of-body (re-)definitions of class variables",
-  "issue_body": "(Re-)definitions of class variables outside the body of the class are currently not checked:\n\n```py\nclass C:\n    c: str = \"foo\"\n\nC.c = 1  # <-- no error here\n```",
-  "pr_title": "[red-knot] Invalid assignments to attributes",
-  "pr_body": "## Summary\r\n\r\nRaise \"invalid-assignment\" diagnostics for incorrect assignments to attributes, for example:\r\n\r\n```py\r\nclass C:\r\n    var: str = \"a\"\r\n\r\nC.var = 1  # error: \"Object of type `Literal[1]` is not assignable to `str`\"\r\n```\r\n\r\ncloses #15456 \r\n\r\n## Test Plan\r\n\r\n- Updated test assertions\r\n- New test for assignments to module-attributes"
-}

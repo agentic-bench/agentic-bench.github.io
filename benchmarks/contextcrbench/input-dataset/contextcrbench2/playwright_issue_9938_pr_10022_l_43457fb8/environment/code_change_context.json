@@ -1,6 +1,0 @@
-{
-  "issue_title": "[Feature] implement `await expect(page).toHaveScreenshot()`",
-  "issue_body": "introduce a web-first assertion for Visual regression testing.\r\n\r\nToday:\r\n\r\n```js\r\nexpect(await page.screenshot()).toMatchSnapshot('foo.png');\r\n```\r\n\r\nAfter this:\r\n\r\n```js\r\nawait expect(page).toHaveScreenshot('foo.png');\r\n```\r\n\r\n`toHaveScreenshot` should auto-retry screenshot until golden is reached.\r\n\r\n`toHaveScreenshot` should also have:\r\n- [x] hide field cursor\r\n- [x] support locators\r\n- ~disalbe css animations~ \u2014 https://github.com/microsoft/playwright/issues/11912\r\n- ~mask out certain parts of screen? e.g. with selector~ \u2014 https://github.com/microsoft/playwright/issues/11913\r\n",
-  "pr_title": "feat(test-runner): introduce toHaveScreenshot",
-  "pr_body": "open questions:\r\n- [x] ~~currently we support toMatchSnapshot in the config, shall we mirror toHaveScreenshot there?~~ not for now\r\n- [x] this impl does not allow custom screenshot options (fullscreen e.g.) any thoughts?\r\n- [x] make it compatible with locators\r\n- [x] determine the file extension correctly\r\n\r\nFixes https://github.com/microsoft/playwright/issues/9938"
-}

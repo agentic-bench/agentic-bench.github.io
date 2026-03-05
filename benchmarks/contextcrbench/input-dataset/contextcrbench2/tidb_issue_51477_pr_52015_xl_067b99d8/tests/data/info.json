@@ -1,8 +1,0 @@
-{
-    "task_id": "tidb_issue_51477_pr_52015_xl_067b99d8",
-    "repo": "tidb",
-    "issue_number": 51477,
-    "pr_number": 52015,
-    "checked_commit_id": "067b99d83597863bff6b158bb839ace84c8b5550",
-    "entry_count": 1
-}

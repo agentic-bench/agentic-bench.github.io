@@ -1,6 +1,0 @@
-{
-  "issue_title": "Slider slide legacy hitsound support",
-  "issue_body": "**Describe the new feature:** \r\nWhen trying out a couple maps which utilise the sliderslide legacy hitsound in standard.\r\n(e.g. [Fort's Ooi](https://osu.ppy.sh/beatmapsets/355573#osu/784791), and a [taikosu! map](https://osu.ppy.sh/beatmapsets/25836#osu/87484). The slider slide aren't utilised in the body of the sliders.\r\n\r\n**Proposal designs of the feature:** \r\nAllowing `soft/normal/drum-sliderslide` from legacy hitsounds into slider bodies. This of course would work the same way as in stable.",
-  "pr_title": "Add slider \"sliding\" sample support",
-  "pr_body": "- Closes #8790\r\n- [x] Depends on https://github.com/ppy/osu/pull/9645\r\n\r\nPlease test on https://osu.ppy.sh/beatmapsets/861#osu/5680"
-}

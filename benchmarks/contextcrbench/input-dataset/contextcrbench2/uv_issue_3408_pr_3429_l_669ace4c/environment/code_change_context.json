@@ -1,6 +1,0 @@
-{
-  "issue_title": "Preserve url parsing from `Requirement` parsing to `Dist`",
-  "issue_body": "Part of #3407:\r\n* Decide which type to store in `PubGrubPackage` and `Urls` and add them. For the first step, we should retain the `VerbatimUrl` and only add the parsed field, like `Requirement` does.\r\n* Use these fields in `Dist::from_url`.\r\n",
-  "pr_title": " Add parsed URL fields to `Dist` variants ",
-  "pr_body": "Avoid reparsing urls by storing the parsed parts across resolution on `Dist`.\r\n\r\nPart 2 of https://github.com/astral-sh/uv/issues/3408 and part of #3409\r\n\r\nCloses #3408"
-}

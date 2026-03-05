@@ -1,6 +1,0 @@
-{
-  "issue_title": "[Feature] Redirect video stream to new path",
-  "issue_body": "Some of us run Playwright as test cases, e.g. via Jest using `it` statements and test files (suites). When using [the awesome videos functionality](https://playwright.dev/docs/videos) it saves one huge video in case the browser context never closes between tests.\r\n\r\nIt would be cool to have hooks to `page.video()` e.g. `page.video().path('some-path')` to redirect the buffer to a new file. It would also be cool if I can chose the file name of the video in those scenarios, as I might want to name them as the test case. (I can add a UUID or similar myself if wanted).",
-  "pr_title": "api(video): implement video.saveAs and video.delete",
-  "pr_body": "These methods are safe to call while the page is still open, or when it is\r\nalready closed. Works in remotely connected browser as well.\r\n\r\nAlso makes `video.path()` to throw for remotely connected browser.\r\n\r\nUnder the hood migrated Download and Video to use the common Artifact object.\r\n\r\nFixes #5853."
-}

@@ -1,6 +1,0 @@
-{
-  "issue_title": "W3CLogger should write to a new file when Fields change",
-  "issue_body": "If the user runs an app that uses W3CLogger, then changes the set of fields they are logging and runs the app again on the same day, it will write to the same file as before, but with the new set of fields (meaning the fields logged won't correspond to the header listing what fields are in the log). It should write to a new file when the fields option changes.",
-  "pr_title": "FileLoggerProcessor write to a new file on new instance or Fields change",
-  "pr_body": "Fixes https://github.com/dotnet/aspnetcore/issues/34595"
-}

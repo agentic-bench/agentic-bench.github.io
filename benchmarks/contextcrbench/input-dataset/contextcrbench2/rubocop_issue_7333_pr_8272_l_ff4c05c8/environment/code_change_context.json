@@ -1,6 +1,0 @@
-{
-  "issue_title": "[Cop request]: UnneededRequireFileExtension",
-  "issue_body": "## Is your feature request related to a problem? Please describe.\r\n\r\n`.rb` is not necessary when `require` or `require_relative` a Ruby file. When performing code review I am having to ask contributors to remove the superfluous file extension.\r\n\r\n## Describe the solution you'd like\r\n\r\nWhen given:\r\n\r\n```ruby\r\nrequire_relative \"./whatever.rb\"\r\nrequire \"../foo/bar.rb\"\r\n```\r\n\r\nAutocorrect to:\r\n\r\n```ruby\r\nrequire_relative \"./whatever\"\r\nrequire \"../foo/bar\"\r\n```\r\n",
-  "pr_title": "Add new `Style/RedundantFileExtensionInRequire` cop",
-  "pr_body": "Closes #7333"
-}

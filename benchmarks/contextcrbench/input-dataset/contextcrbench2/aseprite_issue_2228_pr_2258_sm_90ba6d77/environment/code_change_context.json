@@ -1,6 +1,0 @@
-{
-  "issue_title": "Can't select file by full path on Linux",
-  "issue_body": "### Aseprite and System version\r\n\r\n* Aseprite version: v1.2.16.3\r\n* System: Linux\r\n\r\nWhen I want to choose a file, if I type in the full path, like `/tmp/test.png`, it will say:\r\n\r\n![image](https://user-images.githubusercontent.com/10850402/71448687-90264100-2704-11ea-91dc-55cfb244b767.png)\r\n\r\nThis should not happen.\r\n",
-  "pr_title": "Fix file selector not allowing choosing files by path",
-  "pr_body": "Fixes #2228 \r\nPreviously was treating path entered into the file selector either as path to a directory, or as a name of the file in current directory. Now allows also for entering path to the file, both relative and absolute."
-}

@@ -1,6 +1,0 @@
-{
-  "issue_title": "LE Audio: Add support for stream specific codec configurations for broadcast source",
-  "issue_body": "**Is your enhancement proposal related to a problem? Please describe.**\r\nThe BASE supports having unique codec configurations per stream in a broadcast source, but the current API does not support that. \r\n\r\n**Describe the solution you'd like**\r\nAdd support for supplying a `struct bt_codec` codec configuration _per_ stream, instead of only per subgroup. This is used to e.g. give a stream a specific location (e.g. LEFT or RIGHT). \r\n\r\n**Describe alternatives you've considered**\r\nN/A\r\n\r\n**Additional context**\r\n![image](https://user-images.githubusercontent.com/2520413/177125139-edfda023-b501-4476-ba9b-903b1a2637cc.png)\r\n",
-  "pr_title": "LE Audio: Broadcast source subgroup support",
-  "pr_body": "Updates the BAP broadcast API to support setting multiple subgroups as well as BIS specific codec configuration data. \r\n\r\nDepends on https://github.com/zephyrproject-rtos/zephyr/pull/49872\r\nfixes https://github.com/zephyrproject-rtos/zephyr/issues/47243\r\nfixes https://github.com/zephyrproject-rtos/zephyr/issues/47242"
-}

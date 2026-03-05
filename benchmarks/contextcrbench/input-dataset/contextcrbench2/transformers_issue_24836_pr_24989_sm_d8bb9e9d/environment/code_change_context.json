@@ -1,6 +1,0 @@
-{
-  "issue_title": "Pipeline feature request for min_new_tokens",
-  "issue_body": "### Feature request\n\nPipeline already supports the option max_new_tokens.\r\n\r\nI\u2019m requesting for the existing \u201cmin_new_tokens\u201d to be able to be used with pipeline the same way as \u201cmax_new_tokens\u201d.\r\n\r\nCurrently this will throw an error when trying to specify \u201cmin_new_tokens\u201d as unrecognised.  \n\n### Motivation\n\nMaintaining consistency, as the previous way to specify tokens is deprecated.\n\n### Your contribution\n\nI can test, but I\u2019m not a developer. So no, I couldn\u2019t do a PR.\r\n",
-  "pr_title": "Generate: `ImageToTextPipeline` now supports generation kwargs",
-  "pr_body": "# What does this PR do?\r\n\r\nAs the title indicates -- previously the generation kwargs had to be passed as a separate dictionary, which was inconsistent with the other pipelines. \r\n\r\nThis PR borrows code from the other pipelines, to allow things like `pipe(input, min_new_tokens=10)` (as opposed to `pipe(input, generate_kwargs={\"min_new_tokens\":10})`). It also updates the docs, which were slightly outdated.\r\n\r\nFixes #24836 "
-}
