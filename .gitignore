@@ -12,3 +12,4 @@
 *.log
 
 benchmarks/contextcrbench/input-dataset/contextcrbench2
+__pycache__/
