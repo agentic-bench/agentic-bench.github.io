@@ -2,6 +2,11 @@
 
 A benchmarking pipeline for evaluating LLM-based code review agents on real-world pull requests.
 
+<div style="width:80%; margin: auto;">
+
+![Leaderboard Screenshot](./leaderboard/leaderboard.png)
+</div>
+
 ---
 
 ## Table of Contents
