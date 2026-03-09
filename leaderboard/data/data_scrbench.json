@@ -23,9 +23,6 @@
     "trajectory/input_tokens": null,
     "trajectory/output_tokens": null,
     "trajectory/steps": null,
-    "trajectory/input_costs": null,
-    "trajectory/output_costs": null,
-    "trajectory/total_costs": null,
     "trajectory/trajectory_input_costs": null,
     "trajectory/trajectory_output_costs": null,
     "trajectory/trajectory_total_costs": null
@@ -53,9 +50,6 @@
     "trajectory/input_tokens": 142973.06569343066,
     "trajectory/output_tokens": 2710.5109489051097,
     "trajectory/steps": 8.788321167883211,
-    "trajectory/input_costs": null,
-    "trajectory/output_costs": null,
-    "trajectory/total_costs": null,
     "trajectory/trajectory_input_costs": null,
     "trajectory/trajectory_output_costs": null,
     "trajectory/trajectory_total_costs": null
@@ -83,9 +77,6 @@
     "trajectory/input_tokens": 1.0,
     "trajectory/output_tokens": 1.0,
     "trajectory/steps": 1.0,
-    "trajectory/input_costs": null,
-    "trajectory/output_costs": null,
-    "trajectory/total_costs": null,
     "trajectory/trajectory_input_costs": null,
     "trajectory/trajectory_output_costs": null,
     "trajectory/trajectory_total_costs": null
@@ -113,9 +104,6 @@
     "trajectory/input_tokens": 1.0,
     "trajectory/output_tokens": 1.0,
     "trajectory/steps": 1.0,
-    "trajectory/input_costs": null,
-    "trajectory/output_costs": null,
-    "trajectory/total_costs": null,
     "trajectory/trajectory_input_costs": null,
     "trajectory/trajectory_output_costs": null,
     "trajectory/trajectory_total_costs": null
@@ -143,9 +131,6 @@
     "trajectory/input_tokens": 1.0,
     "trajectory/output_tokens": 1.0,
     "trajectory/steps": 1.0,
-    "trajectory/input_costs": null,
-    "trajectory/output_costs": null,
-    "trajectory/total_costs": null,
     "trajectory/trajectory_input_costs": null,
     "trajectory/trajectory_output_costs": null,
     "trajectory/trajectory_total_costs": null
@@ -173,9 +158,6 @@
     "trajectory/input_tokens": null,
     "trajectory/output_tokens": null,
     "trajectory/steps": null,
-    "trajectory/input_costs": null,
-    "trajectory/output_costs": null,
-    "trajectory/total_costs": null,
     "trajectory/trajectory_input_costs": null,
     "trajectory/trajectory_output_costs": null,
     "trajectory/trajectory_total_costs": null

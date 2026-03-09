@@ -100,7 +100,10 @@ def _infer_metric_dtype(col: str) -> str:
 
 
 def _save_comments(df: pd.DataFrame, path: str):
-    df.to_json(path, orient="records", lines=True)
+    # Drop trajectory field before saving — it's only used internally
+    # to build the separate _trajectory.jsonl file
+    df_to_save = df.drop(columns=["trajectory"], errors="ignore")
+    df_to_save.to_json(path, orient="records", lines=True)
 
 
 def _save_trajectory(traj_df: pd.DataFrame, path: str):

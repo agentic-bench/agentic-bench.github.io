@@ -463,7 +463,7 @@ function renderParetoPlot() {
         const points = (data || [])
             .map(r => ({
                 agent: r.agent,
-                cost:  r['trajectory/total_costs'],
+                cost:  r['trajectory/trajectory_total_costs'],
                 score: r.overall_weighted_score,
             }))
             .filter(p => p.cost != null && p.score != null);

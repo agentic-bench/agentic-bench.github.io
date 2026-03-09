@@ -30,9 +30,9 @@
   "trajectory/input_tokens": "Input Tokens",
   "trajectory/output_tokens": "Output Tokens",
   "trajectory/steps": "Steps",
-  "trajectory/input_costs": "Input Cost (USD)",
-  "trajectory/output_costs": "Output Cost (USD)",
-  "trajectory/total_costs": "Total Cost (USD)",
+  "trajectory/trajectory_input_costs": "Input Cost (USD)",
+  "trajectory/trajectory_output_costs": "Output Cost (USD)",
+  "trajectory/trajectory_total_costs": "Total Cost (USD)",
   "metric/bug/is_bug_comment_type_relevant": "Comment Type Match",
   "trajectory/total_tokens": "Total Tokens"
 }

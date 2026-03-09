@@ -233,10 +233,7 @@ TRAJECTORY_FIELDS = [
     "input_tokens",
     "output_tokens",
     "steps",
-    "input_costs",
-    "output_costs",
-    "total_costs",
-    # New trajectory-level metrics from TrajectoryTokenMetrics evaluator
+    # Cost metrics calculated by TrajectoryCostMetrics evaluator
     "trajectory_input_costs",
     "trajectory_output_costs",
     "trajectory_total_costs",
@@ -275,12 +272,6 @@ def _aggregate_trajectory(traj_df: pd.DataFrame) -> dict:
             )
         except Exception:
             result[f"trajectory/{field}"] = None
-
-    # Prefer trajectory_*_costs over old *_costs fields (from new TrajectoryTokenMetrics evaluator)
-    for cost_field in ["input_costs", "output_costs", "total_costs"]:
-        new_field = f"trajectory_{cost_field}"
-        if result.get(f"trajectory/{new_field}") is not None:
-            result[f"trajectory/{cost_field}"] = result[f"trajectory/{new_field}"]
 
     return result
 
@@ -577,9 +568,9 @@ _BUILTIN_DISPLAY_NAMES = {
     "trajectory/input_tokens": "Input Tokens / Diff",
     "trajectory/output_tokens": "Output Tokens / Diff",
     "trajectory/steps": "Steps / Diff",
-    "trajectory/input_costs": "Input Cost / Diff (USD)",
-    "trajectory/output_costs": "Output Cost / Diff (USD)",
-    "trajectory/total_costs": "Total Cost / Diff (USD)",
+    "trajectory/trajectory_input_costs": "Input Cost / Diff (USD)",
+    "trajectory/trajectory_output_costs": "Output Cost / Diff (USD)",
+    "trajectory/trajectory_total_costs": "Total Cost / Diff (USD)",
 }
 
 

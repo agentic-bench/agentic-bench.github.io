@@ -20,9 +20,9 @@
         "trajectory/input_tokens",
         "trajectory/output_tokens",
         "trajectory/steps",
-        "trajectory/input_costs",
-        "trajectory/output_costs",
-        "trajectory/total_costs"
+        "trajectory/trajectory_input_costs",
+        "trajectory/trajectory_output_costs",
+        "trajectory/trajectory_total_costs"
       ]
     },
     "group_summary": {
@@ -45,7 +45,7 @@
       },
       "Trajectory": {
         "method": "pick",
-        "column": "trajectory/total_costs"
+        "column": "trajectory/trajectory_total_costs"
       }
     },
     "metric_aggregation": {
@@ -56,9 +56,9 @@
       "metric/human/llm_comment_edit_similarity_score": "mean",
       "metric/human/is_llm_human_aligned": "precision",
       "metric/human/is_llm_context_aligned": "precision",
-      "trajectory/input_costs": "sum",
-      "trajectory/output_costs": "sum",
-      "trajectory/total_costs": "sum"
+      "trajectory/trajectory_input_costs": "sum",
+      "trajectory/trajectory_output_costs": "sum",
+      "trajectory/trajectory_total_costs": "sum"
     },
     "display_names": {
       "metric/human/is_llm_human_aligned": "Human Alignment",
@@ -71,9 +71,9 @@
       "trajectory/input_tokens": "Input Tokens",
       "trajectory/output_tokens": "Output Tokens",
       "trajectory/steps": "Steps",
-      "trajectory/input_costs": "Input Cost (USD)",
-      "trajectory/output_costs": "Output Cost (USD)",
-      "trajectory/total_costs": "Total Cost (USD)",
+      "trajectory/trajectory_input_costs": "Input Cost (USD)",
+      "trajectory/trajectory_output_costs": "Output Cost (USD)",
+      "trajectory/trajectory_total_costs": "Total Cost (USD)",
       "agent": "Agent",
       "model": "Model",
       "total_diffs": "PRs",
@@ -102,9 +102,9 @@
         "trajectory/output_tokens",
         "trajectory/total_tokens",
         "trajectory/steps",
-        "trajectory/input_costs",
-        "trajectory/output_costs",
-        "trajectory/total_costs"
+        "trajectory/trajectory_input_costs",
+        "trajectory/trajectory_output_costs",
+        "trajectory/trajectory_total_costs"
       ]
     },
     "group_summary": {
@@ -122,7 +122,7 @@
       },
       "Trajectory": {
         "method": "pick",
-        "column": "trajectory/total_costs"
+        "column": "trajectory/trajectory_total_costs"
       }
     },
     "metric_aggregation": {
@@ -133,9 +133,9 @@
       "metric/bug/is_comment_location_relevant_matched": "precision",
       "metric/bug/is_comment_location_suggestion_matched": "precision",
       "metric/bug/is_comment_location_relevant_matched_recall": "recall",
-      "trajectory/input_costs": "sum",
-      "trajectory/output_costs": "sum",
-      "trajectory/total_costs": "sum"
+      "trajectory/trajectory_input_costs": "sum",
+      "trajectory/trajectory_output_costs": "sum",
+      "trajectory/trajectory_total_costs": "sum"
     },
     "display_names": {
       "metric/bug/is_comment_location_relevant_matched": "Precision (Loc+Rel)",
@@ -149,9 +149,9 @@
       "trajectory/output_tokens": "Output Tokens",
       "trajectory/total_tokens": "Total Tokens",
       "trajectory/steps": "Steps",
-      "trajectory/input_costs": "Input Cost (USD)",
-      "trajectory/output_costs": "Output Cost (USD)",
-      "trajectory/total_costs": "Total Cost (USD)",
+      "trajectory/trajectory_input_costs": "Input Cost (USD)",
+      "trajectory/trajectory_output_costs": "Output Cost (USD)",
+      "trajectory/trajectory_total_costs": "Total Cost (USD)",
       "agent": "Agent",
       "model": "Model",
       "total_diffs": "PRs",

@@ -162,7 +162,7 @@ body {
 }
 #benchmarks-panel-body {
     max-height: 400px;
-    overflow-y: scroll;
+    overflow-y: auto;
 }
 .info-panel-text {
     font-size: .875rem;

@@ -1,4 +1,4 @@
-# TrajectoryTokenMetrics.py
+# TrajectoryCostMetrics.py
 #
 # Description: Calculates trajectory-level cost metrics from token usage.
 #              Reads trajectory.input_tokens, trajectory.output_tokens, and
@@ -23,8 +23,8 @@ except ImportError:
     )
 
 
-class TrajectoryTokenMetrics(BaseEvaluator):
-    evaluation_name = "metric/ops/trajectory_token_metrics"
+class TrajectoryCostMetrics(BaseEvaluator):
+    evaluation_name = "metric/ops/trajectory_cost_metrics"
 
     # Provider inference mapping based on model name patterns
     PROVIDER_MAP = {
@@ -57,13 +57,13 @@ class TrajectoryTokenMetrics(BaseEvaluator):
         """
         model_lower = model_name.lower()
 
-        for pattern, provider in TrajectoryTokenMetrics.PROVIDER_MAP.items():
+        for pattern, provider in TrajectoryCostMetrics.PROVIDER_MAP.items():
             if pattern in model_lower:
                 return provider
 
         raise ValueError(
             f"Unknown model '{model_name}'. Cannot infer provider. "
-            f"Supported patterns: {list(TrajectoryTokenMetrics.PROVIDER_MAP.keys())}"
+            f"Supported patterns: {list(TrajectoryCostMetrics.PROVIDER_MAP.keys())}"
         )
 
     @staticmethod
@@ -106,7 +106,7 @@ class TrajectoryTokenMetrics(BaseEvaluator):
             }
 
         # Infer provider from model name (raises ValueError if unknown)
-        provider = TrajectoryTokenMetrics.infer_provider(model)
+        provider = TrajectoryCostMetrics.infer_provider(model)
 
         # Calculate costs using genai_prices
         try:
@@ -149,7 +149,7 @@ class TrajectoryTokenMetrics(BaseEvaluator):
             logger.error(
                 "Error calculating costs",
                 extra={
-                    "evaluator": "TrajectoryTokenMetrics",
+                    "evaluator": "TrajectoryCostMetrics",
                     "model": model,
                     "provider": provider,
                     "error": str(e),

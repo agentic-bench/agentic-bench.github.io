@@ -18,11 +18,12 @@ A benchmarking pipeline for evaluating LLM-based code review agents on real-worl
    - [LLM-Comments (Submission)](#llm-comments-submission)
    - [Eval-Results (Output)](#eval-results-output)
 5. [Two-Step Pipeline](#two-step-pipeline)
-6. [Metric Aggregation Modes](#metric-aggregation-modes)
-7. [benchmark_info.json Reference](#benchmark_infojson-reference)
-8. [How to Submit](#how-to-submit)
-9. [Converting Old-Format Files](#converting-old-format-files)
-10. [Leaderboard HTML](#leaderboard-html)
+6. [Trajectory & Cost Metrics](#trajectory--cost-metrics)
+7. [Metric Aggregation Modes](#metric-aggregation-modes)
+8. [benchmark_info.json Reference](#benchmark_infojson-reference)
+9. [How to Submit](#how-to-submit)
+10. [Evaluator Architecture](#evaluator-architecture)
+11. [Leaderboard HTML](#leaderboard-html)
 
 ---
 
@@ -124,7 +125,7 @@ One JSON line per diff. Filename: `{agent_id}_{YYYYMMDD-HHMM}.jsonl`
   "diff_id": "airflow_issue_10616_pr_10617_l_6bfba8c5",
   "submission": {
     "agent_id":  "my-agent",
-    "model":     "claude-3-5-sonnet",  // MANDATORY - used for cost calculation via TrajectoryTokenMetrics
+    "model":     "claude-3-5-sonnet",  // MANDATORY - used for cost calculation via TrajectoryCostMetrics
     "timestamp": "20260301-0900",
     "extra":     {}
   },
@@ -150,12 +151,11 @@ One JSON line per diff. Filename: `{agent_id}_{YYYYMMDD-HHMM}.jsonl`
 
 **Field rules:**
 - `diff_id` — must match `dataset.jsonl`
-- `submission.model` — **MANDATORY** - used by `TrajectoryTokenMetrics` evaluator for automatic cost calculation
+- `submission.model` — **MANDATORY** - used by `TrajectoryCostMetrics` evaluator for automatic cost calculation
 - `submission.*` — other sub-fields optional (use `null` if unknown)
 - `trajectory.{input_tokens, output_tokens, steps}` — **MANDATORY** - used for cost calculation
 - `trajectory.total_tokens` — optional (can be calculated from input + output)
 - `trajectory.extra` — put non-standard fields here (e.g., tool_calls, requests)
-- **Cost fields removed**: `input_costs`, `output_costs`, `total_costs` now auto-calculated by evaluator
 - `reviews[].file` — path relative to repo root
 - `reviews[].line` — single integer (no `line_end`); evaluators apply ±5 line fuzzy window
 - `reviews[].comment` — the comment text
@@ -198,6 +198,9 @@ Two files written per submission stem:
 
 #### `{stem}_trajectory.jsonl` — one row per diff (no redundancy)
 
+Contains trajectory metrics aggregated per diff. The `trajectory` field from the input submission
+is extracted here and enriched with **cost calculations** from the `TrajectoryCostMetrics` evaluator.
+
 ```json
 {
   "diff_id":      "airflow_issue_10616_pr_10617_l_6bfba8c5",
@@ -208,12 +211,16 @@ Two files written per submission stem:
     "input_tokens":  12000,
     "output_tokens": 800,
     "steps":         3,
-    "input_costs":   0.036,
-    "output_costs":  0.016,
-    "total_costs":   0.052
+    "trajectory_input_costs":   0.036,
+    "trajectory_output_costs":  0.016,
+    "trajectory_total_costs":   0.052
   }
 }
 ```
+
+**Important:** Cost fields (`trajectory_*_costs`) are **computed outputs** and only appear in 
+`*_trajectory.jsonl` files. They are calculated by the `TrajectoryCostMetrics` evaluator using the 
+`submission.model` field and token counts from the submission.
 
 #### `{stem}_eval.log` — JSONL log of LLM judge calls
 
@@ -284,6 +291,26 @@ The leaderboard:
 4. Computes per-group summary scores (`group_summary`)
 5. Computes `task_accomplishment_rate` using `task_accomplishment_mode`
 6. Writes `data_*.json`, `benchmark_meta.json`, `metric_display_names.json`, `output_filelist.json`, `statistics.json`
+
+---
+
+## Trajectory & Cost Metrics
+
+The pipeline uses a dedicated `TrajectoryCostMetrics` evaluator to calculate cost metrics:
+
+- **Input:** Token counts from `submission.trajectory` (`input_tokens`, `output_tokens`) and `submission.model` name
+- **Process:** Uses the `genai-prices` library to map model names to provider pricing and compute costs
+- **Output:** `trajectory_input_costs`, `trajectory_output_costs`, `trajectory_total_costs` in `*_trajectory.jsonl`
+
+**Data separation:**
+- `llm-comments/*.jsonl` (submissions): Contains only token counts and steps, **NO costs**
+- `eval-results/*_comments.jsonl`: Comment-level metrics only, **NO trajectory field**
+- `eval-results/*_trajectory.jsonl`: Full trajectory data including computed costs
+
+This design ensures:
+1. Costs are never submitted by agents — they're always computed deterministically
+2. Clear distinction between input data (tokens) and computed outputs (costs)
+3. Pareto frontier plot (cost vs. performance) is always consistent and reproducible
 
 ---
 
@@ -386,6 +413,38 @@ Metrics not listed in `metric_aggregation` default to `precision` for `bool` ret
    - `benchmarks/{benchmark}/eval-results/{stem}_comments.jsonl`
    - `benchmarks/{benchmark}/eval-results/{stem}_trajectory.jsonl`
    - Updated `leaderboard/data/*.json`
+
+---
+
+## Evaluator Architecture
+
+The evaluator system is built on the `BaseEvaluator` class in `src/evaluators/base.py`:
+
+```python
+class BaseEvaluator:
+    evaluation_name = "metric/group/evaluator_name"
+    
+    def evaluate(self, diff_row, submission, prior_evals) -> dict:
+        """Returns {metric_name: score} or {metric_name: None} if not applicable."""
+        pass
+```
+
+**Key evaluators:**
+
+| Class | Module | Purpose | Output |
+|---|---|---|---|
+| `TrajectoryCostMetrics` | `ops/` | Calculates monetary costs from token counts | `trajectory_input_costs`, `trajectory_output_costs`, `trajectory_total_costs` |
+| `IsHumanLLMLocationMatched` | `human/` | Location matching with fuzzy window | `metric/human/is_human_llm_location_matched` |
+| `IsLLMHumanAligned` | `human/` | Overall human alignment (composite) | `metric/human/is_llm_human_aligned` |
+| `IsBugLocationMatched` | `bug/` | Exact location match for security bugs | `metric/bug/is_bug_location_matched` |
+| `IsBugCommentTypeRelevant` | `bug/` | CWE-aware semantic matching | `metric/bug/is_bug_comment_type_relevant` |
+| `IsLLMContextAligned` | `judge/` | LLM-as-judge: context relevance | `metric/judge/is_comment_context_aligned` |
+| `IsCommentInformative` | `judge/` | LLM-as-judge: informativeness | `metric/judge/is_comment_informative` |
+
+**Evaluation order matters:**
+- Evaluators listed in `benchmark_info.json → evaluator_classes` run in order
+- Composite metrics (e.g., `IsLLMHumanAligned`) depend on prior evaluators
+- Results from prior evaluators are passed via `prior_evals` parameter
 
 ---
 
