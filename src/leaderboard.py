@@ -342,9 +342,21 @@ def _aggregate_benchmark(
         eval_df = load_eval_comments(str(comments_path))
         traj_df = load_eval_trajectory(str(traj_path))
 
-        # Extract submission metadata from first row
+        # Extract submission metadata and evaluation version from first row
+        # Read evaluation_version directly from JSONL to preserve string format
         model = ""
         timestamp = ""
+        evaluation_version = None
+        try:
+            import json
+            with open(comments_path, 'r') as f:
+                first_line = f.readline()
+                if first_line:
+                    first_obj = json.loads(first_line)
+                    evaluation_version = first_obj.get("evaluation_version", None)
+        except Exception:
+            pass
+        
         if not eval_df.empty:
             first = eval_df.iloc[0]
             # Try to extract model from submission dict (new format)
@@ -445,6 +457,7 @@ def _aggregate_benchmark(
                 "agent": agent_id,
                 "model": model,
                 "timestamp": timestamp,
+                "evaluation_version": evaluation_version,
                 "benchmark": benchmark.name,
                 "benchmark_goal": benchmark.benchmark_goal,
                 "dataset_total_diffs": dataset_total,
@@ -631,23 +644,31 @@ def update_leaderboard(
             print(f"  No eval-result files found, skipping.")
             continue
 
-        print(f"  Stems found: {stems}")
+        print(f"  Stems found: {len(stems)} submission(s)")
 
         agents_perf = _aggregate_benchmark(
             benchmark, stems, gt_df, benchmarks_root, dir_name=bname
         )
 
+        # Collect evaluation versions used
+        eval_versions = set()
         for ap in agents_perf:
             all_agents.add(ap.get("agent", ""))
             all_models.add(ap.get("model", ""))
             total_diffs += ap.get("total_diffs", 0)
             total_comments += ap.get("total_comments", 0)
+            if ap.get("evaluation_version"):
+                eval_versions.add(ap["evaluation_version"])
 
         out_filename = f"data_{benchmark.name}.json"
         out_file = output_path / out_filename
         with open(out_file, "w") as f:
             json.dump(agents_perf, f, indent=2)
-        print(f"  Written: {out_file}  ({len(agents_perf)} agent rows)")
+        
+        # Show evaluation versioning summary
+        version_summary = ", ".join(str(v) for v in sorted(eval_versions)) if eval_versions else "N/A"
+        print(f"  Agents: {len(agents_perf)} | Eval Version(s): {version_summary}")
+        print(f"  Written: {out_file}")
         output_filelist.append(out_filename)
 
     # output_filelist.json
@@ -675,12 +696,131 @@ def update_leaderboard(
     with open(output_path / "metric_display_names.json", "w") as f:
         json.dump(_build_display_names(benchmarks_root), f, indent=2)
 
+    # Generate evaluation versions HTML page
+    _generate_evaluation_versions_page(benchmarks, benchmarks_root, Path(output_dir))
+
     print(f"\n=== Leaderboard updated ===")
     print(f"  Benchmarks : {len(output_filelist)}")
     print(f"  Agents     : {len(all_agents)}")
     print(f"  Models     : {len(all_models)}")
     print(f"  Diffs      : {total_diffs}")
     print(f"  Comments   : {total_comments}")
+
+
+def _generate_evaluation_versions_page(benchmarks: list[str], benchmarks_root: str, output_path: Path):
+    """Generate evaluation-versions.html page from evaluation_versions.json files."""
+    
+    # Load base template
+    template_file = Path(__file__).parent.parent / "leaderboard" / "templates" / "evaluation-versions.html"
+    if not template_file.exists():
+        print(f"  Warning: Template file not found: {template_file}")
+        return
+    
+    with open(template_file) as f:
+        template_content = f.read()
+    
+    # Build tab navigation and content for each benchmark
+    tab_nav_parts = []
+    tab_content_parts = []
+    
+    for idx, bname in enumerate(benchmarks):
+        versions_file = Path(benchmarks_root) / bname / "evaluation_versions.json"
+        changelog_file = Path(benchmarks_root) / bname / "evaluation_changelog.md"
+        if not versions_file.exists():
+            continue
+            
+        with open(versions_file) as f:
+            versions_data = json.load(f)
+        
+        # Read changelog markdown if available
+        changelog_content = ""
+        if changelog_file.exists():
+            with open(changelog_file) as f:
+                changelog_content = f.read()
+        
+        benchmark = load_benchmark(bname, benchmarks_root=benchmarks_root)
+        display_name = benchmark.display_name or bname
+        tab_id = f"tab-{bname}"
+        is_active = idx == 0
+        
+        # Build tab navigation item
+        active_class = "active" if is_active else ""
+        tab_nav_parts.append(f'''
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link {active_class}" id="{tab_id}-tab" data-bs-toggle="tab" 
+                            data-bs-target="#{tab_id}" type="button" role="tab">
+                        {display_name}
+                    </button>
+                </li>''')
+        
+        # Build tab content pane
+        current_version = versions_data.get("current_version", "N/A")
+        versions = versions_data.get("versions", {})
+        
+        version_cards = []
+        for version, version_info in sorted(versions.items(), reverse=True):
+            is_current = version == current_version
+            badge = '<span class="badge bg-success ms-2">Current</span>' if is_current else ''
+            
+            released = version_info.get("released_date", "Unknown")
+            evaluators = version_info.get("evaluators", [])
+            
+            # Extract description from changelog markdown if available
+            description = version_info.get("changes", "No details provided")
+            if changelog_content:
+                import re
+                # Find the version section in markdown (e.g., "## Version 1.0")
+                pattern = rf'## Version {re.escape(version)}.*?\n\n\*\*Description:\*\* (.+?)\n'
+                match = re.search(pattern, changelog_content, re.DOTALL)
+                if match:
+                    description = match.group(1).strip()
+            
+            evaluator_list = []
+            for evaluator in evaluators:
+                eval_class = evaluator.get("class", "Unknown")
+                llm_model = evaluator.get("llm_model")
+                if llm_model:
+                    evaluator_list.append(f'<li><code>{eval_class}</code> <span class="badge bg-info">LLM: {llm_model}</span></li>')
+                else:
+                    evaluator_list.append(f'<li><code>{eval_class}</code></li>')
+            
+            version_cards.append(f'''
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h6 class="mb-0 fw-bold">Version {version} {badge}</h6>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted small mb-3"><i class="fas fa-calendar me-2"></i>Released: {released}</p>
+                        <div class="alert alert-info mb-3">
+                            <strong>Description:</strong> {description}
+                        </div>
+                        <p class="mb-2"><strong>Evaluators ({len(evaluators)}):</strong></p>
+                        <ul class="mb-0">
+                            {''.join(evaluator_list)}
+                        </ul>
+                    </div>
+                </div>''')
+        
+        show_class = "show active" if is_active else ""
+        tab_content_parts.append(f'''
+            <div class="tab-pane fade {show_class}" id="{tab_id}" role="tabpanel">
+                <div class="p-4">
+                    {''.join(version_cards)}
+                </div>
+            </div>''')
+    
+    tabs_nav_html = '\n'.join(tab_nav_parts)
+    tabs_content_html = '\n'.join(tab_content_parts)
+    
+    # Replace placeholders in template
+    html_content = template_content.replace("{{TAB_NAVIGATION}}", tabs_nav_html)
+    html_content = html_content.replace("{{TAB_CONTENT}}", tabs_content_html)
+    
+    output_file = output_path / "evaluation-versions.html"
+    with open(output_file, 'w') as f:
+        f.write(html_content)
+    
+    print(f"  Written: {output_file}")
 
 
 if __name__ == "__main__":

@@ -448,6 +448,71 @@ class BaseEvaluator:
 
 ---
 
+## Evaluation Versioning
+
+Each benchmark maintains an **evaluation version** that represents a snapshot of all metrics and LLM judges used for that benchmark. This allows tracking when evaluation criteria change and helps maintain result comparability.
+
+### Philosophy
+
+- **Version represents the entire evaluator set** - Not individual evaluators
+- **Independent per benchmark** - ContextCRBench and SCRBench have separate version numbers
+- **Semantic versioning** - MAJOR.MINOR format
+  - **MAJOR bump** (e.g., 1.0 → 2.0): Add/remove evaluator, change LLM model, major prompt changes
+  - **MINOR bump** (e.g., 1.0 → 1.1): Model version update, bug fixes, minor prompt tweaks
+
+### Files
+
+**Per-benchmark versioning files:**
+
+- `benchmarks/{benchmark}/evaluation_versions.json` - Machine-readable version definitions
+  ```json
+  {
+    "current_version": "1.0",
+    "versions": {
+      "1.0": {
+        "released_date": "2026-01-10",
+        "evaluators": [
+          {"class": "human.IsLLMContextAligned", "llm_model": "gpt-5.1-2025-11-13"},
+          {"class": "ops.TrajectoryCostMetrics", "llm_model": null}
+        ]
+      }
+    }
+  }
+  ```
+
+- `benchmarks/{benchmark}/evaluation_changelog.md` - Human-readable changelog with version descriptions
+
+### Workflow for Maintainers
+
+#### When to Bump Versions
+
+**MAJOR version bump:**
+- Adding a new evaluator
+- Removing an evaluator
+- Switching to a different LLM model (e.g., gpt-4 → gpt-5)
+- Major changes to evaluation prompts or logic
+
+**MINOR version bump:**
+- Updating to a newer version of the same model (e.g., gpt-5.0 → gpt-5.1)
+- Bug fixes in evaluator code
+- Minor prompt improvements
+
+#### How to Bump a Version
+
+1. **Update evaluation_versions.json** - Change `current_version` and add new version entry
+2. **Update evaluation_changelog.md** - Add description of changes
+3. **Update benchmark_info.json** - Change `current_version` field
+4. **Run leaderboard generator** - `python src/leaderboard.py` to regenerate with new version
+
+### Viewing Evaluation Versions
+
+- **In leaderboard table:** Hover over agent name to see evaluation version in tooltip
+- **Evaluation Versions page:** Click "Evaluation Versions" button in navbar for full version history
+
+⚠️ **Important:** Results from different evaluation versions may not be directly comparable.
+
+---
+
 ## leaderboard HTML
 
 The leaderboard is a self-contained static HTML app in `leaderboard/`.

@@ -1,0 +1,45 @@
+{
+  "benchmark_name": "scrbench",
+  "current_version": "1.0",
+  "versions": {
+    "1.0": {
+      "description": "Initial evaluation version - baseline metric set for bug capacity",
+      "released_date": "2026-01-10",
+      "evaluators": [
+        {
+          "class": "bug.IsBugLocationMatched",
+          "llm_model": null
+        },
+        {
+          "class": "bug.IsBugCommentRelevant",
+          "llm_model": "gpt-4.1-2025-04-14"
+        },
+        {
+          "class": "bug.IsBugCommentTypeRelevant",
+          "llm_model": null
+        },
+        {
+          "class": "bug.IsBugSuggestionValid",
+          "llm_model": "gpt-4.1-2025-04-14"
+        },
+        {
+          "class": "bug.IsCommentLocationRelevantMatched",
+          "llm_model": null
+        },
+        {
+          "class": "bug.IsCommentLocationSuggestionMatched",
+          "llm_model": null
+        },
+        {
+          "class": "bug.IsCommentLocationRelevantMatchedRecall",
+          "llm_model": null
+        },
+        {
+          "class": "ops.TrajectoryCostMetrics",
+          "llm_model": null
+        }
+      ],
+      "notes": "8 evaluators total: 2 use LLM models (IsBugSuggestionValid and IsCommentInformative with gpt-4.1)"
+    }
+  }
+}

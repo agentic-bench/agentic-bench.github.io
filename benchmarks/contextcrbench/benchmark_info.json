@@ -2,6 +2,7 @@
   "name": "contextcrbench",
   "tab_order": 1,
   "display_name": "ContextCRBench",
+  "current_version": "1.0",
   "benchmark_goal": "human-alignment",
   "dataset_total_diffs": 421,
   "task_accomplishment_mode": "submitted",

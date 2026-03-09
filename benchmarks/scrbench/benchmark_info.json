@@ -2,6 +2,7 @@
   "name": "scrbench",
   "tab_order": 2,
   "display_name": "SCRBench",
+  "current_version": "1.0",
   "benchmark_goal": "bug-capacity",
   "dataset_total_diffs": 144,
   "task_accomplishment_mode": "has_reviews",
@@ -18,16 +19,16 @@
     "ops.TrajectoryCostMetrics"
   ],
   "metric_aggregation": {
-    "metric/bug/is_bug_location_matched":                     "precision",
-    "metric/bug/is_bug_comment_relevant":                     "precision",
-    "metric/bug/is_bug_comment_type_relevant":                "precision",
-    "metric/bug/is_bug_suggestion_valid":                     "precision",
-    "metric/bug/is_comment_location_relevant_matched":        "precision",
-    "metric/bug/is_comment_location_suggestion_matched":      "precision",
+    "metric/bug/is_bug_location_matched": "precision",
+    "metric/bug/is_bug_comment_relevant": "precision",
+    "metric/bug/is_bug_comment_type_relevant": "precision",
+    "metric/bug/is_bug_suggestion_valid": "precision",
+    "metric/bug/is_comment_location_relevant_matched": "precision",
+    "metric/bug/is_comment_location_suggestion_matched": "precision",
     "metric/bug/is_comment_location_relevant_matched_recall": "recall",
-    "trajectory/trajectory_input_costs":                                 "sum",
-    "trajectory/trajectory_output_costs":                                "sum",
-    "trajectory/trajectory_total_costs":                                 "sum"
+    "trajectory/trajectory_input_costs": "sum",
+    "trajectory/trajectory_output_costs": "sum",
+    "trajectory/trajectory_total_costs": "sum"
   },
   "leaderboard": {
     "primary_metric": "metric/bug/is_comment_location_relevant_matched",
@@ -70,25 +71,25 @@
       }
     },
     "display_names": {
-      "metric/bug/is_comment_location_relevant_matched":        "Precision (Loc+Rel)",
+      "metric/bug/is_comment_location_relevant_matched": "Precision (Loc+Rel)",
       "metric/bug/is_comment_location_relevant_matched_recall": "Recall (Loc+Rel)",
-      "metric/bug/is_bug_location_matched":                     "Location Match",
-      "metric/bug/is_bug_comment_relevant":                     "Comment Relevance",
-      "metric/bug/is_bug_comment_type_relevant":                "Comment Type Match",
-      "metric/bug/is_bug_suggestion_valid":                     "Suggestion Quality",
-      "metric/bug/is_comment_location_suggestion_matched":      "Precision (Loc+Sug)",
-      "trajectory/input_tokens":                                "Input Tokens",
-      "trajectory/output_tokens":                               "Output Tokens",
-      "trajectory/total_tokens":                                "Total Tokens",
-      "trajectory/steps":                                       "Steps",
-      "trajectory/trajectory_input_costs":                                 "Input Cost (USD)",
-      "trajectory/trajectory_output_costs":                                "Output Cost (USD)",
-      "trajectory/trajectory_total_costs":                                 "Total Cost (USD)",
-      "agent":                                                  "Agent",
-      "model":                                                  "Model",
-      "total_diffs":                                            "PRs",
-      "total_comments":                                         "Comments",
-      "overall_weighted_score":                                 "Score"
+      "metric/bug/is_bug_location_matched": "Location Match",
+      "metric/bug/is_bug_comment_relevant": "Comment Relevance",
+      "metric/bug/is_bug_comment_type_relevant": "Comment Type Match",
+      "metric/bug/is_bug_suggestion_valid": "Suggestion Quality",
+      "metric/bug/is_comment_location_suggestion_matched": "Precision (Loc+Sug)",
+      "trajectory/input_tokens": "Input Tokens",
+      "trajectory/output_tokens": "Output Tokens",
+      "trajectory/total_tokens": "Total Tokens",
+      "trajectory/steps": "Steps",
+      "trajectory/trajectory_input_costs": "Input Cost (USD)",
+      "trajectory/trajectory_output_costs": "Output Cost (USD)",
+      "trajectory/trajectory_total_costs": "Total Cost (USD)",
+      "agent": "Agent",
+      "model": "Model",
+      "total_diffs": "PRs",
+      "total_comments": "Comments",
+      "overall_weighted_score": "Score"
     }
   }
 }

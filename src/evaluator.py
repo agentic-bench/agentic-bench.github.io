@@ -38,6 +38,7 @@ from dataloader import (
     parse_submission_filename,
 )
 from evaluators.base import BaseEvaluator
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +93,55 @@ def _get_diff_text(diff_id: str, dataset_df: pd.DataFrame | None) -> str:
     return str(matched.iloc[0].get("diff", "")) if not matched.empty else ""
 
 
+def _load_evaluation_metadata(benchmark_name: str, benchmarks_root: str) -> dict:
+    """Load evaluation version from evaluation_versions.json.
+    
+    Returns dict with:
+      - evaluation_version: version string to store in eval-results
+      - _full_metadata: full version info for console display only (not stored)
+    """
+    versions_path = Path(benchmarks_root) / benchmark_name / "evaluation_versions.json"
+    
+    if not versions_path.exists():
+        logger.warning(f"evaluation_versions.json not found: {versions_path}")
+        return {}
+    
+    try:
+        with open(versions_path) as f:
+            versions_data = json.load(f)
+        
+        current_version = versions_data.get("current_version")
+        if not current_version:
+            logger.warning(f"No current_version in {versions_path}")
+            return {}
+        
+        version_info = versions_data.get("versions", {}).get(current_version, {})
+        
+        # Build minimal metadata for storage (only version number)
+        metadata = {
+            "evaluation_version": current_version
+        }
+        
+        # Build full metadata for console display (not stored in files)
+        llm_models = []
+        for evaluator in version_info.get("evaluators", []):
+            if evaluator.get("llm_model"):
+                llm_models.append({
+                    "evaluator": evaluator["class"],
+                    "model": evaluator["llm_model"]
+                })
+        
+        metadata["_full_metadata"] = {
+            "evaluation_date": version_info.get("released_date", ""),
+            "llm_models_used": llm_models
+        }
+        
+        return metadata
+    except Exception as ex:
+        logger.error(f"Error loading evaluation metadata: {ex}")
+        return {}
+
+
 def _infer_metric_dtype(col: str) -> str:
     """Infer pandas dtype from metric column name."""
     if "_score" in col:
@@ -99,14 +149,23 @@ def _infer_metric_dtype(col: str) -> str:
     return "boolean"
 
 
-def _save_comments(df: pd.DataFrame, path: str):
+def _save_comments(df: pd.DataFrame, path: str, eval_metadata: dict = None):
     # Drop trajectory field before saving — it's only used internally
     # to build the separate _trajectory.jsonl file
     df_to_save = df.drop(columns=["trajectory"], errors="ignore")
+    
+    # Add only evaluation_version to each row (minimal metadata)
+    if eval_metadata and "evaluation_version" in eval_metadata:
+        df_to_save["evaluation_version"] = eval_metadata["evaluation_version"]
+    
     df_to_save.to_json(path, orient="records", lines=True)
 
 
-def _save_trajectory(traj_df: pd.DataFrame, path: str):
+def _save_trajectory(traj_df: pd.DataFrame, path: str, eval_metadata: dict = None):
+    # Add only evaluation_version to each row (minimal metadata)
+    if eval_metadata and "evaluation_version" in eval_metadata:
+        traj_df["evaluation_version"] = eval_metadata["evaluation_version"]
+    
     traj_df.to_json(path, orient="records", lines=True)
 
 
@@ -146,14 +205,26 @@ def run_evaluator(
     input_path: str,
     benchmarks_root: str = "benchmarks",
 ):
-    # 1. Load benchmark config
+    # 1. Load benchmark config and evaluation metadata
     benchmark = load_benchmark(benchmark_name, benchmarks_root=benchmarks_root)
     evaluator_classes = _get_evaluator_classes(benchmark)
+    eval_metadata = _load_evaluation_metadata(benchmark_name, benchmarks_root)
 
     if not evaluator_classes:
         raise ValueError(
             f"No evaluator classes resolved for benchmark '{benchmark_name}'."
         )
+    
+    # Log evaluation version info
+    if eval_metadata.get("evaluation_version"):
+        print(f"\n=== Evaluation Version: {eval_metadata['evaluation_version']} ===")
+        full_meta = eval_metadata.get("_full_metadata", {})
+        if full_meta.get("llm_models_used"):
+            print("  LLM Models Used:")
+            for model_info in full_meta["llm_models_used"]:
+                print(f"    - {model_info['evaluator']}: {model_info['model']}")
+    else:
+        logger.warning("No evaluation version metadata found")
 
     # 2. Parse submission metadata from filename
     filename = Path(input_path).name
@@ -200,6 +271,16 @@ def run_evaluator(
                 if len(existing_df) == len(comments_df)
                 else pd.NA
             )
+        # Check if existing evaluation version matches current
+        if eval_metadata:
+            existing_version = existing_df.iloc[0].get("evaluation_version") if not existing_df.empty else None
+            current_version = eval_metadata.get("evaluation_version")
+            if existing_version and existing_version != current_version:
+                logger.warning(
+                    f"Evaluation version mismatch: "
+                    f"existing={existing_version}, current={current_version}. "
+                    f"Previous results will be overwritten."
+                )
         print(f"  Resuming from existing: {comments_path}")
         print(f"  Existing metric columns: {metric_cols}")
 
@@ -309,21 +390,28 @@ def run_evaluator(
                 comments_df.at[idx, col] = result
 
                 if i > 0 and i % SAVE_INTERVAL == 0:
-                    _save_comments(comments_df, comments_path)
+                    _save_comments(comments_df, comments_path, eval_metadata)
 
-            _save_comments(comments_df, comments_path)
+            _save_comments(comments_df, comments_path, eval_metadata)
 
     # 9. Final save of comments
-    _save_comments(comments_df, comments_path)
+    _save_comments(comments_df, comments_path, eval_metadata)
 
     # 10. Write trajectory file (one row per diff_id — no redundancy)
     traj_df = _build_trajectory_df(comments_df)
-    _save_trajectory(traj_df, trajectory_path)
+    _save_trajectory(traj_df, trajectory_path, eval_metadata)
 
     # 11. Summary
     print(f"\n=== Evaluation Summary ===")
     print(f"  Benchmark   : {benchmark_name}")
     print(f"  Agent       : {agent_id}  (model: {model})")
+    if eval_metadata.get("evaluation_version"):
+        full_meta = eval_metadata.get("_full_metadata", {})
+        eval_date = full_meta.get("evaluation_date", "N/A")
+        print(f"  Eval Version: {eval_metadata['evaluation_version']} ({eval_date})")
+        if full_meta.get("llm_models_used"):
+            llm_count = len(full_meta["llm_models_used"])
+            print(f"  LLM Judges  : {llm_count} evaluator(s)")
     print(f"  Diffs       : {comments_df['diff_id'].nunique()}")
     print(f"  Comments    : {len(comments_df)}")
     print(f"  Comments →  : {comments_path}")

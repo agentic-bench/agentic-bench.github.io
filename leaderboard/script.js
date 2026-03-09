@@ -276,7 +276,9 @@ function renderTable(idx) {
         fixedCols.forEach((col, i) => {
             let cell = formatValue(row[col], col, tabName);
             if (col === 'agent') {
-                cell = `<span class="rank-badge ${getRankClass(row._rank)}">${row._rank}</span>&nbsp;${row[col]}`;
+                const evalVersion = row.evaluation_version || 'N/A';
+                const tooltip = `Evaluation Version: ${evalVersion}`;
+                cell = `<span class="rank-badge ${getRankClass(row._rank)}">${row._rank}</span>&nbsp;<span class="eval-version-cell" data-eval-version="${evalVersion}" title="${tooltip}" style="cursor:help;border-bottom:1px dotted var(--text-muted);position:relative;display:inline-block">${row[col]} <i class="fas fa-info-circle" style="font-size:0.75em;opacity:0.6"></i></span>`;
             } else if (col === 'overall_weighted_score') {
                 cell = `<span class="score-badge score-badge-primary">${formatValue(row[col], col, tabName)}</span>`;
             }
