@@ -4,6 +4,13 @@
   "display_name": "SCRBench",
   "current_version": "1.0",
   "benchmark_goal": "bug-capacity",
+  "primary_metric": "metric/bug/is_bug_location_matched",
+  "venn_diagram": {
+    "enabled": true,
+    "primary_metric": "metric/bug/is_bug_location_matched",
+    "top_n_agents": 3,
+    "min_score_threshold": 0.0
+  },
   "dataset_total_diffs": 144,
   "task_accomplishment_mode": "has_reviews",
   "description": "Measures how well LLM-generated comments detect and localize real security vulnerabilities (CWEs) in version-control commits.",

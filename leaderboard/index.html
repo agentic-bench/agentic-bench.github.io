@@ -70,19 +70,37 @@
                 <div class="tab-content" id="leaderboard-tab-contents"></div>
             </div>
         </div>
-    </div>
 
-    <!-- Pareto frontier panel — cost vs performance scatter plot, full width above info panels -->
-    <div class="container-xl my-3 px-4">
-        <div class="info-panel" id="pareto-panel">
-            <div class="info-panel-header">
-                <i class="fas fa-chart-scatter me-2"></i>
-                Cost vs. Performance
-                <span style="font-size:.68rem;font-weight:500;background:var(--bg-surface3);color:var(--text-muted);border:1px solid var(--border);border-radius:4px;padding:1px 7px;margin-left:.5rem;vertical-align:middle">Experimental</span>
-                <span class="ms-auto" style="font-size:.75rem;font-weight:400;color:var(--text-muted)">X = total cost ($) &nbsp;·&nbsp; Y = overall score</span>
+        <!-- Venn Diagram and Pareto Plot side by side -->
+        <div class="row mt-4 g-4">
+            <!-- Venn Diagram (Left Column) -->
+            <div class="col-lg-6">
+                <div class="info-panel" id="venn-diagram-container" style="height:100%">
+                    <div class="info-panel-header">
+                        <i class="fas fa-circle-nodes me-2"></i> 
+                        <span id="venn-title">Agent Overlap Analysis</span>
+                        <span style="font-size:.68rem;font-weight:500;background:var(--bg-surface3);color:var(--text-muted);border:1px solid var(--border);border-radius:4px;padding:1px 7px;margin-left:.5rem;vertical-align:middle">Experimental</span>
+                    </div>
+                    <div class="info-panel-body">
+                        <div id="venn-diagram-svg" style="text-align:center"></div>
+                        <div id="venn-diagram-explanation"></div>
+                    </div>
+                </div>
             </div>
-            <div class="info-panel-body" id="pareto-panel-body">
-                <p class="info-panel-text text-muted small">Loading…</p>
+
+            <!-- Pareto Plot (Right Column) -->
+            <div class="col-lg-6">
+                <div class="info-panel" id="pareto-panel" style="height:100%">
+                    <div class="info-panel-header">
+                        <i class="fas fa-chart-scatter me-2"></i>
+                        Cost vs. Performance
+                        <span style="font-size:.68rem;font-weight:500;background:var(--bg-surface3);color:var(--text-muted);border:1px solid var(--border);border-radius:4px;padding:1px 7px;margin-left:.5rem;vertical-align:middle">Experimental</span>
+                        <span class="ms-auto" style="font-size:.75rem;font-weight:400;color:var(--text-muted)">X = total cost ($) &nbsp;·&nbsp; Y = overall score</span>
+                    </div>
+                    <div class="info-panel-body" id="pareto-panel-body">
+                        <p class="info-panel-text text-muted small">Loading…</p>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -181,6 +199,8 @@
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/venn.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

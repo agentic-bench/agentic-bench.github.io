@@ -30,6 +30,12 @@
     "trajectory/trajectory_output_costs": "sum",
     "trajectory/trajectory_total_costs": "sum"
   },
+  "venn_diagram": {
+    "enabled": true,
+    "primary_metric": "metric/human/is_llm_context_aligned",
+    "top_n_agents": 3,
+    "min_score_threshold": 0.0
+  },
   "leaderboard": {
     "primary_metric": "metric/human/is_llm_context_aligned",
     "column_groups": {

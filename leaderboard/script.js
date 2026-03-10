@@ -126,10 +126,13 @@ async function init() {
 
     if (fileList && fileList.length) {
         const results = await Promise.all(fileList.map(async filename => {
-            const data = await fetchJSON(`data/${filename}`);
+            const rawData = await fetchJSON(`data/${filename}`);
             const tabName = getTabName(filename);
             const meta = benchmarkMeta[tabName] || {};
-            return data ? { filename, tabName, data, meta } : null;
+            // Handle both old format (array) and new format ({agents: [...], venn_diagram: {...}})
+            const data = Array.isArray(rawData) ? rawData : (rawData && rawData.agents ? rawData.agents : rawData);
+            const venn_diagram = (!Array.isArray(rawData) && rawData && rawData.venn_diagram) ? rawData.venn_diagram : null;
+            return rawData ? { filename, tabName, data, meta, venn_diagram } : null;
         }));
         leaderboardData = results.filter(Boolean);
     }
@@ -163,7 +166,8 @@ function renderTabs() {
             <li class="nav-item" role="presentation">
                 <button class="nav-link ${isActive ? 'active' : ''}"
                     id="tab-btn-${idx}" data-bs-toggle="tab"
-                    data-bs-target="#tab-pane-${idx}" type="button" role="tab">
+                    data-bs-target="#tab-pane-${idx}" type="button" role="tab"
+                    onclick="onTabSwitch(${idx})">
                     ${label}
                 </button>
             </li>`;
@@ -176,6 +180,9 @@ function renderTabs() {
     });
 
     leaderboardData.forEach((item, idx) => renderTable(idx));
+    
+    // Render Venn diagram for the first (active) tab
+    renderVennDiagram(0);
 }
 
 // ---------------------------------------------------------------------------
@@ -447,12 +454,15 @@ function renderInfoPanels() {
 // ---------------------------------------------------------------------------
 // Pareto Plot — canvas-based scatter plot of cost vs. performance per benchmark
 // ---------------------------------------------------------------------------
-function renderParetoPlot() {
+function renderParetoPlot(tabIdx) {
     const el = document.getElementById('pareto-panel-body');
     if (!el) return;
 
+    // If tabIdx not provided, use first benchmark (for initial render)
+    if (tabIdx === undefined) tabIdx = 0;
+
     // leaderboardData is an array of {tabName, data:[...rows], meta:{...}}
-    if (!leaderboardData.length) {
+    if (!leaderboardData.length || tabIdx >= leaderboardData.length) {
         el.innerHTML = '<p class="text-muted small">No data available.</p>';
         return;
     }
@@ -460,17 +470,22 @@ function renderParetoPlot() {
     // Colour palette — one colour per benchmark
     const PALETTE = ['#0969da', '#cf222e', '#1a7f37', '#9a6700', '#8250df', '#0550ae'];
 
-    // For each benchmark, collect {agent, cost, score} points (skip null cost or score)
-    const datasets = leaderboardData.map(({ tabName, data, meta }, bi) => {
-        const points = (data || [])
-            .map(r => ({
-                agent: r.agent,
-                cost:  r['trajectory/trajectory_total_costs'],
-                score: r.overall_weighted_score,
-            }))
-            .filter(p => p.cost != null && p.score != null);
-        return { bname: tabName, color: PALETTE[bi % PALETTE.length], points, meta };
-    });
+    // Get only the selected benchmark's data
+    const { tabName, data, meta } = leaderboardData[tabIdx];
+    const points = (data || [])
+        .map(r => ({
+            agent: r.agent,
+            cost:  r['trajectory/trajectory_total_costs'],
+            score: r.overall_weighted_score,
+        }))
+        .filter(p => p.cost != null && p.score != null);
+    
+    const datasets = [{
+        bname: tabName,
+        color: PALETTE[tabIdx % PALETTE.length],
+        points: points,
+        meta: meta
+    }];
 
     // Compute Pareto frontier for a dataset (lower cost, higher score = better)
     function paretoPts(points) {
@@ -620,6 +635,290 @@ function renderParetoPlot() {
     });
 }
 
+
+// ---------------------------------------------------------------------------
+// Tab switch handler
+// ---------------------------------------------------------------------------
+function onTabSwitch(tabIdx) {
+    renderVennDiagram(tabIdx);
+    renderParetoPlot(tabIdx);
+}
+
+// ---------------------------------------------------------------------------
+// Venn Diagram Rendering
+// ---------------------------------------------------------------------------
+function renderVennDiagram(tabIdx) {
+    const { tabName, data, meta, venn_diagram } = leaderboardData[tabIdx];
+    const container = document.getElementById('venn-diagram-container');
+    const svgDiv = document.getElementById('venn-diagram-svg');
+    
+    if (!container || !svgDiv) return;
+
+    // Use the venn_diagram field from loaded data
+    let vennData = venn_diagram;
+
+    if (!vennData || !vennData.agents || vennData.agents.length < 2) {
+        container.style.display = 'none';
+        return;
+    }
+
+    container.style.display = 'block';
+    const label = meta.display_name || tabName;
+    document.getElementById('venn-title').textContent = `Agent Overlap Analysis — ${label}`;
+
+    // Build sets for venn.js from the intersection data
+    const agents = vennData.agents;
+    const sets = [];
+    const intersections = vennData.intersections || {};
+
+    // Calculate total unique diffs for percentage calculation
+    const totalUniqueDiffs = vennData.total_unique_diffs || 0;
+    
+    // Individual agent circles - use the total count from vennData.sets
+    agents.forEach(agent => {
+        const agentDiffs = vennData.sets[agent] || [];
+        const size = agentDiffs.length || 0;
+        const percentage = totalUniqueDiffs > 0 ? ((size / totalUniqueDiffs) * 100).toFixed(1) : 0;
+        sets.push({
+            sets: [agent],
+            size: size,
+            label: `${percentage}%`
+        });
+    });
+
+    // Pairwise intersections
+    for (let i = 0; i < agents.length; i++) {
+        for (let j = i + 1; j < agents.length; j++) {
+            const key = `${agents[i]}_${agents[j]}`;
+            const size = intersections[key] || 0;
+            if (size > 0) {
+                const percentage = totalUniqueDiffs > 0 ? ((size / totalUniqueDiffs) * 100).toFixed(1) : 0;
+                sets.push({
+                    sets: [agents[i], agents[j]],
+                    size: size,
+                    label: `${percentage}%`
+                });
+            }
+        }
+    }
+
+    // Triple (or higher) intersections
+    if (agents.length >= 3) {
+        const key = `all_${agents.length}`;
+        const size = intersections[key] || 0;
+        if (size > 0) {
+            const percentage = totalUniqueDiffs > 0 ? ((size / totalUniqueDiffs) * 100).toFixed(1) : 0;
+            sets.push({
+                sets: agents,
+                size: size,
+                label: `${percentage}%`
+            });
+        }
+    }
+
+    // Clear previous diagram
+    svgDiv.innerHTML = '';
+
+    if (sets.length === 0) {
+        svgDiv.innerHTML = '<p class="text-muted small">No overlap data available.</p>';
+        return;
+    }
+
+    // Get current theme colors
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const textColor = isDark ? '#c9d1d9' : '#24292f';
+    const strokeColor = isDark ? '#444' : '#ddd';
+    const fillOpacity = isDark ? 0.15 : 0.1;
+
+    // Create SVG container with venn.js
+    // Use larger viewBox to accommodate the diagram positioned at center with padding
+    const svgWidth = 900;
+    const svgHeight = 500;
+
+    const svg = d3.select(svgDiv)
+    .append('svg')
+    .attr('width', '100%')
+    .attr('viewBox', `0 0 ${svgWidth} ${svgHeight}`)
+    .attr('preserveAspectRatio', 'xMidYMid meet')
+    .style('display', 'block')
+    .style('margin', '0 auto');
+
+    // Use larger dimensions for the VennDiagram to fill the viewBox
+    const diagram = venn.VennDiagram()
+    .width(svgWidth)
+    .height(svgHeight * 0.85);
+
+    // Create a group for the venn diagram
+    const g = svg.append('g');
+    
+    g.datum(sets).call(diagram);
+
+    // After diagram is rendered
+    const minAreaForLabel = 25; // tweak this threshold
+
+    svg.selectAll('.venn-area')
+    .each(function (d) {
+        // d.size is the cardinality; you might use it as a proxy for "area"
+        if (d.size < minAreaForLabel && d.sets.length > 1) {
+        // For small intersections: remove the label
+        d3.select(this).select('text').remove();
+        }
+    });
+
+    // Store reference for interactivity
+    const vennState = {
+        highlightedAgents: new Set(),
+        selectedRegion: null
+    };
+
+    // Color scheme
+    const colors = {
+        'contextcrbench': ['#0969da', '#e74c3c', '#27ae60'],  // Blue, Red, Green
+        'scrbench': ['#f39c12', '#8e44ad', '#16a085'],  // Orange, Purple, Teal
+    };
+    const agentColors = colors[tabName] || ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6'];
+
+    // Style the paths with interactivity
+    svg.selectAll('.venn-circle path')
+        .style('fill', function() {
+            const agent = d3.select(this.parentNode).datum().sets[0];
+            const idx = agents.indexOf(agent);
+            return agentColors[idx % agentColors.length];
+        })
+        .style('fill-opacity', fillOpacity)
+        .style('stroke', strokeColor)
+        .style('stroke-width', '2px')
+        .style('cursor', 'pointer')
+        .on('click', function() {
+            const setNames = d3.select(this.parentNode).datum().sets;
+            vennState.selectedRegion = setNames;
+            vennState.highlightedAgents = new Set(setNames);
+        });
+
+    // Tooltip element
+    const tooltip = document.createElement('div');
+    tooltip.id = 'venn-tooltip';
+    tooltip.style.cssText = `
+        position: absolute;
+        background: ${isDark ? '#30363d' : '#f6f8fa'};
+        border: 1px solid ${strokeColor};
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-size: 12px;
+        color: ${textColor};
+        pointer-events: none;
+        z-index: 1000;
+        max-width: 300px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        display: none;
+    `;
+    document.body.appendChild(tooltip);
+
+    function showVennTooltip(setNames, x, y) {
+        const diffs = vennData.sets[setNames.join('_')] || [];
+        const totalUniqueDiffs = vennData.total_unique_diffs || 0;
+        const percentage = totalUniqueDiffs > 0 ? ((diffs.length / totalUniqueDiffs) * 100).toFixed(1) : 0;
+        
+        // Format agent names by replacing underscores with hyphens
+        const agentNames = setNames.map(name => name.replace(/_/g, '-'));
+        let content = `<strong>${agentNames.join(' ∩ ')}</strong><br>`;
+        content += `${percentage}% (${diffs.length} / ${totalUniqueDiffs} PRs)<br>`;
+        if (diffs.length > 0) {
+            const preview = diffs.slice(0, 5).join(', ');
+            content += `IDs: ${preview}${diffs.length > 5 ? '...' : ''}`;
+        }
+        tooltip.innerHTML = content;
+        tooltip.style.display = 'block';
+        // Constrain tooltip to viewport
+        const maxX = window.innerWidth - 320;
+        const maxY = window.innerHeight - 150;
+        tooltip.style.left = Math.min(x + 10, maxX) + 'px';
+        tooltip.style.top = Math.min(y + 10, maxY) + 'px';
+    }
+
+    function hideVennTooltip() {
+        tooltip.style.display = 'none';
+    }
+
+    svg.selectAll('.venn-intersection text')
+        .style('font-size', '12px')
+        .style('font-weight', '600');
+
+    // Create HTML legend below the SVG as colored tags
+    const legendHtml = agents.map((agent, i) => {
+        const color = agentColors[i % agentColors.length];
+        const displayName = agent.replace(/_/g, '-');
+        // Extract RGB values from hex color (e.g., #27ae60 -> 39, 174, 96)
+        const hex = color.replace('#', '');
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        return `<span style="
+            display: inline-block;
+            background: rgba(${r}, ${g}, ${b}, 0.1);
+            color: rgb(${r}, ${g}, ${b});
+            padding: 4px 12px;
+            border-radius: 16px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin: 0 4px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+            border: 1px solid rgba(${r}, ${g}, ${b}, 0.3);
+        " class="venn-legend-tag" data-agent="${agent}">${displayName}</span>`;
+    }).join('');
+    
+    const legendContainer = document.createElement('div');
+    legendContainer.style.cssText = 'text-align: center; margin-top: 1rem;';
+    legendContainer.innerHTML = legendHtml;
+    svgDiv.appendChild(legendContainer);
+
+    // Make legend tags interactive
+    legendContainer.querySelectorAll('.venn-legend-tag').forEach(tag => {
+        tag.addEventListener('click', function() {
+            const agent = this.getAttribute('data-agent');
+            if (vennState.highlightedAgents.has(agent)) {
+                vennState.highlightedAgents.delete(agent);
+                this.style.opacity = '1';
+            } else {
+                vennState.highlightedAgents.add(agent);
+                this.style.opacity = '0.5';
+            }
+        });
+    });
+
+    // Calculate undetected diffs percentage
+    const allDetectedDiffs = new Set();
+    agents.forEach(agent => {
+        (vennData.sets[agent] || []).forEach(diff => allDetectedDiffs.add(diff));
+    });
+    const uniqueDetected = allDetectedDiffs.size;
+    const totalDiffs = vennData.total_unique_diffs || 0;
+    const undetectedCount = totalDiffs - uniqueDetected;
+    const undetectedPct = totalDiffs > 0 ? ((undetectedCount / totalDiffs) * 100).toFixed(1) : 0;
+    
+    // Add undetected diffs label to the SVG (outside all circles)
+    svg.append('text')
+        .attr('x', svgWidth - 100)
+        .attr('y', svgHeight - 50)
+        .style('font-size', '13px')
+        .style('fill', textColor)
+        .style('font-weight', '600')
+        .style('text-anchor', 'end')
+        .text(`${undetectedPct}%`);
+
+    // Add explanation below the diagram
+    const explanationDiv = document.getElementById('venn-diagram-explanation');
+    if (explanationDiv) {
+        const metricName = meta.primary_metric ? meta.primary_metric.split('/').pop().replace(/_/g, ' ') : 'primary metric';
+        explanationDiv.innerHTML = `
+            <p class="info-panel-text" style="margin-top:1rem;font-size:.8rem;color:var(--text-muted);border-top:1px solid var(--border);padding-top:.75rem">
+                Each circle represents a top-performing agent. The percentage shows what fraction of total PRs each agent detected (where <strong>${metricName} == true</strong>).
+                Overlapping regions show PRs detected by multiple agents.
+            </p>
+        `;
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Boot

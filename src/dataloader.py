@@ -46,6 +46,7 @@ class BenchmarkRegistry:
     group_summary: dict = field(
         default_factory=dict
     )  # {group_name: {"method": ..., "columns": [...] | "column": ...}}
+    venn_diagram: dict = field(default_factory=dict)  # Venn diagram configuration
 
 
 @dataclass
@@ -95,6 +96,7 @@ def load_benchmark(
         dataset_total_diffs=d.get("dataset_total_diffs", 0),
         task_accomplishment_mode=d.get("task_accomplishment_mode", "submitted"),
         group_summary=lb.get("group_summary", {}),
+        venn_diagram=d.get("venn_diagram", {}),
     )
 
 

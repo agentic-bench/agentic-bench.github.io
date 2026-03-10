@@ -302,6 +302,149 @@ def _compute_overall_score(
 
 
 # ---------------------------------------------------------------------------
+# Venn diagram data computation
+# ---------------------------------------------------------------------------
+
+
+def _compute_venn_diagram_data(
+    benchmark: BenchmarkRegistry,
+    agents_perf: list[dict],
+    eval_results_dir: Path,
+    benchmarks_root: str,
+) -> dict | None:
+    """
+    Compute Venn diagram data showing diff_id overlap detected by top N agents.
+
+    For each of the top N agents (by primary_metric score):
+    1. Read their eval-results/*_comments.jsonl
+    2. Find diff_ids where at least 1 comment has primary_metric = True/1
+    3. Return sets for Venn diagram visualization
+
+    Returns:
+    {
+        "agents": ["agent1", "agent2", "agent3"],
+        "sets": {
+            "agent1": ["diff_id_1", "diff_id_3", ...],
+            "agent2": ["diff_id_2", "diff_id_3", ...],
+            "agent3": ["diff_id_1", "diff_id_2", ...]
+        },
+        "intersections": {
+            "all_3": 42,
+            "agent1_agent2": 15,
+            "agent1_agent3": 20,
+            "agent2_agent3": 18,
+            "agent1_only": 5,
+            "agent2_only": 8,
+            "agent3_only": 3
+        }
+    }
+    or None if venn diagram is disabled or not enough agents.
+    """
+    # Check if venn diagram is enabled
+    if not benchmark.venn_diagram or not benchmark.venn_diagram.get("enabled", False):
+        return None
+
+    primary_metric = benchmark.venn_diagram.get(
+        "primary_metric", benchmark.primary_metric
+    )
+    top_n = benchmark.venn_diagram.get("top_n_agents", 3)
+    min_threshold = benchmark.venn_diagram.get("min_score_threshold", 0.0)
+
+    if not primary_metric:
+        return None
+
+    # Sort agents by primary metric score (descending)
+    sorted_agents = sorted(
+        agents_perf,
+        key=lambda x: x.get(primary_metric, 0) or 0,
+        reverse=True,
+    )
+
+    # Filter by minimum threshold and take top N
+    top_agents = [
+        ap for ap in sorted_agents if (ap.get(primary_metric, 0) or 0) >= min_threshold
+    ][:top_n]
+
+    if len(top_agents) < 2:
+        # Need at least 2 agents for a meaningful Venn diagram
+        return None
+
+    agent_ids = [ap["agent"] for ap in top_agents]
+    agent_sets = {}
+
+    # For each top agent, load their comments file and extract diff_ids
+    for agent in top_agents:
+        agent_id = agent["agent"]
+        # Find the comments file for this agent
+        comments_files = list(eval_results_dir.glob(f"*{agent_id}*_comments.jsonl"))
+        if not comments_files:
+            return None
+
+        # Use the most recent file (sorted by name gives chronological order)
+        comments_file = sorted(comments_files)[-1]
+
+        try:
+            df = load_eval_comments(str(comments_file))
+            if df.empty or primary_metric not in df.columns:
+                agent_sets[agent_id] = []
+                continue
+
+            # Find diff_ids where primary_metric is True
+            diff_ids_with_true = set()
+            for diff_id in df["diff_id"].unique():
+                diff_rows = df[df["diff_id"] == diff_id]
+                try:
+                    has_true = bool(
+                        diff_rows[primary_metric].astype("boolean").any(skipna=True)
+                    )
+                    if has_true:
+                        diff_ids_with_true.add(str(diff_id))
+                except Exception:
+                    pass
+
+            agent_sets[agent_id] = sorted(list(diff_ids_with_true))
+        except Exception as e:
+            print(f"    [WARN] Error loading comments for {agent_id}: {e}")
+            agent_sets[agent_id] = []
+
+    # Compute intersections
+    if len(agent_sets) < 2:
+        return None
+
+    agent_list = list(agent_sets.keys())
+    set_list = [set(agent_sets[a]) for a in agent_list]
+
+    intersections = {}
+
+    # All agents together
+    if len(agent_list) >= 3:
+        intersections[f"all_{len(agent_list)}"] = len(set.intersection(*set_list))
+
+    # Pairwise intersections
+    for i in range(len(agent_list)):
+        for j in range(i + 1, len(agent_list)):
+            key = f"{agent_list[i]}_{agent_list[j]}"
+            intersections[key] = len(set_list[i] & set_list[j])
+
+    # Only in each set
+    for i, agent in enumerate(agent_list):
+        other_sets = set.union(*[set_list[j] for j in range(len(agent_list)) if j != i])
+        only = len(set_list[i] - other_sets)
+        intersections[f"{agent}_only"] = only
+
+    # Total unique diff_ids across all agents
+    all_diffs = set.union(*set_list)
+    total_unique_diffs = len(all_diffs)
+
+    return {
+        "agents": agent_list,
+        "sets": agent_sets,
+        "intersections": intersections,
+        "total_unique_diffs": total_unique_diffs,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Per-benchmark aggregation
 # ---------------------------------------------------------------------------
 
@@ -650,6 +793,16 @@ def update_leaderboard(
             benchmark, stems, gt_df, benchmarks_root, dir_name=bname
         )
 
+        # Compute Venn diagram data if enabled
+        venn_diagram_data = None
+        eval_results_dir = Path(benchmarks_root) / bname / "eval-results"
+        if eval_results_dir.exists():
+            venn_diagram_data = _compute_venn_diagram_data(
+                benchmark, agents_perf, eval_results_dir, benchmarks_root
+            )
+            if venn_diagram_data:
+                print(f"  Venn diagram: {len(venn_diagram_data['agents'])} agents")
+
         # Collect evaluation versions used
         eval_versions = set()
         for ap in agents_perf:
@@ -662,8 +815,14 @@ def update_leaderboard(
 
         out_filename = f"data_{benchmark.name}.json"
         out_file = output_path / out_filename
+        
+        # Add venn diagram data to output if available
+        output_data = agents_perf.copy()
+        if venn_diagram_data:
+            output_data = {"agents": agents_perf, "venn_diagram": venn_diagram_data}
+        
         with open(out_file, "w") as f:
-            json.dump(agents_perf, f, indent=2)
+            json.dump(output_data, f, indent=2)
         
         # Show evaluation versioning summary
         version_summary = ", ".join(str(v) for v in sorted(eval_versions)) if eval_versions else "N/A"
@@ -705,6 +864,38 @@ def update_leaderboard(
     print(f"  Models     : {len(all_models)}")
     print(f"  Diffs      : {total_diffs}")
     print(f"  Comments   : {total_comments}")
+
+
+def _get_evaluator_description(evaluator_class: str) -> str:
+    """Get human-readable description for an evaluator."""
+    descriptions = {
+        # Human alignment evaluators
+        "human.IsLLMContextAligned": "Evaluates if LLM-generated comments are contextually appropriate and aligned with code context (LLM-based judge)",
+        "human.IsLLMHumanAligned": "Assesses alignment between LLM comments and human expert reviews (LLM-based judge)",
+        "human.IsHumanCommentLocationMatched": "Verifies if comment locations match human expert annotations",
+        "human.IsHumanLLMLocationMatched": "Checks if LLM comment locations align with human expert locations",
+        "human.LLMCommentBleuScore": "Measures lexical similarity between LLM and human comments using BLEU score",
+        "human.LLMCommentEditSimilarityScore": "Calculates edit distance similarity between LLM and human comments",
+        "human.LLMCommentRouge1Score": "Evaluates unigram overlap between LLM and human comments (ROUGE-1)",
+        "human.LLMCommentRougeLScore": "Evaluates longest matching subsequence between LLM and human comments (ROUGE-L)",
+        
+        # Bug detection evaluators
+        "bug.IsBugLocationMatched": "Verifies if identified bug locations match ground truth annotations",
+        "bug.IsBugCommentRelevant": "Determines if a comment is relevant to the identified bug (LLM-based judge)",
+        "bug.IsBugCommentTypeRelevant": "Checks if comment type matches the bug category",
+        "bug.IsBugSuggestionValid": "Evaluates if bug fix suggestions are valid (LLM-based judge)",
+        "bug.IsCommentLocationSuggestionMatched": "Matches suggested bug locations with ground truth",
+        "bug.IsCommentLocationRelevantMatched": "Verifies relevance of suggested comment locations",
+        "bug.IsCommentLocationRelevantMatchedRecall": "Measures recall of relevant comment locations",
+        
+        # Judge evaluators
+        "judge.IsRelevantCommentDiff": "Evaluates if comment is relevant to the code diff being reviewed",
+        "judge.IsCommentInformative": "Assesses if a comment provides useful information (LLM-based judge)",
+        
+        # Operational evaluators
+        "ops.TrajectoryCostMetrics": "Calculates API costs based on token usage and LLM pricing",
+    }
+    return descriptions.get(evaluator_class, "No description available")
 
 
 def _generate_evaluation_versions_page(benchmarks: list[str], benchmarks_root: str, output_path: Path):
@@ -780,9 +971,11 @@ def _generate_evaluation_versions_page(benchmarks: list[str], benchmarks_root: s
                 eval_class = evaluator.get("class", "Unknown")
                 llm_model = evaluator.get("llm_model")
                 if llm_model:
-                    evaluator_list.append(f'<li><code>{eval_class}</code> <span class="badge bg-info">LLM: {llm_model}</span></li>')
+                    desc = _get_evaluator_description(eval_class)
+                    evaluator_list.append(f'<li><code>{eval_class}</code> <span class="badge bg-info">LLM: {llm_model}</span><br/><small class="text-muted">{desc}</small></li>')
                 else:
-                    evaluator_list.append(f'<li><code>{eval_class}</code></li>')
+                    desc = _get_evaluator_description(eval_class)
+                    evaluator_list.append(f'<li><code>{eval_class}</code><br/><small class="text-muted">{desc}</small></li>')
             
             version_cards.append(f'''
                 <div class="card mb-3">
