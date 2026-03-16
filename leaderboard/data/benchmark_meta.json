@@ -3,14 +3,13 @@
     "display_name": "ContextCRBench",
     "benchmark_goal": "human-alignment",
     "description": "Measures how well LLM-generated code review comments align with human reviewer comments on real-world PRs.",
-    "primary_metric": "metric/human/is_llm_context_aligned",
+    "primary_metric": "and(metric/human/is_llm_human_aligned, metric/human/is_human_llm_location_matched)",
     "column_groups": {
       "Code Review Capability": [
         "metric/human/is_llm_human_aligned",
-        "metric/human/is_llm_context_aligned",
         "metric/human/is_human_llm_location_matched"
       ],
-      "Text Similarity": [
+      "Static Similarity": [
         "metric/human/llm_comment_rouge1_score",
         "metric/human/llm_comment_rougel_score",
         "metric/human/llm_comment_bleu_score",
@@ -30,7 +29,6 @@
         "method": "mean",
         "columns": [
           "metric/human/is_llm_human_aligned",
-          "metric/human/is_llm_context_aligned",
           "metric/human/is_human_llm_location_matched"
         ]
       },
@@ -61,9 +59,9 @@
       "trajectory/trajectory_total_costs": "sum"
     },
     "display_names": {
-      "metric/human/is_llm_human_aligned": "Human Alignment",
+      "metric/human/is_llm_human_aligned": "LLM Alignment to Human",
       "metric/human/is_llm_context_aligned": "Context Alignment",
-      "metric/human/is_human_llm_location_matched": "LLM Localization",
+      "metric/human/is_human_llm_location_matched": "LLM Localization to Human",
       "metric/human/llm_comment_rouge1_score": "ROUGE-1",
       "metric/human/llm_comment_rougel_score": "ROUGE-L",
       "metric/human/llm_comment_bleu_score": "BLEU",
@@ -78,7 +76,7 @@
       "model": "Model",
       "total_diffs": "PRs",
       "total_comments": "Comments",
-      "overall_weighted_score": "Score"
+      "overall_weighted_score": "Ground Truth Score"
     },
     "dataset_total_diffs": 421
   },

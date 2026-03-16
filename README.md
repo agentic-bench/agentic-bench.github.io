@@ -20,10 +20,11 @@ A benchmarking pipeline for evaluating LLM-based code review agents on real-worl
 5. [Two-Step Pipeline](#two-step-pipeline)
 6. [Trajectory & Cost Metrics](#trajectory--cost-metrics)
 7. [Metric Aggregation Modes](#metric-aggregation-modes)
-8. [benchmark_info.json Reference](#benchmark_infojson-reference)
-9. [How to Submit](#how-to-submit)
-10. [Evaluator Architecture](#evaluator-architecture)
-11. [Leaderboard HTML](#leaderboard-html)
+8. [Expression-Based Primary Metrics](#expression-based-primary-metrics)
+9. [benchmark_info.json Reference](#benchmark_infojson-reference)
+10. [How to Submit](#how-to-submit)
+11. [Evaluator Architecture](#evaluator-architecture)
+12. [Leaderboard HTML](#leaderboard-html)
 
 ---
 
@@ -100,7 +101,7 @@ leaderboard/
 - **Goal:** human-alignment — does the agent identify the same issues as human expert reviewers?
 - **Dataset:** 421 real GitHub pull requests across multiple open-source projects
 - **Ground truth:** 680 human expert review comments (file, line, content)
-- **Primary metric:** `metric/human/is_llm_human_aligned`
+- **Primary metric:** `and(metric/human/is_llm_human_aligned, metric/human/is_human_llm_location_matched)` — composite metric requiring BOTH human alignment AND correct localization
 - **Task accomplishment mode:** `submitted` — any diff present in llm-comments counts as accomplished
 - **Comprehensive dataset:** Full issue/PR context and commit diffs in `commit_diff/` directory
 
@@ -329,6 +330,44 @@ Metrics not listed in `metric_aggregation` default to `precision` for `bool` ret
 
 ---
 
+## Expression-Based Primary Metrics
+
+The `primary_metric` field in `benchmark_info.json → leaderboard` supports **expression syntax** to create composite metrics from existing evaluators:
+
+### Supported Operations
+
+- **`and(metric1, metric2)`** — Both conditions must be true (logical AND)
+- **`or(metric1, metric2)`** — Either condition is true (logical OR)  
+- **`not(metric)`** — Negation of a metric
+
+### Evaluation Flow
+
+1. **Expression is evaluated at comment-level** — Each comment gets a boolean result
+2. **Aggregation to diff-level** — For venn diagrams, a diff is included if ANY comment evaluates to true
+3. **Overall score** — Mean of boolean results across all comments (precision)
+
+### Example
+
+```json
+{
+  "leaderboard": {
+    "primary_metric": "and(metric/human/is_llm_human_aligned, metric/human/is_human_llm_location_matched)"
+  }
+}
+```
+
+This composite metric requires comments to be **both semantically aligned with human reviewers AND correctly localized** to the right file/line.
+
+**Benefits:**
+- No hardcoding — expressions live entirely in config
+- Metrics are still evaluated independently (all data preserved)
+- Backward compatible — simple metric names still work
+- Venn diagram automatically uses the same expression
+
+**Note:** Individual metrics in the expression must still be declared in `evaluator_classes` and will appear in eval-results files. Use `column_groups` to control leaderboard visibility.
+
+---
+
 ## `benchmark_info.json` Reference
 
 ```json
@@ -362,7 +401,9 @@ Metrics not listed in `metric_aggregation` default to `precision` for `bool` ret
   },
 
   "leaderboard": {
-    "primary_metric": "metric/human/is_llm_human_aligned",
+    "primary_metric": "and(metric/human/is_llm_human_aligned, metric/human/is_human_llm_location_matched)",
+    // Supports expressions: and(), or(), not() for composite metrics
+    // Simple metric names still work for backward compatibility
 
     "column_groups": {
       "Code Review Capability": [...metric keys...],
@@ -388,6 +429,14 @@ Metrics not listed in `metric_aggregation` default to `precision` for `bool` ret
     "display_names": {
       "metric/human/is_llm_human_aligned": "Human Alignment"
     }
+  },
+
+  "venn_diagram": {
+    "enabled": true,
+    "top_n_agents": 3,
+    "min_score_threshold": 0.0
+    // NOTE: No "primary_metric" field - always uses leaderboard.primary_metric
+    // Supports expression-based metrics automatically
   }
 }
 ```
@@ -398,6 +447,10 @@ Metrics not listed in `metric_aggregation` default to `precision` for `bool` ret
 - `task_accomplishment_mode` — `"submitted"` (presence in llm-comments = accomplished) or `"has_reviews"` (must have ≥1 non-empty review)
 - `group_summary.method` — `"mean"` averages all listed columns; `"pick"` reads a single column directly
 - `evaluator_classes` — ordered list; composite metrics must come after their dependencies
+- `venn_diagram.enabled` — set to `true` to enable venn diagram visualization
+- `venn_diagram.top_n_agents` — number of top agents to include (default: 3)
+- `venn_diagram.min_score_threshold` — minimum score to be eligible (default: 0.0)
+- **Venn diagram always uses `leaderboard.primary_metric`** — no separate configuration needed, supports expressions automatically
 
 ---
 

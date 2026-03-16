@@ -671,18 +671,18 @@ function renderVennDiagram(tabIdx) {
     const sets = [];
     const intersections = vennData.intersections || {};
 
-    // Calculate total unique diffs for percentage calculation
-    const totalUniqueDiffs = vennData.total_unique_diffs || 0;
+    // Calculate total unique diffs for percentage calculation (use dataset total, not just detected)
+    const datasetTotal = meta.dataset_total_diffs || 0;
     
-    // Individual agent circles - use the total count from vennData.sets
+    // Individual agent circles - calculate percentage relative to benchmark total
     agents.forEach(agent => {
         const agentDiffs = vennData.sets[agent] || [];
         const size = agentDiffs.length || 0;
-        const percentage = totalUniqueDiffs > 0 ? ((size / totalUniqueDiffs) * 100).toFixed(1) : 0;
+        const percentage = datasetTotal > 0 ? ((size / datasetTotal) * 100).toFixed(1) : 0;
         sets.push({
             sets: [agent],
             size: size,
-            label: `${percentage}%`
+            label: `${size}\n(${percentage}%)`
         });
     });
 
@@ -692,11 +692,11 @@ function renderVennDiagram(tabIdx) {
             const key = `${agents[i]}_${agents[j]}`;
             const size = intersections[key] || 0;
             if (size > 0) {
-                const percentage = totalUniqueDiffs > 0 ? ((size / totalUniqueDiffs) * 100).toFixed(1) : 0;
+                const percentage = datasetTotal > 0 ? ((size / datasetTotal) * 100).toFixed(1) : 0;
                 sets.push({
                     sets: [agents[i], agents[j]],
                     size: size,
-                    label: `${percentage}%`
+                    label: `${size}\n(${percentage}%)`
                 });
             }
         }
@@ -707,11 +707,11 @@ function renderVennDiagram(tabIdx) {
         const key = `all_${agents.length}`;
         const size = intersections[key] || 0;
         if (size > 0) {
-            const percentage = totalUniqueDiffs > 0 ? ((size / totalUniqueDiffs) * 100).toFixed(1) : 0;
+            const percentage = datasetTotal > 0 ? ((size / datasetTotal) * 100).toFixed(1) : 0;
             sets.push({
                 sets: agents,
                 size: size,
-                label: `${percentage}%`
+                label: `${size}\n(${percentage}%)`
             });
         }
     }
@@ -754,7 +754,7 @@ function renderVennDiagram(tabIdx) {
     g.datum(sets).call(diagram);
 
     // After diagram is rendered
-    const minAreaForLabel = 25; // tweak this threshold
+    const minAreaForLabel = 10; // tweak this threshold
 
     svg.selectAll('.venn-area')
     .each(function (d) {
@@ -771,12 +771,12 @@ function renderVennDiagram(tabIdx) {
         selectedRegion: null
     };
 
-    // Color scheme
+    // Color scheme - ensure first and fourth (Others) colors are distinct
     const colors = {
-        'contextcrbench': ['#0969da', '#e74c3c', '#27ae60'],  // Blue, Red, Green
-        'scrbench': ['#f39c12', '#8e44ad', '#16a085'],  // Orange, Purple, Teal
+        'contextcrbench': ['#0969da', '#e74c3c', '#27ae60', '#f39c12'],  // Blue, Red, Green, Orange
+        'scrbench': ['#1a7f37', '#8e44ad', '#16a085', '#cf222e'],  // Green, Purple, Teal, Red
     };
-    const agentColors = colors[tabName] || ['#3498db', '#e74c3c', '#2ecc71', '#f39c12', '#9b59b6'];
+    const agentColors = colors[tabName] || ['#0969da', '#e74c3c', '#27ae60', '#f39c12', '#9b59b6'];
 
     // Style the paths with interactivity
     svg.selectAll('.venn-circle path')
@@ -816,13 +816,12 @@ function renderVennDiagram(tabIdx) {
 
     function showVennTooltip(setNames, x, y) {
         const diffs = vennData.sets[setNames.join('_')] || [];
-        const totalUniqueDiffs = vennData.total_unique_diffs || 0;
-        const percentage = totalUniqueDiffs > 0 ? ((diffs.length / totalUniqueDiffs) * 100).toFixed(1) : 0;
+        const percentage = datasetTotal > 0 ? ((diffs.length / datasetTotal) * 100).toFixed(1) : 0;
         
         // Format agent names by replacing underscores with hyphens
         const agentNames = setNames.map(name => name.replace(/_/g, '-'));
         let content = `<strong>${agentNames.join(' ∩ ')}</strong><br>`;
-        content += `${percentage}% (${diffs.length} / ${totalUniqueDiffs} PRs)<br>`;
+        content += `${percentage}% (${diffs.length} / ${datasetTotal} PRs)<br>`;
         if (diffs.length > 0) {
             const preview = diffs.slice(0, 5).join(', ');
             content += `IDs: ${preview}${diffs.length > 5 ? '...' : ''}`;
@@ -893,9 +892,8 @@ function renderVennDiagram(tabIdx) {
         (vennData.sets[agent] || []).forEach(diff => allDetectedDiffs.add(diff));
     });
     const uniqueDetected = allDetectedDiffs.size;
-    const totalDiffs = vennData.total_unique_diffs || 0;
-    const undetectedCount = totalDiffs - uniqueDetected;
-    const undetectedPct = totalDiffs > 0 ? ((undetectedCount / totalDiffs) * 100).toFixed(1) : 0;
+    const undetectedCount = datasetTotal - uniqueDetected;
+    const undetectedPct = datasetTotal > 0 ? ((undetectedCount / datasetTotal) * 100).toFixed(1) : 0;
     
     // Add undetected diffs label to the SVG (outside all circles)
     svg.append('text')
@@ -910,10 +908,25 @@ function renderVennDiagram(tabIdx) {
     // Add explanation below the diagram
     const explanationDiv = document.getElementById('venn-diagram-explanation');
     if (explanationDiv) {
-        const metricName = meta.primary_metric ? meta.primary_metric.split('/').pop().replace(/_/g, ' ') : 'primary metric';
+        // Generate a human-readable description of the primary metric
+        let metricDesc = 'primary metric';
+        if (meta.primary_metric) {
+            if (meta.primary_metric.includes('and(')) {
+                // Extract metric names from and() expression
+                metricDesc = 'both alignment and localization criteria';
+            } else if (meta.primary_metric.includes('or(')) {
+                metricDesc = 'either alignment or localization criteria';
+            } else {
+                // Simple metric name
+                metricDesc = (meta.display_names && meta.display_names[meta.primary_metric]) 
+                    || meta.primary_metric.split('/').pop().replace(/_/g, ' ');
+            }
+        }
+        
         explanationDiv.innerHTML = `
             <p class="info-panel-text" style="margin-top:1rem;font-size:.8rem;color:var(--text-muted);border-top:1px solid var(--border);padding-top:.75rem">
-                Each circle represents a top-performing agent. The percentage shows what fraction of total PRs each agent detected (where <strong>${metricName} == true</strong>).
+                Each circle represents a top-performing agent ranked by ground truth score. 
+                The percentage shows what fraction of total PRs each agent detected where the <strong>${metricDesc}</strong> evaluated to true.
                 Overlapping regions show PRs detected by multiple agents.
             </p>
         `;

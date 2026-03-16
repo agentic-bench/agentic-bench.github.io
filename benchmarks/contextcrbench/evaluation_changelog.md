@@ -31,6 +31,13 @@
 - Minor prompt improvements
 - Non-breaking changes to metric calculation
 
+### Leaderboard Configuration
+- **Primary metric (v1.0+):** `and(metric/human/is_llm_human_aligned, metric/human/is_human_llm_location_matched)`
+  - Composite metric requiring BOTH human semantic alignment AND correct file/line localization
+  - Reflects the most stringent quality criterion for code review comments
+  - Context Alignment metric still evaluated but hidden from leaderboard column groups
+
 ### Notes
 - All evaluators are from `src/evaluators/` directory
 - See `evaluation_versions.json` for detailed version snapshot
+- Leaderboard supports expression-based primary metrics (and/or/not operations)

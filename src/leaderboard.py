@@ -306,6 +306,52 @@ def _compute_overall_score(
 # ---------------------------------------------------------------------------
 
 
+def _evaluate_expression_on_df(expr: str, df: pd.DataFrame) -> pd.Series:
+    """
+    Evaluate a metric expression at the comment level.
+    
+    Args:
+        expr: Expression like "and(metric1, metric2)" or simple "metric1"
+        df: DataFrame with comment-level metric columns
+    
+    Returns:
+        Boolean Series indicating True/False for each comment
+    """
+    import re
+    
+    # Base case: simple metric column
+    if not any(op in expr for op in ['and(', 'or(', 'not(']):
+        if expr in df.columns:
+            try:
+                return df[expr].astype("boolean", errors="ignore").fillna(False)
+            except Exception:
+                return pd.Series([False] * len(df), index=df.index)
+        return pd.Series([False] * len(df), index=df.index)
+    
+    # Parse and(metric1, metric2)
+    match_and = re.match(r'^and\((.*?),\s*(.*?)\)$', expr.strip())
+    if match_and:
+        left = _evaluate_expression_on_df(match_and.group(1), df)
+        right = _evaluate_expression_on_df(match_and.group(2), df)
+        return left & right
+    
+    # Parse or(metric1, metric2)
+    match_or = re.match(r'^or\((.*?),\s*(.*?)\)$', expr.strip())
+    if match_or:
+        left = _evaluate_expression_on_df(match_or.group(1), df)
+        right = _evaluate_expression_on_df(match_or.group(2), df)
+        return left | right
+    
+    # Parse not(metric)
+    match_not = re.match(r'^not\((.*?)\)$', expr.strip())
+    if match_not:
+        val = _evaluate_expression_on_df(match_not.group(1), df)
+        return ~val
+    
+    # Fallback: return all False
+    return pd.Series([False] * len(df), index=df.index)
+
+
 def _compute_venn_diagram_data(
     benchmark: BenchmarkRegistry,
     agents_perf: list[dict],
@@ -344,25 +390,27 @@ def _compute_venn_diagram_data(
     if not benchmark.venn_diagram or not benchmark.venn_diagram.get("enabled", False):
         return None
 
-    primary_metric = benchmark.venn_diagram.get(
-        "primary_metric", benchmark.primary_metric
-    )
+    # Always use benchmark.primary_metric (no separate config)
+    primary_metric = benchmark.primary_metric
     top_n = benchmark.venn_diagram.get("top_n_agents", 3)
     min_threshold = benchmark.venn_diagram.get("min_score_threshold", 0.0)
 
     if not primary_metric:
         return None
 
-    # Sort agents by primary metric score (descending)
+    # Determine if primary_metric is an expression
+    is_expression = any(op in primary_metric for op in ['and(', 'or(', 'not('])
+
+    # Sort agents by overall_weighted_score (which is computed from primary_metric)
     sorted_agents = sorted(
         agents_perf,
-        key=lambda x: x.get(primary_metric, 0) or 0,
+        key=lambda x: x.get("overall_weighted_score", 0) or 0,
         reverse=True,
     )
 
     # Filter by minimum threshold and take top N
     top_agents = [
-        ap for ap in sorted_agents if (ap.get(primary_metric, 0) or 0) >= min_threshold
+        ap for ap in sorted_agents if (ap.get("overall_weighted_score", 0) or 0) >= min_threshold
     ][:top_n]
 
     if len(top_agents) < 2:
@@ -385,27 +433,87 @@ def _compute_venn_diagram_data(
 
         try:
             df = load_eval_comments(str(comments_file))
-            if df.empty or primary_metric not in df.columns:
+            if df.empty:
                 agent_sets[agent_id] = []
                 continue
 
-            # Find diff_ids where primary_metric is True
+            # Find diff_ids where primary_metric evaluates to True
             diff_ids_with_true = set()
-            for diff_id in df["diff_id"].unique():
-                diff_rows = df[df["diff_id"] == diff_id]
-                try:
-                    has_true = bool(
-                        diff_rows[primary_metric].astype("boolean").any(skipna=True)
-                    )
-                    if has_true:
-                        diff_ids_with_true.add(str(diff_id))
-                except Exception:
-                    pass
+            
+            if is_expression:
+                # Evaluate expression at comment level
+                for diff_id in df["diff_id"].unique():
+                    diff_rows = df[df["diff_id"] == diff_id]
+                    try:
+                        # Evaluate expression for each comment in this diff
+                        evaluated = _evaluate_expression_on_df(primary_metric, diff_rows)
+                        # If ANY comment in this diff evaluates to True → include diff_id
+                        if evaluated.any():
+                            diff_ids_with_true.add(str(diff_id))
+                    except Exception:
+                        pass
+            else:
+                # Simple column name (existing logic)
+                if primary_metric not in df.columns:
+                    agent_sets[agent_id] = []
+                    continue
+                
+                for diff_id in df["diff_id"].unique():
+                    diff_rows = df[df["diff_id"] == diff_id]
+                    try:
+                        has_true = bool(
+                            diff_rows[primary_metric].astype("boolean").any(skipna=True)
+                        )
+                        if has_true:
+                            diff_ids_with_true.add(str(diff_id))
+                    except Exception:
+                        pass
 
             agent_sets[agent_id] = sorted(list(diff_ids_with_true))
         except Exception as e:
             print(f"    [WARN] Error loading comments for {agent_id}: {e}")
             agent_sets[agent_id] = []
+
+    # Add "Others" circle: all agents not in top N
+    others_diffs = set()
+    try:
+        for comments_file in eval_results_dir.glob("*_comments.jsonl"):
+            file_name = comments_file.name
+            # Extract agent_id from filename
+            # Try to match against top_agent ids
+            is_top_agent = False
+            for agent_id in agent_ids:
+                if agent_id in file_name:
+                    is_top_agent = True
+                    break
+            
+            if not is_top_agent:
+                # This is an "other" agent
+                try:
+                    df = load_eval_comments(str(comments_file))
+                    if not df.empty:
+                        if is_expression:
+                            for diff_id in df["diff_id"].unique():
+                                diff_rows = df[df["diff_id"] == diff_id]
+                                evaluated = _evaluate_expression_on_df(primary_metric, diff_rows)
+                                if evaluated.any():
+                                    others_diffs.add(str(diff_id))
+                        else:
+                            if primary_metric in df.columns:
+                                for diff_id in df["diff_id"].unique():
+                                    diff_rows = df[df["diff_id"] == diff_id]
+                                    has_true = bool(
+                                        diff_rows[primary_metric].astype("boolean").any(skipna=True)
+                                    )
+                                    if has_true:
+                                        others_diffs.add(str(diff_id))
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"    [WARN] Error loading 'Others' agents: {e}")
+    
+    # Add "Others" to agent_sets
+    agent_sets["Others"] = sorted(list(others_diffs))
 
     # Compute intersections
     if len(agent_sets) < 2:
@@ -435,6 +543,19 @@ def _compute_venn_diagram_data(
     # Total unique diff_ids across all agents
     all_diffs = set.union(*set_list)
     total_unique_diffs = len(all_diffs)
+
+    # Debug output: Print venn diagram calculation details
+    print(f"\n  === Venn Diagram Calculation ({benchmark.name}) ===")
+    print(f"  Primary metric: {primary_metric}")
+    for agent in agent_list:
+        diffs = agent_sets[agent]
+        print(f"    {agent:25} {len(diffs):3d} diffs detected")
+    print(f"  Unique diffs detected (union): {total_unique_diffs}")
+    if benchmark.dataset_total_diffs:
+        uncovered = benchmark.dataset_total_diffs - total_unique_diffs
+        uncovered_pct = (uncovered / benchmark.dataset_total_diffs * 100)
+        print(f"  Total diffs in benchmark:     {benchmark.dataset_total_diffs}")
+        print(f"  Uncovered diffs:              {uncovered} ({uncovered_pct:.1f}%)")
 
     return {
         "agents": agent_list,
@@ -492,14 +613,15 @@ def _aggregate_benchmark(
         evaluation_version = None
         try:
             import json
-            with open(comments_path, 'r') as f:
+
+            with open(comments_path, "r") as f:
                 first_line = f.readline()
                 if first_line:
                     first_obj = json.loads(first_line)
                     evaluation_version = first_obj.get("evaluation_version", None)
         except Exception:
             pass
-        
+
         if not eval_df.empty:
             first = eval_df.iloc[0]
             # Try to extract model from submission dict (new format)
@@ -545,7 +667,17 @@ def _aggregate_benchmark(
 
         # Compute overall score
         primary_metric = benchmark.primary_metric
-        if primary_metric and primary_metric in metric_results:
+        is_expression = any(op in primary_metric for op in ['and(', 'or(', 'not(']) if primary_metric else False
+        
+        if is_expression:
+            # Evaluate expression across all comments and compute mean
+            try:
+                evaluated = _evaluate_expression_on_df(primary_metric, eval_df)
+                overall_score = float(evaluated.mean()) if len(evaluated) > 0 else None
+            except Exception as e:
+                print(f"    [WARN] Error evaluating primary metric expression for {agent_id}: {e}")
+                overall_score = None
+        elif primary_metric and primary_metric in metric_results:
             overall_score = metric_results[primary_metric]
         else:
             valid_vals = [
@@ -694,7 +826,7 @@ _BUILTIN_DISPLAY_NAMES = {
     "timestamp": "Submission",
     "dataset_total_diffs": "Dataset PRs",
     "accomplished_diffs": "Accomplished",
-    "task_accomplishment_rate": "Task Rate",
+    "task_accomplishment_rate": "Workflow Completion",
     "total_diffs": "Submitted PRs",
     "total_comments": "Total Comments",
     "overall_weighted_score": "Overall Score",
@@ -705,7 +837,7 @@ _BUILTIN_DISPLAY_NAMES = {
     "metric/human/llm_comment_rougel_score": "ROUGE-L",
     "metric/human/llm_comment_bleu_score": "BLEU",
     "metric/human/llm_comment_edit_similarity_score": "Edit Similarity",
-    "metric/human/is_llm_human_aligned": "Human Alignment",
+    "metric/human/is_llm_human_aligned": "LLM Alignment to Human",
     "metric/human/is_llm_context_aligned": "Context Alignment",
     # Bug capacity metrics
     "metric/bug/is_bug_location_matched": "Location Match (Precision)",
@@ -815,17 +947,19 @@ def update_leaderboard(
 
         out_filename = f"data_{benchmark.name}.json"
         out_file = output_path / out_filename
-        
+
         # Add venn diagram data to output if available
         output_data = agents_perf.copy()
         if venn_diagram_data:
             output_data = {"agents": agents_perf, "venn_diagram": venn_diagram_data}
-        
+
         with open(out_file, "w") as f:
             json.dump(output_data, f, indent=2)
-        
+
         # Show evaluation versioning summary
-        version_summary = ", ".join(str(v) for v in sorted(eval_versions)) if eval_versions else "N/A"
+        version_summary = (
+            ", ".join(str(v) for v in sorted(eval_versions)) if eval_versions else "N/A"
+        )
         print(f"  Agents: {len(agents_perf)} | Eval Version(s): {version_summary}")
         print(f"  Written: {out_file}")
         output_filelist.append(out_filename)
@@ -878,7 +1012,6 @@ def _get_evaluator_description(evaluator_class: str) -> str:
         "human.LLMCommentEditSimilarityScore": "Calculates edit distance similarity between LLM and human comments",
         "human.LLMCommentRouge1Score": "Evaluates unigram overlap between LLM and human comments (ROUGE-1)",
         "human.LLMCommentRougeLScore": "Evaluates longest matching subsequence between LLM and human comments (ROUGE-L)",
-        
         # Bug detection evaluators
         "bug.IsBugLocationMatched": "Verifies if identified bug locations match ground truth annotations",
         "bug.IsBugCommentRelevant": "Determines if a comment is relevant to the identified bug (LLM-based judge)",
@@ -887,97 +1020,114 @@ def _get_evaluator_description(evaluator_class: str) -> str:
         "bug.IsCommentLocationSuggestionMatched": "Matches suggested bug locations with ground truth",
         "bug.IsCommentLocationRelevantMatched": "Verifies relevance of suggested comment locations",
         "bug.IsCommentLocationRelevantMatchedRecall": "Measures recall of relevant comment locations",
-        
         # Judge evaluators
         "judge.IsRelevantCommentDiff": "Evaluates if comment is relevant to the code diff being reviewed",
         "judge.IsCommentInformative": "Assesses if a comment provides useful information (LLM-based judge)",
-        
         # Operational evaluators
         "ops.TrajectoryCostMetrics": "Calculates API costs based on token usage and LLM pricing",
     }
     return descriptions.get(evaluator_class, "No description available")
 
 
-def _generate_evaluation_versions_page(benchmarks: list[str], benchmarks_root: str, output_path: Path):
+def _generate_evaluation_versions_page(
+    benchmarks: list[str], benchmarks_root: str, output_path: Path
+):
     """Generate evaluation-versions.html page from evaluation_versions.json files."""
-    
+
     # Load base template
-    template_file = Path(__file__).parent.parent / "leaderboard" / "templates" / "evaluation-versions.html"
+    template_file = (
+        Path(__file__).parent.parent
+        / "leaderboard"
+        / "templates"
+        / "evaluation-versions.html"
+    )
     if not template_file.exists():
         print(f"  Warning: Template file not found: {template_file}")
         return
-    
+
     with open(template_file) as f:
         template_content = f.read()
-    
+
     # Build tab navigation and content for each benchmark
     tab_nav_parts = []
     tab_content_parts = []
-    
+
     for idx, bname in enumerate(benchmarks):
         versions_file = Path(benchmarks_root) / bname / "evaluation_versions.json"
         changelog_file = Path(benchmarks_root) / bname / "evaluation_changelog.md"
         if not versions_file.exists():
             continue
-            
+
         with open(versions_file) as f:
             versions_data = json.load(f)
-        
+
         # Read changelog markdown if available
         changelog_content = ""
         if changelog_file.exists():
             with open(changelog_file) as f:
                 changelog_content = f.read()
-        
+
         benchmark = load_benchmark(bname, benchmarks_root=benchmarks_root)
         display_name = benchmark.display_name or bname
         tab_id = f"tab-{bname}"
         is_active = idx == 0
-        
+
         # Build tab navigation item
         active_class = "active" if is_active else ""
-        tab_nav_parts.append(f'''
+        tab_nav_parts.append(
+            f"""
                 <li class="nav-item" role="presentation">
                     <button class="nav-link {active_class}" id="{tab_id}-tab" data-bs-toggle="tab" 
                             data-bs-target="#{tab_id}" type="button" role="tab">
                         {display_name}
                     </button>
-                </li>''')
-        
+                </li>"""
+        )
+
         # Build tab content pane
         current_version = versions_data.get("current_version", "N/A")
         versions = versions_data.get("versions", {})
-        
+
         version_cards = []
         for version, version_info in sorted(versions.items(), reverse=True):
             is_current = version == current_version
-            badge = '<span class="badge bg-success ms-2">Current</span>' if is_current else ''
-            
+            badge = (
+                '<span class="badge bg-success ms-2">Current</span>'
+                if is_current
+                else ""
+            )
+
             released = version_info.get("released_date", "Unknown")
             evaluators = version_info.get("evaluators", [])
-            
+
             # Extract description from changelog markdown if available
             description = version_info.get("changes", "No details provided")
             if changelog_content:
                 import re
+
                 # Find the version section in markdown (e.g., "## Version 1.0")
-                pattern = rf'## Version {re.escape(version)}.*?\n\n\*\*Description:\*\* (.+?)\n'
+                pattern = rf"## Version {re.escape(version)}.*?\n\n\*\*Description:\*\* (.+?)\n"
                 match = re.search(pattern, changelog_content, re.DOTALL)
                 if match:
                     description = match.group(1).strip()
-            
+
             evaluator_list = []
             for evaluator in evaluators:
                 eval_class = evaluator.get("class", "Unknown")
                 llm_model = evaluator.get("llm_model")
                 if llm_model:
                     desc = _get_evaluator_description(eval_class)
-                    evaluator_list.append(f'<li><code>{eval_class}</code> <span class="badge bg-info">LLM: {llm_model}</span><br/><small class="text-muted">{desc}</small></li>')
+                    evaluator_list.append(
+                        f'<li><code>{eval_class}</code> <span class="badge bg-info">LLM: {llm_model}</span><br/><small class="text-muted">{desc}</small></li>'
+                    )
                 else:
                     desc = _get_evaluator_description(eval_class)
-                    evaluator_list.append(f'<li><code>{eval_class}</code><br/><small class="text-muted">{desc}</small></li>')
-            
-            version_cards.append(f'''
+                    evaluator_list.append(
+                        f'<li><code>{eval_class}</code><br/><small class="text-muted">{desc}</small></li>'
+                    )
+
+            version_cards.append(
+                f"""
                 <div class="card mb-3">
                     <div class="card-header">
                         <h6 class="mb-0 fw-bold">Version {version} {badge}</h6>
@@ -992,27 +1142,30 @@ def _generate_evaluation_versions_page(benchmarks: list[str], benchmarks_root: s
                             {''.join(evaluator_list)}
                         </ul>
                     </div>
-                </div>''')
-        
+                </div>"""
+            )
+
         show_class = "show active" if is_active else ""
-        tab_content_parts.append(f'''
+        tab_content_parts.append(
+            f"""
             <div class="tab-pane fade {show_class}" id="{tab_id}" role="tabpanel">
                 <div class="p-4">
                     {''.join(version_cards)}
                 </div>
-            </div>''')
-    
-    tabs_nav_html = '\n'.join(tab_nav_parts)
-    tabs_content_html = '\n'.join(tab_content_parts)
-    
+            </div>"""
+        )
+
+    tabs_nav_html = "\n".join(tab_nav_parts)
+    tabs_content_html = "\n".join(tab_content_parts)
+
     # Replace placeholders in template
     html_content = template_content.replace("{{TAB_NAVIGATION}}", tabs_nav_html)
     html_content = html_content.replace("{{TAB_CONTENT}}", tabs_content_html)
-    
+
     output_file = output_path / "evaluation-versions.html"
-    with open(output_file, 'w') as f:
+    with open(output_file, "w") as f:
         f.write(html_content)
-    
+
     print(f"  Written: {output_file}")
 
 
