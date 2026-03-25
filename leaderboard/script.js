@@ -13,7 +13,7 @@
 let leaderboardData = [];          // [{filename, data:[...], meta:{...}}]
 let metricDisplayNames = {};
 let benchmarkMeta = {};            // keyed by benchmark name
-let currentSort = { column: 'overall_weighted_score', direction: 'desc' };
+let currentSort = { column: 'group_score/Code Review Capability', direction: 'desc' };
 let collapsedGroups = {};          // { benchmarkName: { groupName: bool } }
 
 // ---------------------------------------------------------------------------
@@ -32,7 +32,14 @@ async function fetchJSON(url) {
 // displayName: check per-benchmark overrides first, then global map, then fallback
 function displayName(col, tabName) {
     const bmOverrides = tabName && benchmarkMeta[tabName] ? (benchmarkMeta[tabName].display_names || {}) : {};
-    return bmOverrides[col] || metricDisplayNames[col] || col.split('/').pop().replace(/_/g, ' ');
+    let name = bmOverrides[col] || metricDisplayNames[col] || col.split('/').pop().replace(/_/g, ' ');
+    
+    // Add tooltip for SNR metric in contextcrbench
+    if (col === 'overall_weighted_score' && tabName === 'contextcr-verified') {
+        name = `<span title="Signal-to-Noise Ratio (SNR) = A / (T - A) where A = aligned comments (signal), T = total comments. Higher SNR means better efficiency: more signal per noise. Penalizes agents generating many comments with few aligned.">${name}</span>`;
+    }
+    
+    return name;
 }
 
 // aggregationMode: look up from the current benchmark's metric_aggregation config
@@ -129,10 +136,11 @@ async function init() {
             const rawData = await fetchJSON(`data/${filename}`);
             const tabName = getTabName(filename);
             const meta = benchmarkMeta[tabName] || {};
-            // Handle both old format (array) and new format ({agents: [...], venn_diagram: {...}})
+            // Handle both old format (array) and new format ({agents: [...], venn_diagram: {...}, gt_coverage_diagram: {...}})
             const data = Array.isArray(rawData) ? rawData : (rawData && rawData.agents ? rawData.agents : rawData);
             const venn_diagram = (!Array.isArray(rawData) && rawData && rawData.venn_diagram) ? rawData.venn_diagram : null;
-            return rawData ? { filename, tabName, data, meta, venn_diagram } : null;
+            const gt_coverage_diagram = (!Array.isArray(rawData) && rawData && rawData.gt_coverage_diagram) ? rawData.gt_coverage_diagram : null;
+            return rawData ? { filename, tabName, data, meta, venn_diagram, gt_coverage_diagram } : null;
         }));
         leaderboardData = results.filter(Boolean);
     }
@@ -158,7 +166,7 @@ function renderTabs() {
         if (!collapsedGroups[tabName]) {
             collapsedGroups[tabName] = {};
             Object.keys(meta.column_groups || {}).forEach(g => {
-                collapsedGroups[tabName][g] = true; // all groups collapsed by default
+                collapsedGroups[tabName][g] = false; // all groups expanded by default
             });
         }
 
@@ -181,8 +189,9 @@ function renderTabs() {
 
     leaderboardData.forEach((item, idx) => renderTable(idx));
     
-    // Render Venn diagram for the first (active) tab
+    // Render diagrams for the first (active) tab
     renderVennDiagram(0);
+    renderGTCoverageDiagram(0);
 }
 
 // ---------------------------------------------------------------------------
@@ -202,14 +211,19 @@ function renderTable(idx) {
     // Build ordered column list
     // Fixed columns always visible regardless of group collapse state.
     // To add or remove a fixed column, edit this array and the formatValue / displayName maps.
-    const fixedCols = [
+    let fixedCols = [
         'agent',
         'model',
         'dataset_total_diffs',
         'task_accomplishment_rate',
         'total_comments',
-        'overall_weighted_score',
     ];
+    
+    // Add Code Review Capability harmonic mean if it exists in the data
+    if (data.length > 0 && data[0].hasOwnProperty('group_score/Code Review Capability')) {
+        fixedCols.push('group_score/Code Review Capability');
+    }
+    
     const groupCols = groupNames.flatMap(g => groups[g]);
     const allCols = [...new Set([...fixedCols, ...groupCols])];
 
@@ -394,7 +408,7 @@ function renderInfoPanels() {
     // ---- Benchmarks panel ------------------------------------------------
     // Benchmark page URLs — add new entries here when adding new benchmarks
     const BENCHMARK_PAGES = {
-        'contextcrbench': 'benchmark-contextcrbench.html',
+        'contextcr-verified': 'benchmark-contextcr-verified.html',
         'scrbench':       'benchmark-scrbench.html',
     };
 
@@ -641,6 +655,7 @@ function renderParetoPlot(tabIdx) {
 // ---------------------------------------------------------------------------
 function onTabSwitch(tabIdx) {
     renderVennDiagram(tabIdx);
+    renderGTCoverageDiagram(tabIdx);
     renderParetoPlot(tabIdx);
 }
 
@@ -664,29 +679,47 @@ function renderVennDiagram(tabIdx) {
 
     container.style.display = 'block';
     const label = meta.display_name || tabName;
-    document.getElementById('venn-title').textContent = `Agent Overlap Analysis — ${label}`;
+    document.getElementById('venn-title').textContent = `Task-Level Coverage Overlap — ${label}`;
 
     // Build sets for venn.js from the intersection data
-    const agents = vennData.agents;
+    const allAgents = vennData.agents;
+    const agents = allAgents.filter(a => a !== 'Others'); // Filter out "Others" for Venn diagram
+    const othersCount = vennData.sets['Others'] ? vennData.sets['Others'].length : 0;
+    
     const sets = [];
     const intersections = vennData.intersections || {};
 
     // Calculate total unique diffs for percentage calculation (use dataset total, not just detected)
     const datasetTotal = meta.dataset_total_diffs || 0;
     
-    // Individual agent circles - calculate percentage relative to benchmark total
+    // Calculate sectional (non-overlapping) counts for each agent (excluding "Others")
+    const sectionCounts = {};
+    agents.forEach(agent => {
+        const agentSet = new Set(vennData.sets[agent] || []);
+        // Remove items that appear in other agents (but not Others)
+        agents.forEach(otherAgent => {
+            if (otherAgent !== agent) {
+                const otherSet = vennData.sets[otherAgent] || [];
+                otherSet.forEach(id => agentSet.delete(id));
+            }
+        });
+        sectionCounts[agent] = agentSet.size;
+    });
+    
+    // Individual agent circles - show sectional count (non-overlapping), exclude Others
     agents.forEach(agent => {
         const agentDiffs = vennData.sets[agent] || [];
-        const size = agentDiffs.length || 0;
-        const percentage = datasetTotal > 0 ? ((size / datasetTotal) * 100).toFixed(1) : 0;
+        const size = agentDiffs.length || 0; // Total size for venn.js layout
+        const sectionSize = sectionCounts[agent];
+        const percentage = datasetTotal > 0 ? ((sectionSize / datasetTotal) * 100).toFixed(1) : 0;
         sets.push({
             sets: [agent],
             size: size,
-            label: `${size}\n(${percentage}%)`
+            label: `${sectionSize}\n(${percentage}%)`
         });
     });
 
-    // Pairwise intersections
+    // Pairwise intersections (only among top 3 agents, not Others)
     for (let i = 0; i < agents.length; i++) {
         for (let j = i + 1; j < agents.length; j++) {
             const key = `${agents[i]}_${agents[j]}`;
@@ -702,7 +735,7 @@ function renderVennDiagram(tabIdx) {
         }
     }
 
-    // Triple (or higher) intersections
+    // Triple (or higher) intersections (only among top 3 agents)
     if (agents.length >= 3) {
         const key = `all_${agents.length}`;
         const size = intersections[key] || 0;
@@ -773,7 +806,7 @@ function renderVennDiagram(tabIdx) {
 
     // Color scheme - ensure first and fourth (Others) colors are distinct
     const colors = {
-        'contextcrbench': ['#0969da', '#e74c3c', '#27ae60', '#f39c12'],  // Blue, Red, Green, Orange
+        'contextcr-verified': ['#0969da', '#e74c3c', '#27ae60', '#f39c12'],  // Blue, Red, Green, Orange
         'scrbench': ['#1a7f37', '#8e44ad', '#16a085', '#cf222e'],  // Green, Purple, Teal, Red
     };
     const agentColors = colors[tabName] || ['#0969da', '#e74c3c', '#27ae60', '#f39c12', '#9b59b6'];
@@ -795,53 +828,67 @@ function renderVennDiagram(tabIdx) {
             vennState.highlightedAgents = new Set(setNames);
         });
 
+    // Style intersection and text paths
+    svg.selectAll('.venn-intersection path')
+        .style('fill-opacity', fillOpacity)
+        .style('stroke', strokeColor)
+        .style('stroke-width', '2px')
+        .style('cursor', 'pointer');
+
+    svg.selectAll('text')
+        .style('fill', textColor)
+        .style('font-size', '14px')
+        .style('font-weight', '600')
+        .style('text-anchor', 'middle')
+        .style('pointer-events', 'none');
+
     // Tooltip element
     const tooltip = document.createElement('div');
     tooltip.id = 'venn-tooltip';
-    tooltip.style.cssText = `
-        position: absolute;
-        background: ${isDark ? '#30363d' : '#f6f8fa'};
-        border: 1px solid ${strokeColor};
-        border-radius: 6px;
-        padding: 8px 12px;
-        font-size: 12px;
-        color: ${textColor};
-        pointer-events: none;
-        z-index: 1000;
-        max-width: 300px;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.15);
-        display: none;
-    `;
+    tooltip.style.position = 'fixed';
+    tooltip.style.backgroundColor = isDark ? '#1f6feb' : '#0969da';
+    tooltip.style.color = '#fff';
+    tooltip.style.padding = '8px 12px';
+    tooltip.style.borderRadius = '6px';
+    tooltip.style.fontSize = '12px';
+    tooltip.style.pointerEvents = 'none';
+    tooltip.style.display = 'none';
+    tooltip.style.zIndex = '1000';
+    tooltip.style.maxWidth = '300px';
+    tooltip.style.wordWrap = 'break-word';
     document.body.appendChild(tooltip);
 
-    function showVennTooltip(setNames, x, y) {
-        const diffs = vennData.sets[setNames.join('_')] || [];
-        const percentage = datasetTotal > 0 ? ((diffs.length / datasetTotal) * 100).toFixed(1) : 0;
-        
-        // Format agent names by replacing underscores with hyphens
-        const agentNames = setNames.map(name => name.replace(/_/g, '-'));
-        let content = `<strong>${agentNames.join(' ∩ ')}</strong><br>`;
-        content += `${percentage}% (${diffs.length} / ${datasetTotal} PRs)<br>`;
-        if (diffs.length > 0) {
-            const preview = diffs.slice(0, 5).join(', ');
-            content += `IDs: ${preview}${diffs.length > 5 ? '...' : ''}`;
-        }
-        tooltip.innerHTML = content;
-        tooltip.style.display = 'block';
-        // Constrain tooltip to viewport
-        const maxX = window.innerWidth - 320;
-        const maxY = window.innerHeight - 150;
-        tooltip.style.left = Math.min(x + 10, maxX) + 'px';
-        tooltip.style.top = Math.min(y + 10, maxY) + 'px';
-    }
-
-    function hideVennTooltip() {
-        tooltip.style.display = 'none';
-    }
-
-    svg.selectAll('.venn-intersection text')
-        .style('font-size', '12px')
-        .style('font-weight', '600');
+    // Add hover tooltips to all venn areas with sectional counts
+    svg.selectAll('.venn-area')
+        .on('mouseover', function(event, d) {
+            const setNames = d.sets;
+            let sectionCount = 0;
+            
+            if (setNames.length === 1) {
+                // Calculate non-overlapping part only
+                const agentSet = new Set(vennData.sets[setNames[0]] || []);
+                agents.forEach(otherAgent => {
+                    if (otherAgent !== setNames[0]) {
+                        const otherSet = vennData.sets[otherAgent] || [];
+                        otherSet.forEach(id => agentSet.delete(id));
+                    }
+                });
+                sectionCount = agentSet.size;
+                tooltip.textContent = `${setNames[0]} only: ${sectionCount} PRs`;
+            } else {
+                const key = setNames.join('_');
+                sectionCount = intersections[key] || 0;
+                tooltip.textContent = `${setNames.join(' ∩ ')}: ${sectionCount} PRs`;
+            }
+            tooltip.style.display = 'block';
+        })
+        .on('mousemove', function(event) {
+            tooltip.style.left = (event.clientX + 10) + 'px';
+            tooltip.style.top = (event.clientY + 10) + 'px';
+        })
+        .on('mouseout', function() {
+            tooltip.style.display = 'none';
+        });
 
     // Create HTML legend below the SVG as colored tags
     const legendHtml = agents.map((agent, i) => {
@@ -894,16 +941,27 @@ function renderVennDiagram(tabIdx) {
     const uniqueDetected = allDetectedDiffs.size;
     const undetectedCount = datasetTotal - uniqueDetected;
     const undetectedPct = datasetTotal > 0 ? ((undetectedCount / datasetTotal) * 100).toFixed(1) : 0;
+    const othersPct = datasetTotal > 0 ? ((othersCount / datasetTotal) * 100).toFixed(1) : 0;
     
-    // Add undetected diffs label to the SVG (outside all circles)
+    // Add "Other agents" label to bottom-left
     svg.append('text')
-        .attr('x', svgWidth - 100)
+        .attr('x', 20)
+        .attr('y', svgHeight - 50)
+        .style('font-size', '13px')
+        .style('fill', textColor)
+        .style('font-weight', '600')
+        .style('text-anchor', 'start')
+        .text(`Other agents: ${othersCount} (${othersPct}%)`);
+    
+    // Add "Uncovered" label to bottom-right
+    svg.append('text')
+        .attr('x', svgWidth - 20)
         .attr('y', svgHeight - 50)
         .style('font-size', '13px')
         .style('fill', textColor)
         .style('font-weight', '600')
         .style('text-anchor', 'end')
-        .text(`${undetectedPct}%`);
+        .text(`Uncovered: ${undetectedCount} (${undetectedPct}%)`);
 
     // Add explanation below the diagram
     const explanationDiv = document.getElementById('venn-diagram-explanation');
@@ -928,6 +986,310 @@ function renderVennDiagram(tabIdx) {
                 Each circle represents a top-performing agent ranked by ground truth score. 
                 The percentage shows what fraction of total PRs each agent detected where the <strong>${metricDesc}</strong> evaluated to true.
                 Overlapping regions show PRs detected by multiple agents.
+            </p>
+        `;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Ground Truth Coverage Diagram Rendering
+// ---------------------------------------------------------------------------
+function renderGTCoverageDiagram(tabIdx) {
+    const { tabName, data, meta, gt_coverage_diagram } = leaderboardData[tabIdx];
+    const container = document.getElementById('gt-coverage-container');
+    const svgDiv = document.getElementById('gt-coverage-svg');
+    
+    if (!container || !svgDiv) return;
+
+    // Use the gt_coverage_diagram field from loaded data
+    let gtCoverageData = gt_coverage_diagram;
+
+    if (!gtCoverageData || !gtCoverageData.agents || gtCoverageData.agents.length < 2) {
+        container.style.display = 'none';
+        return;
+    }
+
+    container.style.display = 'block';
+    const label = meta.display_name || tabName;
+    document.getElementById('gt-coverage-title').textContent = `Human Comment Coverage Overlap — ${label}`;
+
+    // Build sets for venn.js from the intersection data
+    const allAgents = gtCoverageData.agents;
+    const agents = allAgents.filter(a => a !== 'Others'); // Filter out "Others" for Venn diagram
+    const othersCount = gtCoverageData.sets['Others'] ? gtCoverageData.sets['Others'].length : 0;
+    
+    const sets = [];
+    const intersections = gtCoverageData.intersections || {};
+    const totalGT = gtCoverageData.total_gt || 1;
+    
+    // Calculate sectional (non-overlapping) counts for each agent (excluding "Others")
+    const sectionCounts = {};
+    agents.forEach(agent => {
+        const agentSet = new Set(gtCoverageData.sets[agent] || []);
+        // Remove items that appear in other agents (but not Others)
+        agents.forEach(otherAgent => {
+            if (otherAgent !== agent) {
+                const otherSet = gtCoverageData.sets[otherAgent] || [];
+                otherSet.forEach(id => agentSet.delete(id));
+            }
+        });
+        sectionCounts[agent] = agentSet.size;
+    });
+    
+    // Individual agent circles - show sectional count (non-overlapping), exclude Others
+    agents.forEach(agent => {
+        const agentGT = gtCoverageData.sets[agent] || [];
+        const size = agentGT.length || 0; // Total size for venn.js layout
+        const sectionSize = sectionCounts[agent];
+        const percentage = totalGT > 0 ? ((sectionSize / totalGT) * 100).toFixed(1) : 0;
+        sets.push({
+            sets: [agent],
+            size: size,
+            label: `${sectionSize}\n(${percentage}%)`
+        });
+    });
+
+    // Pairwise intersections (only among top 3 agents, not Others)
+    for (let i = 0; i < agents.length; i++) {
+        for (let j = i + 1; j < agents.length; j++) {
+            const key = `${agents[i]}_${agents[j]}`;
+            const size = intersections[key] || 0;
+            if (size > 0) {
+                const percentage = totalGT > 0 ? ((size / totalGT) * 100).toFixed(1) : 0;
+                sets.push({
+                    sets: [agents[i], agents[j]],
+                    size: size,
+                    label: `${size}\n(${percentage}%)`
+                });
+            }
+        }
+    }
+
+    // Triple (or higher) intersections (only among top 3 agents)
+    if (agents.length >= 3) {
+        const key = `all_${agents.length}`;
+        const size = intersections[key] || 0;
+        if (size > 0) {
+            const percentage = totalGT > 0 ? ((size / totalGT) * 100).toFixed(1) : 0;
+            sets.push({
+                sets: agents,
+                size: size,
+                label: `${size}\n(${percentage}%)`
+            });
+        }
+    }
+
+    // Clear previous diagram
+    svgDiv.innerHTML = '';
+
+    if (sets.length === 0) {
+        svgDiv.innerHTML = '<p class="text-muted small">No GT coverage data available.</p>';
+        return;
+    }
+
+    // Get current theme colors (exactly matching Venn diagram)
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    const textColor = isDark ? '#c9d1d9' : '#24292f';
+    const strokeColor = isDark ? '#444' : '#ddd';
+    const fillOpacity = isDark ? 0.15 : 0.1;
+
+    // Create SVG container with venn.js (exactly matching Venn diagram)
+    const svgWidth = 900;
+    const svgHeight = 500;
+
+    const svg = d3.select(svgDiv)
+        .append('svg')
+        .attr('width', '100%')
+        .attr('viewBox', `0 0 ${svgWidth} ${svgHeight}`)
+        .attr('preserveAspectRatio', 'xMidYMid meet')
+        .style('display', 'block')
+        .style('margin', '0 auto');
+
+    const diagram = venn.VennDiagram()
+        .width(svgWidth)
+        .height(svgHeight * 0.85);
+
+    const g = svg.append('g');
+    g.datum(sets).call(diagram);
+
+    // Hide labels for small intersections
+    const minAreaForLabel = 10;
+    svg.selectAll('.venn-area')
+        .each(function (d) {
+            if (d.size < minAreaForLabel && d.sets.length > 1) {
+                d3.select(this).select('text').remove();
+            }
+        });
+
+    const gtCoverageState = {
+        highlightedAgents: new Set(),
+        selectedRegion: null
+    };
+
+    // Color scheme
+    const colors = {
+        'contextcr-verified': ['#0969da', '#e74c3c', '#27ae60', '#f39c12'],
+        'scrbench': ['#1a7f37', '#8e44ad', '#16a085', '#cf222e'],
+    };
+    const agentColors = colors[tabName] || ['#0969da', '#e74c3c', '#27ae60', '#f39c12', '#9b59b6'];
+
+    // Style circles
+    svg.selectAll('.venn-circle path')
+        .style('fill', function() {
+            const agent = d3.select(this.parentNode).datum().sets[0];
+            const idx = agents.indexOf(agent);
+            return agentColors[idx % agentColors.length];
+        })
+        .style('fill-opacity', fillOpacity)
+        .style('stroke', strokeColor)
+        .style('stroke-width', '2px')
+        .style('cursor', 'pointer')
+        .on('click', function() {
+            const setNames = d3.select(this.parentNode).datum().sets;
+            gtCoverageState.selectedRegion = setNames;
+            gtCoverageState.highlightedAgents = new Set(setNames);
+        });
+
+    svg.selectAll('.venn-intersection path')
+        .style('fill-opacity', fillOpacity)
+        .style('stroke', strokeColor)
+        .style('stroke-width', '2px')
+        .style('cursor', 'pointer');
+
+    svg.selectAll('text')
+        .style('fill', textColor)
+        .style('font-size', '14px')
+        .style('font-weight', '600')
+        .style('text-anchor', 'middle')
+        .style('pointer-events', 'none');
+
+    // Tooltip
+    const tooltip = document.createElement('div');
+    tooltip.id = 'gt-coverage-tooltip';
+    tooltip.style.position = 'fixed';
+    tooltip.style.backgroundColor = isDark ? '#1f6feb' : '#0969da';
+    tooltip.style.color = '#fff';
+    tooltip.style.padding = '8px 12px';
+    tooltip.style.borderRadius = '6px';
+    tooltip.style.fontSize = '12px';
+    tooltip.style.pointerEvents = 'none';
+    tooltip.style.display = 'none';
+    tooltip.style.zIndex = '1000';
+    tooltip.style.maxWidth = '300px';
+    tooltip.style.wordWrap = 'break-word';
+    document.body.appendChild(tooltip);
+
+    svg.selectAll('.venn-area')
+        .on('mouseover', function(event, d) {
+            const setNames = d.sets;
+            let sectionCount = 0;
+            
+            if (setNames.length === 1) {
+                // Calculate non-overlapping part only
+                const agentSet = new Set(gtCoverageData.sets[setNames[0]] || []);
+                agents.forEach(otherAgent => {
+                    if (otherAgent !== setNames[0]) {
+                        const otherSet = gtCoverageData.sets[otherAgent] || [];
+                        otherSet.forEach(id => agentSet.delete(id));
+                    }
+                });
+                sectionCount = agentSet.size;
+                tooltip.textContent = `${setNames[0]} only: ${sectionCount} GT`;
+            } else {
+                const key = setNames.join('_');
+                sectionCount = intersections[key] || 0;
+                tooltip.textContent = `${setNames.join(' ∩ ')}: ${sectionCount} GT`;
+            }
+            tooltip.style.display = 'block';
+        })
+        .on('mousemove', function(event) {
+            tooltip.style.left = (event.clientX + 10) + 'px';
+            tooltip.style.top = (event.clientY + 10) + 'px';
+        })
+        .on('mouseout', function() {
+            tooltip.style.display = 'none';
+        });
+
+    // Legend
+    const legendContainer = document.createElement('div');
+    legendContainer.style.cssText = 'text-align: center; margin-top: 1rem;';
+    
+    let legendHtml = agents.map((agent, idx) => {
+        const color = agentColors[idx % agentColors.length];
+        const displayName = (meta.display_names && meta.display_names[agent]) || agent;
+        const r = parseInt(color.substr(1, 2), 16);
+        const g = parseInt(color.substr(3, 2), 16);
+        const b = parseInt(color.substr(5, 2), 16);
+        
+        return `<span style="
+            display: inline-block;
+            background: rgba(${r}, ${g}, ${b}, 0.1);
+            color: rgb(${r}, ${g}, ${b});
+            padding: 4px 12px;
+            border-radius: 16px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            margin: 0 4px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+            border: 1px solid rgba(${r}, ${g}, ${b}, 0.3);
+        " class="venn-legend-tag" data-agent="${agent}">${displayName}</span>`;
+    }).join('');
+    
+    legendContainer.innerHTML = legendHtml;
+    svgDiv.appendChild(legendContainer);
+
+    legendContainer.querySelectorAll('.venn-legend-tag').forEach(tag => {
+        tag.addEventListener('click', function() {
+            const agent = this.getAttribute('data-agent');
+            if (gtCoverageState.highlightedAgents.has(agent)) {
+                gtCoverageState.highlightedAgents.delete(agent);
+                this.style.opacity = '1';
+            } else {
+                gtCoverageState.highlightedAgents.add(agent);
+                this.style.opacity = '0.5';
+            }
+        });
+    });
+
+    // Calculate uncovered GT and add labels to corners
+    const uniqueGTCovered = gtCoverageData.total_unique_gt || 0;
+    const uncoveredGT = totalGT - uniqueGTCovered;
+    const uncoveredPct = totalGT > 0 ? ((uncoveredGT / totalGT) * 100).toFixed(1) : 0;
+    const othersPct = totalGT > 0 ? ((othersCount / totalGT) * 100).toFixed(1) : 0;
+    
+    // Add "Other agents" label to bottom-left
+    svg.append('text')
+        .attr('x', 20)
+        .attr('y', svgHeight - 50)
+        .style('font-size', '13px')
+        .style('fill', textColor)
+        .style('font-weight', '600')
+        .style('text-anchor', 'start')
+        .text(`Other agents: ${othersCount} (${othersPct}%)`);
+    
+    // Add "Uncovered" label to bottom-right
+    svg.append('text')
+        .attr('x', svgWidth - 20)
+        .attr('y', svgHeight - 50)
+        .style('font-size', '13px')
+        .style('fill', textColor)
+        .style('font-weight', '600')
+        .style('text-anchor', 'end')
+        .text(`Uncovered: ${uncoveredGT} (${uncoveredPct}%)`);
+
+    // Explanation
+    const explanationDiv = document.getElementById('gt-coverage-explanation');
+    if (explanationDiv) {
+        const uniqueGTCovered = gtCoverageData.total_unique_gt || 0;
+        const uncoveredGT = totalGT - uniqueGTCovered;
+        const uncoveredPct = totalGT > 0 ? ((uncoveredGT / totalGT) * 100).toFixed(1) : 0;
+        
+        explanationDiv.innerHTML = `
+            <p class="info-panel-text" style="margin-top:1rem;font-size:.8rem;color:var(--text-muted);border-top:1px solid var(--border);padding-top:.75rem">
+                Each circle represents a top-performing agent ranked by GT coverage score. 
+                The percentage shows what fraction of total ground truth comments each agent covers where the <strong>primary metric</strong> evaluated to true.
+                Overlapping regions show ground truth comments covered by multiple agents.
             </p>
         `;
     }

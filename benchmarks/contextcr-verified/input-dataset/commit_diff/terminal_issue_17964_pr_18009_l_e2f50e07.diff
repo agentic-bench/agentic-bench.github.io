@@ -1,0 +1,159 @@
+diff --git a/.github/actions/spelling/expect/04cdb9b77d6827c0202f51acd4205b017015bfff.txt b/.github/actions/spelling/expect/04cdb9b77d6827c0202f51acd4205b017015bfff.txt
+deleted file mode 100644
+index f117f5081da..00000000000
+--- a/.github/actions/spelling/expect/04cdb9b77d6827c0202f51acd4205b017015bfff.txt
++++ /dev/null
+@@ -1,5 +0,0 @@
+-EOB
+-swrapped
+-wordi
+-wordiswrapped
+-wrappe
+diff --git a/.github/actions/spelling/expect/expect.txt b/.github/actions/spelling/expect/expect.txt
+index 3a6ca5cf14e..81cc4e086b2 100644
+--- a/.github/actions/spelling/expect/expect.txt
++++ b/.github/actions/spelling/expect/expect.txt
+@@ -564,6 +564,7 @@ entrypoints
+ ENU
+ ENUMLOGFONT
+ ENUMLOGFONTEX
++EOB
+ EOK
+ EPres
+ EQU
+@@ -782,6 +783,7 @@ HIWORD
+ HKCU
+ hkey
+ hkl
++HKLM
+ hlocal
+ hlsl
+ HMB
+@@ -1735,6 +1737,7 @@ swapchain
+ swapchainpanel
+ SWMR
+ SWP
++swrapped
+ SYMED
+ SYNCPAINT
+ syscalls
+@@ -2077,6 +2080,8 @@ WNDCLASSW
+ Wndproc
+ WNegative
+ WNull
++wordi
++wordiswrapped
+ workarea
+ WOutside
+ WOWARM
+@@ -2090,6 +2095,7 @@ WPrep
+ WPresent
+ wprp
+ wprpi
++wrappe
+ wregex
+ writeback
+ WRITECONSOLE
+diff --git a/src/cascadia/TerminalSettingsModel/CascadiaSettings.h b/src/cascadia/TerminalSettingsModel/CascadiaSettings.h
+index 75eb9ee96ee..e91c43885e9 100644
+--- a/src/cascadia/TerminalSettingsModel/CascadiaSettings.h
++++ b/src/cascadia/TerminalSettingsModel/CascadiaSettings.h
+@@ -96,7 +96,7 @@ namespace winrt::Microsoft::Terminal::Settings::Model::implementation
+         void _addOrMergeUserColorScheme(const winrt::com_ptr<implementation::ColorScheme>& colorScheme);
+         void _executeGenerator(const IDynamicProfileGenerator& generator);
+ 
+-        std::unordered_set<std::wstring_view> _ignoredNamespaces;
++        std::unordered_set<winrt::hstring, til::transparent_hstring_hash, til::transparent_hstring_equal_to> _ignoredNamespaces;
+         std::set<std::string> themesChangeLog;
+         // See _getNonUserOriginProfiles().
+         size_t _userProfileCount = 0;
+diff --git a/src/cascadia/TerminalSettingsModel/CascadiaSettingsSerialization.cpp b/src/cascadia/TerminalSettingsModel/CascadiaSettingsSerialization.cpp
+index 5ec7275b05c..719384cfc92 100644
+--- a/src/cascadia/TerminalSettingsModel/CascadiaSettingsSerialization.cpp
++++ b/src/cascadia/TerminalSettingsModel/CascadiaSettingsSerialization.cpp
+@@ -146,9 +146,27 @@ SettingsLoader::SettingsLoader(const std::string_view& userJSON, const std::stri
+     if (const auto sources = userSettings.globals->DisabledProfileSources())
+     {
+         _ignoredNamespaces.reserve(sources.Size());
+-        for (const auto& id : sources)
++        for (auto&& id : sources)
+         {
+-            _ignoredNamespaces.emplace(id);
++            _ignoredNamespaces.emplace(std::move(id));
++        }
++    }
++
++    // Apply DisabledProfileSources policy setting. Pick whatever policy is set first.
++    // In most cases HKCU settings take precedence over HKLM settings, but the inverse is true for policies.
++    for (const auto key : { HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER })
++    {
++        wchar_t buffer[512]; // "640K ought to be enough for anyone"
++        DWORD bufferSize = sizeof(buffer);
++        if (RegGetValueW(key, LR"(Software\Policies\Microsoft\Windows\Terminal)", L"DisabledProfileSources", RRF_RT_REG_MULTI_SZ, nullptr, buffer, &bufferSize) == 0)
++        {
++            for (auto p = buffer; *p;)
++            {
++                const auto len = wcslen(p);
++                _ignoredNamespaces.emplace(p, gsl::narrow_cast<uint32_t>(len));
++                p += len + 1;
++            }
++            break;
+         }
+     }
+ 
+@@ -260,7 +278,7 @@ void SettingsLoader::FindFragmentsAndMergeIntoUserSettings()
+                 const auto filename = fragmentExtFolder.path().filename();
+                 const auto& source = filename.native();
+ 
+-                if (!_ignoredNamespaces.count(std::wstring_view{ source }) && fragmentExtFolder.is_directory())
++                if (!_ignoredNamespaces.contains(std::wstring_view{ source }) && fragmentExtFolder.is_directory())
+                 {
+                     parseAndLayerFragmentFiles(fragmentExtFolder.path(), winrt::hstring{ source });
+                 }
+@@ -295,7 +313,7 @@ void SettingsLoader::FindFragmentsAndMergeIntoUserSettings()
+     for (const auto& ext : extensions)
+     {
+         const auto packageName = ext.Package().Id().FamilyName();
+-        if (_ignoredNamespaces.count(std::wstring_view{ packageName }))
++        if (_ignoredNamespaces.contains(std::wstring_view{ packageName }))
+         {
+             continue;
+         }
+@@ -914,7 +932,7 @@ void SettingsLoader::_addOrMergeUserColorScheme(const winrt::com_ptr<implementat
+ void SettingsLoader::_executeGenerator(const IDynamicProfileGenerator& generator)
+ {
+     const auto generatorNamespace = generator.GetNamespace();
+-    if (_ignoredNamespaces.count(generatorNamespace))
++    if (_ignoredNamespaces.contains(generatorNamespace))
+     {
+         return;
+     }
+diff --git a/src/inc/til/winrt.h b/src/inc/til/winrt.h
+index f585109747d..c5e68bac776 100644
+--- a/src/inc/til/winrt.h
++++ b/src/inc/til/winrt.h
+@@ -109,4 +109,24 @@ namespace til // Terminal Implementation Library. Also: "Today I Learned"
+     //     Which is just silly
+ 
+ #endif
++
++    struct transparent_hstring_hash
++    {
++        using is_transparent = void;
++
++        size_t operator()(const auto& hstr) const noexcept
++        {
++            return std::hash<std::wstring_view>{}(hstr);
++        }
++    };
++
++    struct transparent_hstring_equal_to
++    {
++        using is_transparent = void;
++
++        bool operator()(const auto& lhs, const auto& rhs) const noexcept
++        {
++            return lhs == rhs;
++        }
++    };
+ }

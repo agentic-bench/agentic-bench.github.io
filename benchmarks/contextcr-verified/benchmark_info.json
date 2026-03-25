@@ -1,0 +1,107 @@
+{
+  "name": "contextcr-verified",
+  "tab_order": 1,
+  "display_name": "ContextCR-Verified",
+  "current_version": "1.0",
+  "benchmark_goal": "human-alignment",
+  "dataset_total_diffs": 362,
+  "task_accomplishment_mode": "submitted",
+  "description": "Measures how well LLM-generated code review comments align with human reviewer comments on real-world PRs.",
+  "is_ground_truth_eligible": true,
+  "evaluator_classes": [
+    "human.IsHumanLLMLocationMatched",
+    "human.LLMCommentRouge1Score",
+    "human.LLMCommentRougeLScore",
+    "human.LLMCommentBleuScore",
+    "human.LLMCommentEditSimilarityScore",
+    "human.IsLLMHumanAligned",
+    "human.IsLLMContextAligned",
+    "human.IsLLMHunkContextAligned",
+    "ops.TrajectoryCostMetrics"
+  ],
+  "metric_aggregation": {
+    "metric/human/is_human_llm_location_matched": "precision",
+    "metric/human/llm_comment_rouge1_score": "mean",
+    "metric/human/llm_comment_rougel_score": "mean",
+    "metric/human/llm_comment_bleu_score": "mean",
+    "metric/human/llm_comment_edit_similarity_score": "mean",
+    "metric/human/is_llm_human_aligned": "precision",
+    "metric/human/is_llm_context_aligned": "precision",
+    "trajectory/trajectory_input_costs": "sum",
+    "trajectory/trajectory_output_costs": "sum",
+    "trajectory/trajectory_total_costs": "sum",
+    "metric/human/is_llm_hunk_context_aligned": "precision"
+  },
+  "venn_diagram": {
+    "enabled": true,
+    "top_n_agents": 3,
+    "min_score_threshold": 0.0
+  },
+  "leaderboard": {
+    "primary_metric": "and(metric/human/is_human_llm_location_matched, metric/human/is_llm_human_aligned)",
+    "column_groups": {
+      "Code Review Capability": [
+        "metric/human/is_llm_human_aligned",
+        "metric/human/is_human_llm_location_matched"
+      ],
+      "Static Similarity": [
+        "metric/human/llm_comment_rouge1_score",
+        "metric/human/llm_comment_rougel_score",
+        "metric/human/llm_comment_bleu_score",
+        "metric/human/llm_comment_edit_similarity_score"
+      ],
+      "Trajectory": [
+        "trajectory/input_tokens",
+        "trajectory/output_tokens",
+        "trajectory/steps",
+        "trajectory/trajectory_input_costs",
+        "trajectory/trajectory_output_costs",
+        "trajectory/trajectory_total_costs"
+      ]
+    },
+    "group_summary": {
+      "Code Review Capability": {
+        "method": "harmonic_mean",
+        "columns": [
+          "metric/human/is_llm_human_aligned",
+          "metric/human/is_human_llm_location_matched"
+        ]
+      },
+      "Text Similarity": {
+        "method": "mean",
+        "columns": [
+          "metric/human/llm_comment_rouge1_score",
+          "metric/human/llm_comment_rougel_score",
+          "metric/human/llm_comment_bleu_score",
+          "metric/human/llm_comment_edit_similarity_score"
+        ]
+      },
+      "Trajectory": {
+        "method": "pick",
+        "column": "trajectory/trajectory_total_costs"
+      }
+    },
+    "display_names": {
+      "metric/human/is_llm_human_aligned": "LLM Alignment to Human",
+      "metric/human/is_llm_context_aligned": "Context Alignment",
+      "metric/human/is_human_llm_location_matched": "LLM Localization to Human",
+      "metric/human/llm_comment_rouge1_score": "ROUGE-1",
+      "metric/human/llm_comment_rougel_score": "ROUGE-L",
+      "metric/human/llm_comment_bleu_score": "BLEU",
+      "metric/human/llm_comment_edit_similarity_score": "Edit Similarity",
+      "trajectory/input_tokens": "Input Tokens",
+      "trajectory/output_tokens": "Output Tokens",
+      "trajectory/steps": "Steps",
+      "trajectory/trajectory_input_costs": "Input Cost (USD)",
+      "trajectory/trajectory_output_costs": "Output Cost (USD)",
+      "trajectory/trajectory_total_costs": "Total Cost (USD)",
+      "agent": "Agent",
+      "model": "Model",
+      "total_diffs": "PRs",
+      "total_comments": "Comments",
+      "overall_weighted_score": "Signal-to-Noise Ratio",
+      "metric/human/is_llm_hunk_context_aligned": "Hunk Context Alignment",
+      "conditional_alignment": "Conditional Alignment"
+    }
+  }
+}

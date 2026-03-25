@@ -1,0 +1,865 @@
+diff --git a/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/BUILD b/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/BUILD
+index afb981497c796e..c1852ef139eb78 100644
+--- a/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/BUILD
++++ b/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/BUILD
+@@ -51,6 +51,7 @@ java_library(
+         "TagClass.java",
+     ],
+     deps = [
++        ":common",
+         "//src/main/java/com/google/devtools/build/docgen/annot",
+         "//src/main/java/com/google/devtools/build/lib/cmdline",
+         "//src/main/java/com/google/devtools/build/lib/packages",
+@@ -138,6 +139,7 @@ java_library(
+         "Discovery.java",
+         "GsonTypeAdapterUtil.java",
+         "ModuleExtensionContext.java",
++        "ModuleExtensionMetadata.java",
+         "ModuleFileFunction.java",
+         "ModuleFileGlobals.java",
+         "Selection.java",
+diff --git a/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/DelegateTypeAdapterFactory.java b/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/DelegateTypeAdapterFactory.java
+index d791789dc46bbb..b5beb7880a0ed8 100644
+--- a/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/DelegateTypeAdapterFactory.java
++++ b/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/DelegateTypeAdapterFactory.java
+@@ -18,6 +18,7 @@
+ import com.google.common.collect.ImmutableBiMap;
+ import com.google.common.collect.ImmutableList;
+ import com.google.common.collect.ImmutableMap;
++import com.google.common.collect.ImmutableSet;
+ import com.google.gson.Gson;
+ import com.google.gson.TypeAdapter;
+ import com.google.gson.TypeAdapterFactory;
+@@ -29,8 +30,10 @@
+ import java.lang.reflect.Type;
+ import java.util.ArrayList;
+ import java.util.LinkedHashMap;
++import java.util.LinkedHashSet;
+ import java.util.List;
+ import java.util.Map;
++import java.util.Set;
+ import java.util.function.Function;
+ import javax.annotation.Nullable;
+ import net.starlark.java.eval.Dict;
+@@ -92,6 +95,14 @@ private DelegateTypeAdapterFactory(
+           raw -> new ArrayList<>((List<?>) raw),
+           delegate -> ImmutableList.copyOf((List<?>) delegate));
+ 
++  public static final TypeAdapterFactory IMMUTABLE_SET =
++      new DelegateTypeAdapterFactory<>(
++          ImmutableSet.class,
++          Set.class,
++          LinkedHashSet.class,
++          raw -> new LinkedHashSet<>((Set<?>) raw),
++          delegate -> ImmutableSet.copyOf((Set<?>) delegate));
++
+   @SuppressWarnings("unchecked")
+   @Override
+   @Nullable
+diff --git a/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/GsonTypeAdapterUtil.java b/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/GsonTypeAdapterUtil.java
+index 09fcafc2b16d89..dbed668f955213 100644
+--- a/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/GsonTypeAdapterUtil.java
++++ b/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/GsonTypeAdapterUtil.java
+@@ -18,6 +18,7 @@
+ import static com.google.devtools.build.lib.bazel.bzlmod.DelegateTypeAdapterFactory.IMMUTABLE_BIMAP;
+ import static com.google.devtools.build.lib.bazel.bzlmod.DelegateTypeAdapterFactory.IMMUTABLE_LIST;
+ import static com.google.devtools.build.lib.bazel.bzlmod.DelegateTypeAdapterFactory.IMMUTABLE_MAP;
++import static com.google.devtools.build.lib.bazel.bzlmod.DelegateTypeAdapterFactory.IMMUTABLE_SET;
+ 
+ import com.google.common.base.Splitter;
+ import com.google.common.base.VerifyException;
+@@ -115,6 +116,7 @@ public Registry read(JsonReader jsonReader) throws IOException {
+           .registerTypeAdapterFactory(IMMUTABLE_MAP)
+           .registerTypeAdapterFactory(IMMUTABLE_LIST)
+           .registerTypeAdapterFactory(IMMUTABLE_BIMAP)
++          .registerTypeAdapterFactory(IMMUTABLE_SET)
+           .registerTypeAdapter(Version.class, VERSION_TYPE_ADAPTER)
+           .registerTypeAdapter(ModuleKey.class, MODULE_KEY_TYPE_ADAPTER);
+ 
+diff --git a/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleExtensionContext.java b/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleExtensionContext.java
+index 0cf2fd58a9a15d..e021286b1da7c2 100644
+--- a/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleExtensionContext.java
++++ b/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleExtensionContext.java
+@@ -29,6 +29,9 @@
+ import net.starlark.java.annot.StarlarkBuiltin;
+ import net.starlark.java.annot.StarlarkMethod;
+ import net.starlark.java.eval.EvalException;
++import net.starlark.java.eval.NoneType;
++import net.starlark.java.eval.Sequence;
++import net.starlark.java.eval.Starlark;
+ import net.starlark.java.eval.StarlarkList;
+ import net.starlark.java.eval.StarlarkSemantics;
+ 
+@@ -117,4 +120,54 @@ public StarlarkList<StarlarkBazelModule> getModules() {
+   public boolean isDevDependency(TypeCheckedTag tag) {
+     return tag.isDevDependency();
+   }
++
++  @StarlarkMethod(
++      name = "extension_metadata",
++      doc = "foo",
++      parameters = {
++          @Param(
++              name = "root_module_direct_deps",
++              doc = "foo",
++              positional = false,
++              named = true,
++              defaultValue = "None",
++              allowedTypes = {
++                  @ParamType(type = Sequence.class, generic1 = String.class),
++                  @ParamType(type = NoneType.class)}),
++          @Param(
++              name = "root_module_direct_dev_deps",
++              doc = "foo",
++              positional = false,
++              named = true,
++              defaultValue = "None",
++              allowedTypes = {
++                  @ParamType(type = Sequence.class, generic1 = String.class),
++                  @ParamType(type = NoneType.class)}),
++      })
++  public ModuleExtensionMetadata extensionMetadata(Object rootModuleDirectDepsUnchecked,
++      Object rootModuleDirectDevDepsUnchecked) throws EvalException {
++    Sequence<String> rootModuleDirectDeps = rootModuleDirectDepsUnchecked == Starlark.NONE ? null
++        : Sequence.cast(rootModuleDirectDepsUnchecked, String.class, "root_module_direct_deps");
++    Sequence<String> rootModuleDirectDevDeps =
++        rootModuleDirectDevDepsUnchecked == Starlark.NONE ? null
++            : Sequence.cast(rootModuleDirectDevDepsUnchecked, String.class,
++                "root_module_direct_dev_deps");
++    return ModuleExtensionMetadata.create(rootModuleDirectDeps, rootModuleDirectDevDeps);
++  }
++
++  @StarlarkMethod(
++      name = "use_all_repos",
++      doc = "Return the value created by this method from a module extension to indicate that all "
++          + "repositories instantiated by it should be imported via <code>use_repo</code> by all "
++          + "modules using this extension.",
++      parameters = {
++          @Param(
++              name = "dev_dependency",
++              doc = "Whether the repositories instantiated by this extension should be imported "
++                  + "as dev dependencies.",
++              allowedTypes = {@ParamType(type = boolean.class)})
++      })
++  public ModuleExtensionMetadata useAllRepos(boolean devDependency) {
++    return ModuleExtensionMetadata.createForUseAllRepos(devDependency);
++  }
+ }
+diff --git a/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleExtensionMetadata.java b/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleExtensionMetadata.java
+new file mode 100644
+index 00000000000000..7f304097e939e4
+--- /dev/null
++++ b/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleExtensionMetadata.java
+@@ -0,0 +1,254 @@
++package com.google.devtools.build.lib.bazel.bzlmod;
++
++
++import com.google.common.base.Preconditions;
++import com.google.common.collect.ImmutableList;
++import com.google.common.collect.ImmutableSet;
++import com.google.common.collect.ImmutableSortedSet;
++import com.google.common.collect.Sets;
++import com.google.devtools.build.docgen.annot.DocCategory;
++import com.google.devtools.build.lib.cmdline.RepositoryName;
++import com.google.devtools.build.lib.events.Event;
++import com.google.devtools.build.lib.events.EventHandler;
++import java.util.Collection;
++import java.util.LinkedHashSet;
++import java.util.List;
++import java.util.Optional;
++import java.util.Set;
++import java.util.stream.Collectors;
++import java.util.stream.Stream;
++import javax.annotation.Nullable;
++import net.starlark.java.annot.StarlarkBuiltin;
++import net.starlark.java.eval.EvalException;
++import net.starlark.java.eval.Starlark;
++import net.starlark.java.eval.StarlarkValue;
++import net.starlark.java.syntax.Location;
++
++@StarlarkBuiltin(
++    name = "extension_metadata",
++    category = DocCategory.BUILTIN,
++    doc = "Return values of this type from a module extension's implementation function to "
++        + "provide metadata about the repositories generated by the extension to Bazel.")
++public class ModuleExtensionMetadata implements StarlarkValue {
++  @Nullable
++  private final ImmutableSet<String> explicitRootModuleDirectDeps;
++  @Nullable
++  private final ImmutableSet<String> explicitRootModuleDirectDevDeps;
++  private final UseAllRepos useAllRepos;
++
++  private ModuleExtensionMetadata(@Nullable Set<String> explicitRootModuleDirectDeps,
++      @Nullable Set<String> explicitRootModuleDirectDevDeps, UseAllRepos useAllRepos) {
++    this.explicitRootModuleDirectDeps = explicitRootModuleDirectDeps != null ? ImmutableSet
++        .copyOf(explicitRootModuleDirectDeps) : null;
++    this.explicitRootModuleDirectDevDeps = explicitRootModuleDirectDevDeps != null ? ImmutableSet
++        .copyOf(explicitRootModuleDirectDevDeps) : null;
++    this.useAllRepos = useAllRepos;
++  }
++
++  static ModuleExtensionMetadata create(List<String> rootModuleDirectDeps,
++      @Nullable List<String> rootModuleDirectDevDeps) throws EvalException {
++    if ((rootModuleDirectDeps == null) != (rootModuleDirectDevDeps == null)) {
++      throw Starlark.errorf("root_module_direct_deps and root_module_direct_dev_deps must both be "
++          + "specified or both be unspecified");
++    }
++    if (rootModuleDirectDeps == null) {
++      return new ModuleExtensionMetadata(null, null, UseAllRepos.NO);
++    }
++
++    Set<String> explicitRootModuleDirectDeps = new LinkedHashSet<>();
++    for (String dep : rootModuleDirectDeps) {
++      try {
++        RepositoryName.validateUserProvidedRepoName(dep);
++      } catch (EvalException e) {
++        throw Starlark.errorf("in root_module_direct_deps: %s", e.getMessage());
++      }
++      if (!explicitRootModuleDirectDeps.add(dep)) {
++        throw Starlark.errorf("duplicate root_module_direct_deps entry '%s'", dep);
++      }
++    }
++
++    Set<String> explicitRootModuleDirectDevDeps = new LinkedHashSet<>();
++    for (String dep : rootModuleDirectDevDeps) {
++      try {
++        RepositoryName.validateUserProvidedRepoName(dep);
++      } catch (EvalException e) {
++        throw Starlark.errorf("in root_module_direct_dev_deps: %s", e.getMessage());
++      }
++      if (explicitRootModuleDirectDeps.contains(dep)) {
++        throw Starlark.errorf("root_module_direct_dev_deps entry '%s' is also in "
++            + "root_module_direct_deps", dep);
++      }
++      if (!explicitRootModuleDirectDevDeps.add(dep)) {
++        throw Starlark.errorf("duplicate root_module_direct_dev_deps entry '%s'", dep);
++      }
++    }
++
++    return new ModuleExtensionMetadata(explicitRootModuleDirectDeps,
++        explicitRootModuleDirectDevDeps, UseAllRepos.NO);
++  }
++
++  static ModuleExtensionMetadata createForUseAllRepos(Boolean devDependency) {
++    return new ModuleExtensionMetadata(null, null, devDependency ? UseAllRepos.DEV
++        : UseAllRepos.REGULAR);
++  }
++
++  public void evaluate(Collection<ModuleExtensionUsage> usages, Set<String> allRepos,
++      EventHandler handler) throws EvalException {
++    generateFixupMessage(usages, allRepos).ifPresent(handler::handle);
++  }
++
++  Optional<Event> generateFixupMessage(Collection<ModuleExtensionUsage> usages,
++      Set<String> allRepos) throws EvalException {
++    var rootUsages = usages.stream()
++        .filter(usage -> usage.getModuleKey().equals(ModuleKey.ROOT))
++        .collect(ImmutableList.toImmutableList());
++    if (rootUsages.isEmpty()) {
++      // The root module doesn't use the current extension. Do not suggest fixes as the user isn't
++      // expected to modify any other module's MODULE.bazel file.
++      return Optional.empty();
++    }
++
++    var rootModuleDirectDevDeps = getRootModuleDirectDevDeps(allRepos);
++    var rootModuleDirectDeps = getRootModuleDirectDeps(allRepos);
++    if (rootModuleDirectDevDeps.isEmpty() && rootModuleDirectDeps.isEmpty()) {
++      return Optional.empty();
++    }
++
++    Preconditions.checkState(
++        rootModuleDirectDevDeps.isPresent() && rootModuleDirectDeps.isPresent());
++    return generateFixupMessage(rootUsages, allRepos, rootModuleDirectDeps.get(),
++        rootModuleDirectDevDeps.get());
++  }
++
++  private static Optional<Event> generateFixupMessage(List<ModuleExtensionUsage> rootUsages,
++      Set<String> allRepos, Set<String> expectedImports, Set<String> expectedDevImports) {
++    var actualDevImports = rootUsages.stream()
++        .flatMap(usage -> usage.getDevImports().stream())
++        .collect(ImmutableSet.toImmutableSet());
++    var actualImports = rootUsages.stream()
++        .flatMap(usage -> usage.getImports().keySet().stream())
++        .filter(repo -> !actualDevImports.contains(repo))
++        .collect(ImmutableSet.toImmutableSet());
++
++    // All label strings that map to the same Label are equivalent for buildozer as it implements
++    // the same normalization of label strings with no or empty repo name.
++    ModuleExtensionUsage firstUsage = rootUsages.get(0);
++    String extensionBzlFile = firstUsage.getExtensionBzlFile();
++    String extensionName = firstUsage.getExtensionName();
++    Location location = firstUsage.getLocation();
++
++    var importsToAdd = ImmutableSortedSet.copyOf(Sets.difference(expectedImports, actualImports));
++    var importsToRemove = ImmutableSortedSet.copyOf(
++        Sets.difference(actualImports, expectedImports));
++    var devImportsToAdd = ImmutableSortedSet.copyOf(
++        Sets.difference(expectedDevImports, actualDevImports));
++    var devImportsToRemove = ImmutableSortedSet.copyOf(
++        Sets.difference(actualDevImports, expectedDevImports));
++
++    if (importsToAdd.isEmpty() && importsToRemove.isEmpty() && devImportsToAdd.isEmpty()
++        && devImportsToRemove.isEmpty()) {
++      return Optional.empty();
++    }
++
++    var message = String.format("The module extension %s defined in %s reported incorrect imports "
++        + "of repositories via use_repo():\n\n", extensionName, extensionBzlFile);
++
++    var allActualImports = ImmutableSortedSet.copyOf(Sets.union(actualImports, actualDevImports));
++    var allExpectedImports = ImmutableSortedSet.copyOf(
++        Sets.union(expectedImports, expectedDevImports));
++
++    var invalidImports = ImmutableSortedSet.copyOf(Sets.difference(allActualImports, allRepos));
++    if (!invalidImports.isEmpty()) {
++      message += String.format(
++          "Imported, but not created by the extension (will cause the build to fail):\n    %s\n\n",
++          String.join(", ", invalidImports));
++    }
++
++    var missingImports = ImmutableSortedSet.copyOf(
++        Sets.difference(allExpectedImports, allActualImports));
++    if (!missingImports.isEmpty()) {
++      message += String.format(
++          "Not imported, but declared as direct dependencies (may cause the build to fail):\n    %s\n\n",
++          String.join(", ", missingImports));
++    }
++
++    var indirectDepImports = ImmutableSortedSet.copyOf(
++        Sets.difference(Sets.intersection(allActualImports, allRepos), allExpectedImports));
++    if (!indirectDepImports.isEmpty()) {
++      message += String.format(
++          "Imported, but not declared as direct dependencies:\n    %s\n\n",
++          String.join(", ", indirectDepImports));
++    }
++
++    var fixupCommands = Stream.of(
++        makeUseRepoCommand("use_repo_add", false, importsToAdd, extensionBzlFile, extensionName),
++        makeUseRepoCommand("use_repo_remove", false, importsToRemove, extensionBzlFile,
++            extensionName),
++        makeUseRepoCommand("use_repo_add", true, devImportsToAdd, extensionBzlFile,
++            extensionName),
++        makeUseRepoCommand("use_repo_remove", true, devImportsToRemove, extensionBzlFile,
++            extensionName)
++    ).flatMap(Optional::stream);
++
++    return Optional.of(Event.warn(location, message + String.format(
++        "%s ** You can use the following buildozer command(s) to fix these issues:%s\n\n%s",
++        "\033[35m\033[1m", "\033[0m", fixupCommands.collect(Collectors.joining("\n")))));
++  }
++
++  private static Optional<String> makeUseRepoCommand(String cmd, boolean devDependency,
++      Collection<String> repos, String extensionBzlFile, String extensionName) {
++    if (repos.isEmpty()) {
++      return Optional.empty();
++    }
++    return Optional.of(String.format("buildozer '%s%s %s %s %s' //MODULE.bazel:all", cmd,
++        devDependency ? " dev" : "", extensionBzlFile, extensionName, String.join(" ", repos)));
++  }
++
++  private Optional<ImmutableSet<String>> getRootModuleDirectDeps(Set<String> allRepos)
++      throws EvalException {
++    switch (useAllRepos) {
++      case NO:
++        if (explicitRootModuleDirectDeps != null) {
++          Set<String> invalidRepos = Sets.difference(explicitRootModuleDirectDeps, allRepos);
++          if (!invalidRepos.isEmpty()) {
++            throw Starlark.errorf("root_module_direct_deps contained the following repositories "
++                + "not generated by the extension: %s", invalidRepos);
++          }
++        }
++        return Optional.ofNullable(explicitRootModuleDirectDeps);
++      case REGULAR:
++        return Optional.of(ImmutableSet.copyOf(allRepos));
++      case DEV:
++        return Optional.of(ImmutableSet.of());
++      default:
++        throw new IllegalStateException("not reached");
++    }
++  }
++
++  private Optional<ImmutableSet<String>> getRootModuleDirectDevDeps(Set<String> allRepos)
++      throws EvalException {
++    switch (useAllRepos) {
++      case NO:
++        if (explicitRootModuleDirectDevDeps != null) {
++          Set<String> invalidRepos = Sets.difference(explicitRootModuleDirectDevDeps, allRepos);
++          if (!invalidRepos.isEmpty()) {
++            throw Starlark.errorf("root_module_direct_dev_deps contained the following "
++                + "repositories not generated by the extension: %s", invalidRepos);
++          }
++        }
++        return Optional.ofNullable(explicitRootModuleDirectDevDeps);
++      case REGULAR:
++        return Optional.of(ImmutableSet.of());
++      case DEV:
++        return Optional.of(ImmutableSet.copyOf(allRepos));
++      default:
++        throw new IllegalStateException("not reached");
++    }
++  }
++
++  private enum UseAllRepos {
++    NO,
++    REGULAR,
++    DEV,
++  }
++}
+diff --git a/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleExtensionUsage.java b/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleExtensionUsage.java
+index 64be185428b300..be94bcdb095e06 100644
+--- a/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleExtensionUsage.java
++++ b/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleExtensionUsage.java
+@@ -15,8 +15,10 @@
+ package com.google.devtools.build.lib.bazel.bzlmod;
+ 
+ import com.google.auto.value.AutoValue;
++import com.google.common.base.Preconditions;
+ import com.google.common.collect.ImmutableBiMap;
+ import com.google.common.collect.ImmutableList;
++import com.google.common.collect.ImmutableSet;
+ import com.google.errorprone.annotations.CanIgnoreReturnValue;
+ import com.ryanharter.auto.value.gson.GenerateTypeAdapter;
+ import net.starlark.java.syntax.Location;
+@@ -48,14 +50,34 @@ public abstract class ModuleExtensionUsage {
+    */
+   public abstract ImmutableBiMap<String, String> getImports();
+ 
+-  /** All the tags specified by this module for this extension. */
++  /**
++   * The repo names as exported by the module extension that were imported using a proxy marked as
++   * a dev dependency.
++   */
++  public abstract ImmutableSet<String> getDevImports();
++
++  /**
++   * All the tags specified by this module for this extension.
++   */
+   public abstract ImmutableList<Tag> getTags();
+ 
++  public ModuleKey getModuleKey() {
++    String file = getLocation().file();
++    Preconditions.checkState(file.endsWith("/MODULE.bazel"));
++    try {
++      return ModuleKey.fromString(file.substring(0, file.length() - "/MODULE.bazel".length()));
++    } catch (Version.ParseException e) {
++      throw new IllegalStateException("Unexpected location for module extension usage: " + file, e);
++    }
++  }
++
+   public static Builder builder() {
+     return new AutoValue_ModuleExtensionUsage.Builder();
+   }
+ 
+-  /** Builder for {@link ModuleExtensionUsage}. */
++  /**
++   * Builder for {@link ModuleExtensionUsage}.
++   */
+   @AutoValue.Builder
+   public abstract static class Builder {
+ 
+@@ -67,6 +89,8 @@ public abstract static class Builder {
+ 
+     public abstract Builder setImports(ImmutableBiMap<String, String> value);
+ 
++    public abstract Builder setDevImports(ImmutableSet<String> value);
++
+     public abstract Builder setTags(ImmutableList<Tag> value);
+ 
+     abstract ImmutableList.Builder<Tag> tagsBuilder();
+diff --git a/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleFileGlobals.java b/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleFileGlobals.java
+index da7ba7318cb49e..97b696bb898934 100644
+--- a/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleFileGlobals.java
++++ b/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleFileGlobals.java
+@@ -24,6 +24,7 @@
+ import com.google.common.collect.ImmutableCollection;
+ import com.google.common.collect.ImmutableList;
+ import com.google.common.collect.ImmutableMap;
++import com.google.common.collect.ImmutableSet;
+ import com.google.devtools.build.docgen.annot.DocumentMethods;
+ import com.google.devtools.build.lib.bazel.bzlmod.ModuleFileGlobals.ModuleExtensionUsageBuilder.ModuleExtensionProxy;
+ import com.google.devtools.build.lib.bazel.bzlmod.Version.ParseException;
+@@ -434,6 +435,7 @@ class ModuleExtensionUsageBuilder {
+     private final String extensionName;
+     private final Location location;
+     private final HashBiMap<String, String> imports;
++    private final ImmutableSet.Builder<String> devImports;
+     private final ImmutableList.Builder<Tag> tags;
+ 
+     ModuleExtensionUsageBuilder(String extensionBzlFile, String extensionName, Location location) {
+@@ -441,6 +443,7 @@ class ModuleExtensionUsageBuilder {
+       this.extensionName = extensionName;
+       this.location = location;
+       this.imports = HashBiMap.create();
++      this.devImports = ImmutableSet.builder();
+       this.tags = ImmutableList.builder();
+     }
+ 
+@@ -450,6 +453,7 @@ ModuleExtensionUsage buildUsage() {
+           .setExtensionName(extensionName)
+           .setLocation(location)
+           .setImports(ImmutableBiMap.copyOf(imports))
++          .setDevImports(devImports.build())
+           .setTags(tags.build())
+           .build();
+     }
+@@ -483,6 +487,9 @@ void addImport(String localRepoName, String exportedName, Location location)
+               exportedName, extensionName, repoNameUsages.get(collisionRepoName).getWhere());
+         }
+         imports.put(localRepoName, exportedName);
++        if (devDependency) {
++          devImports.add(exportedName);
++        }
+       }
+ 
+       @Nullable
+diff --git a/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleKey.java b/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleKey.java
+index 50a24292c869f5..30445e53dfbff0 100644
+--- a/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleKey.java
++++ b/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleKey.java
+@@ -17,6 +17,7 @@
+ 
+ import com.google.auto.value.AutoValue;
+ import com.google.common.collect.ImmutableMap;
++import com.google.devtools.build.lib.bazel.bzlmod.Version.ParseException;
+ import com.google.devtools.build.lib.cmdline.RepositoryName;
+ import java.util.Comparator;
+ 
+@@ -64,6 +65,19 @@ public final String toString() {
+     return getName() + "@" + (getVersion().isEmpty() ? "_" : getVersion().toString());
+   }
+ 
++  public static ModuleKey fromString(String s) throws ParseException {
++    if (s.equals("<root>")) {
++      return ROOT;
++    }
++    int at = s.indexOf('@');
++    if (at == -1) {
++      throw new ParseException("Failed to parse version from non-root module key string");
++    }
++    String name = s.substring(0, at);
++    String version = s.substring(at + 1);
++    return create(name, version.equals("_") ? Version.EMPTY : Version.parse(version));
++  }
++
+   /** Returns the canonical name of the repo backing this module. */
+   public RepositoryName getCanonicalRepoName() {
+     if (WELL_KNOWN_MODULES.containsKey(getName())) {
+diff --git a/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/SingleExtensionEvalFunction.java b/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/SingleExtensionEvalFunction.java
+index 0aec2b5fdd7dff..15d3544e0feab0 100644
+--- a/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/SingleExtensionEvalFunction.java
++++ b/src/main/java/com/google/devtools/build/lib/bazel/bzlmod/SingleExtensionEvalFunction.java
+@@ -183,8 +183,23 @@ public SkyValue compute(SkyKey skyKey, Environment env)
+           createContext(env, usagesValue, starlarkSemantics, extensionId, extension);
+       threadContext.storeInThread(thread);
+       try {
+-        Starlark.fastcall(
+-            thread, extension.getImplementation(), new Object[] {moduleContext}, new Object[0]);
++        Object returnValue = Starlark.fastcall(
++            thread, extension.getImplementation(), new Object[]{moduleContext}, new Object[0]);
++        if (returnValue != Starlark.NONE && !(returnValue instanceof ModuleExtensionMetadata)) {
++          throw new SingleExtensionEvalFunctionException(
++              ExternalDepsException.withMessage(
++                  Code.BAD_MODULE,
++                  "expected module extension %s in %s to return None or extension_metadata, got %s",
++                  extensionId.getExtensionName(),
++                  extensionId.getBzlFileLabel(),
++                  Starlark.type(returnValue)),
++              Transience.PERSISTENT);
++        }
++        if (returnValue instanceof ModuleExtensionMetadata) {
++          ModuleExtensionMetadata metadata = (ModuleExtensionMetadata) returnValue;
++          metadata.evaluate(usagesValue.getExtensionUsages().values(),
++              threadContext.getGeneratedRepos().keySet(), env.getListener());
++        }
+       } catch (NeedsSkyframeRestartException e) {
+         // Clean up and restart by returning null.
+         try {
+diff --git a/src/test/java/com/google/devtools/build/lib/bazel/bzlmod/BUILD b/src/test/java/com/google/devtools/build/lib/bazel/bzlmod/BUILD
+index e1133d8e555cd6..4da28abb7a57c8 100644
+--- a/src/test/java/com/google/devtools/build/lib/bazel/bzlmod/BUILD
++++ b/src/test/java/com/google/devtools/build/lib/bazel/bzlmod/BUILD
+@@ -46,6 +46,7 @@ java_library(
+         "//src/main/java/com/google/devtools/build/lib/bazel/repository/starlark",
+         "//src/main/java/com/google/devtools/build/lib/clock",
+         "//src/main/java/com/google/devtools/build/lib/cmdline",
++        "//src/main/java/com/google/devtools/build/lib/events",
+         "//src/main/java/com/google/devtools/build/lib/packages",
+         "//src/main/java/com/google/devtools/build/lib/packages/semantics",
+         "//src/main/java/com/google/devtools/build/lib/pkgcache",
+diff --git a/src/test/java/com/google/devtools/build/lib/bazel/bzlmod/BazelDepGraphFunctionTest.java b/src/test/java/com/google/devtools/build/lib/bazel/bzlmod/BazelDepGraphFunctionTest.java
+index 9cef1c466e8f6c..9ff993fdc64ec5 100644
+--- a/src/test/java/com/google/devtools/build/lib/bazel/bzlmod/BazelDepGraphFunctionTest.java
++++ b/src/test/java/com/google/devtools/build/lib/bazel/bzlmod/BazelDepGraphFunctionTest.java
+@@ -25,6 +25,7 @@
+ import com.google.common.collect.ImmutableBiMap;
+ import com.google.common.collect.ImmutableList;
+ import com.google.common.collect.ImmutableMap;
++import com.google.common.collect.ImmutableSet;
+ import com.google.devtools.build.lib.actions.FileValue;
+ import com.google.devtools.build.lib.analysis.BlazeDirectories;
+ import com.google.devtools.build.lib.analysis.ServerDirectories;
+@@ -238,6 +239,7 @@ private static ModuleExtensionUsage createModuleExtensionUsage(
+         .setExtensionBzlFile(bzlFile)
+         .setExtensionName(name)
+         .setImports(importsBuilder.buildOrThrow())
++        .setDevImports(ImmutableSet.of())
+         .setLocation(Location.BUILTIN)
+         .build();
+   }
+diff --git a/src/test/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleExtensionMetadataTest.java b/src/test/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleExtensionMetadataTest.java
+new file mode 100644
+index 00000000000000..e98a295475a053
+--- /dev/null
++++ b/src/test/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleExtensionMetadataTest.java
+@@ -0,0 +1,185 @@
++package com.google.devtools.build.lib.bazel.bzlmod;
++
++import static com.google.common.truth.Truth.assertThat;
++import static org.junit.Assert.assertThrows;
++
++import com.google.common.collect.ImmutableBiMap;
++import com.google.common.collect.ImmutableList;
++import com.google.common.collect.ImmutableSet;
++import com.google.devtools.build.lib.events.EventKind;
++import net.starlark.java.eval.EvalException;
++import net.starlark.java.syntax.Location;
++import org.junit.Test;
++import org.junit.runner.RunWith;
++import org.junit.runners.JUnit4;
++
++@RunWith(JUnit4.class)
++public class ModuleExtensionMetadataTest {
++  @Test
++  public void testCreate_exactlyOneArgIsNull() {
++    Exception e = assertThrows(
++        EvalException.class,
++        () -> ModuleExtensionMetadata.create(null, ImmutableList.of()));
++    assertThat(e).hasMessageThat()
++        .isEqualTo(
++            "root_module_direct_deps and root_module_direct_dev_deps must both be specified or both be unspecified");
++
++    e = assertThrows(
++        EvalException.class,
++        () -> ModuleExtensionMetadata.create(ImmutableList.of(), null));
++    assertThat(e).hasMessageThat()
++        .isEqualTo(
++            "root_module_direct_deps and root_module_direct_dev_deps must both be specified or both be unspecified");
++  }
++
++  @Test
++  public void testCreate_invalidRepoName() {
++    Exception e = assertThrows(
++        EvalException.class,
++        () -> ModuleExtensionMetadata.create(ImmutableList.of("~invalid"), ImmutableList.of()));
++    assertThat(e).hasMessageThat()
++        .isEqualTo(
++            "in root_module_direct_deps: invalid user-provided repo name '~invalid': valid names may contain only A-Z, a-z, 0-9, '-', '_', '.', and must start with a letter");
++  }
++
++  @Test
++  public void testCreate_invalidDevRepoName() {
++    Exception e = assertThrows(
++        EvalException.class,
++        () -> ModuleExtensionMetadata.create(ImmutableList.of(), ImmutableList.of("~invalid")));
++    assertThat(e).hasMessageThat()
++        .isEqualTo(
++            "in root_module_direct_dev_deps: invalid user-provided repo name '~invalid': valid names may contain only A-Z, a-z, 0-9, '-', '_', '.', and must start with a letter");
++  }
++
++  @Test
++  public void testCreate_duplicateRepo() {
++    Exception e = assertThrows(
++        EvalException.class,
++        () -> ModuleExtensionMetadata.create(ImmutableList.of("dep", "dep"), ImmutableList.of()));
++    assertThat(e).hasMessageThat()
++        .isEqualTo("duplicate root_module_direct_deps entry 'dep'");
++  }
++
++  @Test
++  public void testCreate_duplicateRepoAcrossTypes() {
++    Exception e = assertThrows(
++        EvalException.class,
++        () -> ModuleExtensionMetadata.create(ImmutableList.of("dep"), ImmutableList.of("dep")));
++    assertThat(e).hasMessageThat()
++        .isEqualTo("root_module_direct_dev_deps entry 'dep' is also in root_module_direct_deps");
++  }
++
++  @Test
++  public void testGenerateFixupMessage() throws EvalException {
++    Location location = Location.fromFileLineColumn("<root>/MODULE.bazel", 2, 1);
++    var rootUsage = ModuleExtensionUsage.builder()
++        .setExtensionBzlFile("//:extensions.bzl")
++        .setExtensionName("ext")
++        .setLocation(location)
++        .setImports(ImmutableBiMap.of("indirect_dep", "indirect_dep", "indirect_dev_dep",
++            "indirect_dev_dep", "invalid_dep", "invalid_dep", "invalid_dev_dep", "invalid_dev_dep"))
++        .setDevImports(ImmutableSet.of("indirect_dev_dep", "invalid_dev_dep"))
++        .build();
++    var allRepos = ImmutableSet.of("direct_dep", "direct_dev_dep", "indirect_dep",
++        "indirect_dev_dep");
++    var moduleExtensionMetadata = ModuleExtensionMetadata.create(ImmutableList.of("direct_dep"),
++        ImmutableList.of("direct_dev_dep"));
++    var fixupMessage = moduleExtensionMetadata.generateFixupMessage(ImmutableList.of(rootUsage),
++        allRepos);
++
++    assertThat(fixupMessage.isPresent()).isTrue();
++    assertThat(fixupMessage.get().getLocation()).isEqualTo(location);
++    assertThat(fixupMessage.get().getKind()).isEqualTo(EventKind.WARNING);
++    assertThat(fixupMessage.get().getMessage()).isEqualTo(
++        "The module extension ext defined in //:extensions.bzl reported incorrect imports of repositories via use_repo():\n"
++            + "\n"
++            + "Imported, but not created by the extension (will cause the build to fail):\n"
++            + "    invalid_dep, invalid_dev_dep\n"
++            + "\n"
++            + "Not imported, but declared as direct dependencies (may cause the build to fail):\n"
++            + "    direct_dep, direct_dev_dep\n"
++            + "\n"
++            + "Imported, but not declared as direct dependencies:\n"
++            + "    indirect_dep, indirect_dev_dep\n"
++            + "\n"
++            + "\033[35m\033[1m ** You can use the following buildozer command(s) to fix these issues:\033[0m\n"
++            + "\n"
++            + "buildozer 'use_repo_add //:extensions.bzl ext direct_dep' //MODULE.bazel:all\n"
++            + "buildozer 'use_repo_remove //:extensions.bzl ext indirect_dep invalid_dep' //MODULE.bazel:all\n"
++            + "buildozer 'use_repo_add dev //:extensions.bzl ext direct_dev_dep' //MODULE.bazel:all\n"
++            + "buildozer 'use_repo_remove dev //:extensions.bzl ext indirect_dev_dep invalid_dev_dep' //MODULE.bazel:all");
++  }
++
++  @Test
++  public void testGenerateFixupMessage_useAllRepos() throws EvalException {
++    Location location = Location.fromFileLineColumn("<root>/MODULE.bazel", 2, 1);
++    var rootUsage = ModuleExtensionUsage.builder()
++        .setExtensionBzlFile("//:extensions.bzl")
++        .setExtensionName("ext")
++        .setLocation(location)
++        .setImports(ImmutableBiMap.of("indirect_dep", "indirect_dep", "indirect_dev_dep",
++            "indirect_dev_dep", "invalid_dep", "invalid_dep", "invalid_dev_dep", "invalid_dev_dep"))
++        .setDevImports(ImmutableSet.of("indirect_dev_dep", "invalid_dev_dep"))
++        .build();
++    var allRepos = ImmutableSet.of("direct_dep", "direct_dev_dep", "indirect_dep",
++        "indirect_dev_dep");
++    var moduleExtensionMetadata = ModuleExtensionMetadata.createForUseAllRepos(false);
++    var fixupMessage = moduleExtensionMetadata.generateFixupMessage(ImmutableList.of(rootUsage),
++        allRepos);
++
++    assertThat(fixupMessage.isPresent()).isTrue();
++    assertThat(fixupMessage.get().getLocation()).isEqualTo(location);
++    assertThat(fixupMessage.get().getKind()).isEqualTo(EventKind.WARNING);
++    assertThat(fixupMessage.get().getMessage()).isEqualTo(
++        "The module extension ext defined in //:extensions.bzl reported incorrect imports of repositories via use_repo():\n"
++            + "\n"
++            + "Imported, but not created by the extension (will cause the build to fail):\n"
++            + "    invalid_dep, invalid_dev_dep\n"
++            + "\n"
++            + "Not imported, but declared as direct dependencies (may cause the build to fail):\n"
++            + "    direct_dep, direct_dev_dep\n"
++            + "\n"
++            + "\033[35m\033[1m ** You can use the following buildozer command(s) to fix these issues:\033[0m\n"
++            + "\n"
++            + "buildozer 'use_repo_add //:extensions.bzl ext direct_dep direct_dev_dep indirect_dev_dep' //MODULE.bazel:all\n"
++            + "buildozer 'use_repo_remove //:extensions.bzl ext invalid_dep' //MODULE.bazel:all\n"
++            + "buildozer 'use_repo_remove dev //:extensions.bzl ext indirect_dev_dep invalid_dev_dep' //MODULE.bazel:all");
++  }
++
++  @Test
++  public void testGenerateFixupMessage_useAllRepos_dev() throws EvalException {
++    Location location = Location.fromFileLineColumn("<root>/MODULE.bazel", 2, 1);
++    var rootUsage = ModuleExtensionUsage.builder()
++        .setExtensionBzlFile("//:extensions.bzl")
++        .setExtensionName("ext")
++        .setLocation(location)
++        .setImports(ImmutableBiMap.of("indirect_dep", "indirect_dep", "indirect_dev_dep",
++            "indirect_dev_dep", "invalid_dep", "invalid_dep", "invalid_dev_dep", "invalid_dev_dep"))
++        .setDevImports(ImmutableSet.of("indirect_dev_dep", "invalid_dev_dep"))
++        .build();
++    var allRepos = ImmutableSet.of("direct_dep", "direct_dev_dep", "indirect_dep",
++        "indirect_dev_dep");
++    var moduleExtensionMetadata = ModuleExtensionMetadata.createForUseAllRepos(true);
++    var fixupMessage = moduleExtensionMetadata.generateFixupMessage(ImmutableList.of(rootUsage),
++        allRepos);
++
++    assertThat(fixupMessage.isPresent()).isTrue();
++    assertThat(fixupMessage.get().getLocation()).isEqualTo(location);
++    assertThat(fixupMessage.get().getKind()).isEqualTo(EventKind.WARNING);
++    assertThat(fixupMessage.get().getMessage()).isEqualTo(
++        "The module extension ext defined in //:extensions.bzl reported incorrect imports of repositories via use_repo():\n"
++            + "\n"
++            + "Imported, but not created by the extension (will cause the build to fail):\n"
++            + "    invalid_dep, invalid_dev_dep\n"
++            + "\n"
++            + "Not imported, but declared as direct dependencies (may cause the build to fail):\n"
++            + "    direct_dep, direct_dev_dep\n"
++            + "\n"
++            + "\033[35m\033[1m ** You can use the following buildozer command(s) to fix these issues:\033[0m\n"
++            + "\n"
++            + "buildozer 'use_repo_remove //:extensions.bzl ext indirect_dep invalid_dep' //MODULE.bazel:all\n"
++            + "buildozer 'use_repo_add dev //:extensions.bzl ext direct_dep direct_dev_dep indirect_dep' //MODULE.bazel:all\n"
++            + "buildozer 'use_repo_remove dev //:extensions.bzl ext invalid_dev_dep' //MODULE.bazel:all");
++  }
++}
+diff --git a/src/test/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleFileFunctionTest.java b/src/test/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleFileFunctionTest.java
+index 1b8e52ac9cc8fe..2fd9f4dbe8e196 100644
+--- a/src/test/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleFileFunctionTest.java
++++ b/src/test/java/com/google/devtools/build/lib/bazel/bzlmod/ModuleFileFunctionTest.java
+@@ -477,6 +477,7 @@ public void testModuleExtensions_good() throws Exception {
+                         .setExtensionName("myext1")
+                         .setLocation(Location.fromFileLineColumn("mymod@1.0/MODULE.bazel", 2, 23))
+                         .setImports(ImmutableBiMap.of("repo1", "repo1"))
++                        .setDevImports(ImmutableSet.of())
+                         .addTag(
+                             Tag.builder()
+                                 .setTagName("tag")
+@@ -495,6 +496,7 @@ public void testModuleExtensions_good() throws Exception {
+                         .setExtensionName("myext2")
+                         .setLocation(Location.fromFileLineColumn("mymod@1.0/MODULE.bazel", 5, 23))
+                         .setImports(ImmutableBiMap.of("other_repo1", "repo1", "repo2", "repo2"))
++                        .setDevImports(ImmutableSet.of())
+                         .addTag(
+                             Tag.builder()
+                                 .setTagName("tag1")
+@@ -525,6 +527,7 @@ public void testModuleExtensions_good() throws Exception {
+                         .setLocation(Location.fromFileLineColumn("mymod@1.0/MODULE.bazel", 10, 22))
+                         .setImports(
+                             ImmutableBiMap.of("mvn", "maven", "junit", "junit", "guava", "guava"))
++                        .setDevImports(ImmutableSet.of())
+                         .addTag(
+                             Tag.builder()
+                                 .setTagName("dep")
+@@ -589,6 +592,7 @@ public void testModuleExtensions_duplicateProxy_asRoot() throws Exception {
+                             ImmutableBiMap.of(
+                                 "alpha", "alpha", "beta", "beta", "gamma", "gamma", "delta",
+                                 "delta"))
++                        .setDevImports(ImmutableSet.of("alpha", "gamma"))
+                         .addTag(
+                             Tag.builder()
+                                 .setTagName("tag")
+@@ -676,6 +680,7 @@ public void testModuleExtensions_duplicateProxy_asDep() throws Exception {
+                         .setExtensionName("myext")
+                         .setLocation(Location.fromFileLineColumn("mymod@1.0/MODULE.bazel", 5, 23))
+                         .setImports(ImmutableBiMap.of("beta", "beta", "delta", "delta"))
++                        .setDevImports(ImmutableSet.of())
+                         .addTag(
+                             Tag.builder()
+                                 .setTagName("tag")
+diff --git a/src/test/java/com/google/devtools/build/lib/bazel/bzlmod/StarlarkBazelModuleTest.java b/src/test/java/com/google/devtools/build/lib/bazel/bzlmod/StarlarkBazelModuleTest.java
+index a6950ee44ade66..f3e7b420710cf8 100644
+--- a/src/test/java/com/google/devtools/build/lib/bazel/bzlmod/StarlarkBazelModuleTest.java
++++ b/src/test/java/com/google/devtools/build/lib/bazel/bzlmod/StarlarkBazelModuleTest.java
+@@ -24,6 +24,7 @@
+ 
+ import com.google.common.collect.ImmutableBiMap;
+ import com.google.common.collect.ImmutableMap;
++import com.google.common.collect.ImmutableSet;
+ import com.google.devtools.build.lib.cmdline.Label;
+ import com.google.devtools.build.lib.packages.BuildType;
+ import com.google.devtools.build.lib.packages.Type;
+@@ -44,7 +45,8 @@ private static ModuleExtensionUsage.Builder getBaseUsageBuilder() {
+         .setExtensionBzlFile("//:rje.bzl")
+         .setExtensionName("maven")
+         .setLocation(Location.BUILTIN)
+-        .setImports(ImmutableBiMap.of());
++        .setImports(ImmutableBiMap.of())
++        .setDevImports(ImmutableSet.of());
+   }
+ 
+   /** A builder for ModuleExtension that sets all the mandatory but irrelevant fields. */

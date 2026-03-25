@@ -1,0 +1,282 @@
+diff --git a/goldens/public-api/core/index.md b/goldens/public-api/core/index.md
+index 05edb9bcaf2e..c2c01dc88f25 100644
+--- a/goldens/public-api/core/index.md
++++ b/goldens/public-api/core/index.md
+@@ -600,9 +600,17 @@ export const Inject: InjectDecorator;
+ // @public (undocumented)
+ export function inject<T>(token: ProviderToken<T>): T;
+ 
+-// @public (undocumented)
++// @public @deprecated (undocumented)
+ export function inject<T>(token: ProviderToken<T>, flags?: InjectFlags): T | null;
+ 
++// @public (undocumented)
++export function inject<T>(token: ProviderToken<T>, options: InjectOptions & {
++    optional?: false;
++}): T;
++
++// @public (undocumented)
++export function inject<T>(token: ProviderToken<T>, options: InjectOptions): T | null;
++
+ // @public
+ export interface Injectable {
+     providedIn?: Type<any> | 'root' | 'platform' | 'any' | null;
+@@ -641,7 +649,7 @@ export interface InjectDecorator {
+     new (token: any): Inject;
+ }
+ 
+-// @public
++// @public @deprecated
+ export enum InjectFlags {
+     Default = 0,
+     Host = 1,
+@@ -664,6 +672,14 @@ export class InjectionToken<T> {
+     readonly ɵprov: unknown;
+ }
+ 
++// @public
++export interface InjectOptions {
++    host?: boolean;
++    optional?: boolean;
++    self?: boolean;
++    skipSelf?: boolean;
++}
++
+ // @public
+ export const INJECTOR: InjectionToken<Injector>;
+ 
+diff --git a/packages/core/src/di/index.ts b/packages/core/src/di/index.ts
+index 34a5d50df8d9..cab939278b00 100644
+--- a/packages/core/src/di/index.ts
++++ b/packages/core/src/di/index.ts
+@@ -22,7 +22,7 @@ export {EnvironmentInjector} from './r3_injector';
+ export {importProvidersFrom, ImportProvidersSource} from './provider_collection';
+ export {ENVIRONMENT_INITIALIZER} from './initializer_token';
+ export {ProviderToken} from './provider_token';
+-export {ɵɵinject, inject, ɵɵinvalidFactoryDep} from './injector_compatibility';
++export {ɵɵinject, inject, InjectOptions, ɵɵinvalidFactoryDep} from './injector_compatibility';
+ export {INJECTOR} from './injector_token';
+ export {ReflectiveInjector} from './reflective_injector';
+ export {ClassProvider, ModuleWithProviders, ClassSansProvider, ImportedNgModuleProviders, ConstructorProvider, ConstructorSansProvider, ExistingProvider, ExistingSansProvider, FactoryProvider, FactorySansProvider, Provider, StaticClassProvider, StaticClassSansProvider, StaticProvider, TypeProvider, ValueProvider, ValueSansProvider} from './interface/provider';
+diff --git a/packages/core/src/di/injector_compatibility.ts b/packages/core/src/di/injector_compatibility.ts
+index 2783e93b1c2f..52764be30395 100644
+--- a/packages/core/src/di/injector_compatibility.ts
++++ b/packages/core/src/di/injector_compatibility.ts
+@@ -102,6 +102,35 @@ Please check that 1) the type for the parameter at index ${
+               index} is correct and 2) the correct Angular decorators are defined for this class and its ancestors.`);
+ }
+ 
++/**
++ * Type of the options argument to `inject`.
++ *
++ * @publicApi
++ */
++export interface InjectOptions {
++  /**
++   * Use optional injection, and return `null` if the requested token is not found.
++   */
++  optional?: boolean;
++
++  /**
++   * Start injection at the parent of the current injector.
++   */
++  skipSelf?: boolean;
++
++  /**
++   * Only query the current injector for the token, and don't fall back to the parent injector if
++   * it's not found.
++   */
++  self?: boolean;
++
++  /**
++   * Stop injection at the host component's injector. Only relevant when injecting from an element
++   * injector, and a no-op for environment injectors.
++   */
++  host?: boolean;
++}
++
+ /**
+  * @param token A token that represents a dependency that should be injected.
+  * @returns the injected value if operation is successful, `null` otherwise.
+@@ -118,8 +147,33 @@ export function inject<T>(token: ProviderToken<T>): T;
+  * @throws if called outside of a supported context.
+  *
+  * @publicApi
++ * @deprecated prefer an options object instead of `InjectFlags`
+  */
+ export function inject<T>(token: ProviderToken<T>, flags?: InjectFlags): T|null;
++/**
++ * @param token A token that represents a dependency that should be injected.
++ * @param options Control how injection is executed. Options correspond to injection strategies
++ *     that can be specified with parameter decorators `@Host`, `@Self`, `@SkipSelf`, and
++ *     `@Optional`.
++ * @returns the injected value if operation is successful.
++ * @throws if called outside of a supported context, or if the token is not found.
++ *
++ * @publicApi
++ */
++export function inject<T>(token: ProviderToken<T>, options: InjectOptions&{optional?: false}): T;
++/**
++ * @param token A token that represents a dependency that should be injected.
++ * @param options Control how injection is executed. Options correspond to injection strategies
++ *     that can be specified with parameter decorators `@Host`, `@Self`, `@SkipSelf`, and
++ *     `@Optional`.
++ * @returns the injected value if operation is successful,  `null` if the token is not
++ *     found and optional injection has been requested.
++ * @throws if called outside of a supported context, or if the token is not found and optional
++ *     injection was not requested.
++ *
++ * @publicApi
++ */
++export function inject<T>(token: ProviderToken<T>, options: InjectOptions): T|null;
+ /**
+  * Injects a token from the currently active injector.
+  * `inject` is only supported during instantiation of a dependency by the DI system. It can be used
+@@ -184,7 +238,18 @@ export function inject<T>(token: ProviderToken<T>, flags?: InjectFlags): T|null;
+  *
+  * @publicApi
+  */
+-export function inject<T>(token: ProviderToken<T>, flags = InjectFlags.Default): T|null {
++export function inject<T>(
++    token: ProviderToken<T>, flags: InjectFlags|InjectOptions = InjectFlags.Default): T|null {
++  if (typeof flags !== 'number') {
++    // While TypeScript doesn't accept it without a cast, bitwise OR with false-y values in
++    // JavaScript is a no-op. We can use that for a very codesize-efficient conversion from
++    // `InjectOptions` to `InjectFlags`.
++    flags = (InternalInjectFlags.Default |  // comment to force a line break in the formatter
++             ((flags.optional && InternalInjectFlags.Optional) as number) |
++             ((flags.host && InternalInjectFlags.Host) as number) |
++             ((flags.self && InternalInjectFlags.Self) as number) |
++             ((flags.skipSelf && InternalInjectFlags.SkipSelf) as number)) as InjectFlags;
++  }
+   return ɵɵinject(token, flags);
+ }
+ 
+diff --git a/packages/core/src/di/interface/injector.ts b/packages/core/src/di/interface/injector.ts
+index eb923095a80e..dd63971865d2 100644
+--- a/packages/core/src/di/interface/injector.ts
++++ b/packages/core/src/di/interface/injector.ts
+@@ -20,6 +20,7 @@ export const enum DecoratorFlags {
+  * Injection flags for DI.
+  *
+  * @publicApi
++ * @deprecated use an options object for `inject` instead.
+  */
+ export enum InjectFlags {
+   // TODO(alxhub): make this 'const' (and remove `InternalInjectFlags` enum) when ngc no longer
+diff --git a/packages/core/test/acceptance/di_spec.ts b/packages/core/test/acceptance/di_spec.ts
+index a22e073de272..6b90f60b8f93 100644
+--- a/packages/core/test/acceptance/di_spec.ts
++++ b/packages/core/test/acceptance/di_spec.ts
+@@ -7,7 +7,7 @@
+  */
+ 
+ import {CommonModule} from '@angular/common';
+-import {Attribute, ChangeDetectorRef, Component, ComponentFactoryResolver, ComponentRef, createEnvironmentInjector, Directive, ElementRef, ENVIRONMENT_INITIALIZER, EnvironmentInjector, EventEmitter, forwardRef, Host, HostBinding, ImportedNgModuleProviders, importProvidersFrom, ImportProvidersSource, inject, Inject, Injectable, InjectFlags, InjectionToken, INJECTOR, Injector, Input, LOCALE_ID, ModuleWithProviders, NgModule, NgZone, Optional, Output, Pipe, PipeTransform, Provider, Self, SkipSelf, TemplateRef, Type, ViewChild, ViewContainerRef, ViewRef, ɵcreateInjector as createInjector, ɵDEFAULT_LOCALE_ID as DEFAULT_LOCALE_ID, ɵINJECTOR_SCOPE} from '@angular/core';
++import {Attribute, ChangeDetectorRef, Component, ComponentFactoryResolver, ComponentRef, createEnvironmentInjector, Directive, ElementRef, ENVIRONMENT_INITIALIZER, EnvironmentInjector, EventEmitter, forwardRef, Host, HostBinding, ImportedNgModuleProviders, importProvidersFrom, ImportProvidersSource, inject, Inject, Injectable, InjectFlags, InjectionToken, INJECTOR, Injector, Input, LOCALE_ID, ModuleWithProviders, NgModule, NgZone, Optional, Output, Pipe, PipeTransform, Provider, Self, SkipSelf, TemplateRef, Type, ViewChild, ViewContainerRef, ViewEncapsulation, ViewRef, ɵcreateInjector as createInjector, ɵDEFAULT_LOCALE_ID as DEFAULT_LOCALE_ID, ɵINJECTOR_SCOPE} from '@angular/core';
+ import {ViewRef as ViewRefInternal} from '@angular/core/src/render3/view_ref';
+ import {TestBed} from '@angular/core/testing';
+ import {By} from '@angular/platform-browser';
+@@ -3328,6 +3328,102 @@ describe('di', () => {
+       fixture.detectChanges();
+       expect(fixture.nativeElement.innerHTML).toEqual('default value');
+     });
++
++    describe('with an options object argument', () => {
++      it('should be able to optionally inject a service', () => {
++        const TOKEN = new InjectionToken<string>('TOKEN');
++
++        @Component({
++          standalone: true,
++          template: '',
++        })
++        class TestCmp {
++          value = inject(TOKEN, {optional: true});
++        }
++
++        expect(TestBed.createComponent(TestCmp).componentInstance.value).toBeNull();
++      });
++
++      it('should be able to use skipSelf injection', () => {
++        const TOKEN = new InjectionToken<string>('TOKEN', {
++          providedIn: 'root',
++          factory: () => 'from root',
++        });
++        @Component({
++          standalone: true,
++          template: '',
++          providers: [{provide: TOKEN, useValue: 'from component'}],
++        })
++        class TestCmp {
++          value = inject(TOKEN, {skipSelf: true});
++        }
++
++        expect(TestBed.createComponent(TestCmp).componentInstance.value).toEqual('from root');
++      });
++
++      it('should be able to use self injection', () => {
++        const TOKEN = new InjectionToken<string>('TOKEN', {
++          providedIn: 'root',
++          factory: () => 'from root',
++        });
++
++        @Component({
++          standalone: true,
++          template: '',
++        })
++        class TestCmp {
++          value = inject(TOKEN, {self: true, optional: true});
++        }
++
++        expect(TestBed.createComponent(TestCmp).componentInstance.value).toBeNull();
++      });
++
++      it('should be able to use host injection', () => {
++        const TOKEN = new InjectionToken<string>('TOKEN');
++
++        @Component({
++          standalone: true,
++          selector: 'child',
++          template: '{{value}}',
++        })
++        class ChildCmp {
++          value = inject(TOKEN, {host: true, optional: true}) ?? 'not found';
++        }
++
++        @Component({
++          standalone: true,
++          imports: [ChildCmp],
++          template: '<child></child>',
++          providers: [{provide: TOKEN, useValue: 'from parent'}],
++          encapsulation: ViewEncapsulation.None,
++        })
++        class ParentCmp {
++        }
++
++        const fixture = TestBed.createComponent(ParentCmp);
++        fixture.detectChanges();
++        expect(fixture.nativeElement.innerHTML).toEqual('<child>not found</child>');
++      });
++
++      it('should not indicate it returns null when optional is explicitly false', () => {
++        const TOKEN = new InjectionToken<string>('TOKEN', {
++          providedIn: 'root',
++          factory: () => 'from root',
++        });
++
++        @Component({
++          standalone: true,
++          template: '',
++        })
++        class TestCmp {
++          // TypeScript will check if this assignment is legal, which won't be the case if
++          // inject() erroneously returns a `string|null` type here.
++          value: string = inject(TOKEN, {optional: false});
++        }
++
++        expect(TestBed.createComponent(TestCmp).componentInstance.value).toEqual('from root');
++      });
++    });
+   });
+ 
+   it('should be able to use Host in `useFactory` dependency config', () => {

@@ -1,0 +1,19 @@
+diff --git a/osu.Game/Screens/OnlinePlay/Lounge/Components/DrawableRoom.cs b/osu.Game/Screens/OnlinePlay/Lounge/Components/DrawableRoom.cs
+index 940ae873eca9..adff1cc33e9a 100644
+--- a/osu.Game/Screens/OnlinePlay/Lounge/Components/DrawableRoom.cs
++++ b/osu.Game/Screens/OnlinePlay/Lounge/Components/DrawableRoom.cs
+@@ -275,14 +275,6 @@ public void OnReleased(GlobalAction action)
+ 
+         protected override bool ShouldBeConsideredForInput(Drawable child) => state == SelectionState.Selected;
+ 
+-        protected override bool OnMouseDown(MouseDownEvent e)
+-        {
+-            if (selectedRoom.Value != Room)
+-                return true;
+-
+-            return base.OnMouseDown(e);
+-        }
+-
+         protected override bool OnClick(ClickEvent e)
+         {
+             if (Room != selectedRoom.Value)

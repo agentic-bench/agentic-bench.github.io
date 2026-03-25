@@ -1,0 +1,229 @@
+diff --git a/src/cascadia/CascadiaPackage/Package-Dev.appxmanifest b/src/cascadia/CascadiaPackage/Package-Dev.appxmanifest
+index aa79519ebc6..8e1ddb097cb 100644
+--- a/src/cascadia/CascadiaPackage/Package-Dev.appxmanifest
++++ b/src/cascadia/CascadiaPackage/Package-Dev.appxmanifest
+@@ -10,7 +10,6 @@
+   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+   xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+   xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
+-  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+   xmlns:uap5="http://schemas.microsoft.com/appx/manifest/uap/windows10/5"
+   IgnorableNamespaces="uap mp rescap uap3">
+@@ -24,7 +23,6 @@
+     <DisplayName>Windows Terminal Dev</DisplayName>
+     <PublisherDisplayName>A Lone Developer</PublisherDisplayName>
+     <Logo>Images\StoreLogo.png</Logo>
+-    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
+   </Properties>
+ 
+   <Dependencies>
+@@ -136,6 +134,5 @@
+   <Capabilities>
+     <Capability Name="internetClient" />
+     <rescap:Capability Name="runFullTrust" />
+-    <rescap:Capability Name="unvirtualizedResources" />
+   </Capabilities>
+ </Package>
+diff --git a/src/cascadia/CascadiaPackage/Package-Pre.appxmanifest b/src/cascadia/CascadiaPackage/Package-Pre.appxmanifest
+index c0721c32f89..5f911d09d5c 100644
+--- a/src/cascadia/CascadiaPackage/Package-Pre.appxmanifest
++++ b/src/cascadia/CascadiaPackage/Package-Pre.appxmanifest
+@@ -12,7 +12,6 @@
+   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+   xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+   xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
+-  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+   IgnorableNamespaces="uap mp rescap uap3">
+ 
+@@ -25,7 +24,6 @@
+     <DisplayName>Windows Terminal Preview</DisplayName>
+     <PublisherDisplayName>Microsoft Corporation</PublisherDisplayName>
+     <Logo>Images\StoreLogo.png</Logo>
+-    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
+   </Properties>
+ 
+   <Dependencies>
+@@ -137,7 +135,6 @@
+   <Capabilities>
+     <Capability Name="internetClient" />
+     <rescap:Capability Name="runFullTrust" />
+-    <rescap:Capability Name="unvirtualizedResources" />
+   </Capabilities>
+ 
+   <Extensions>
+diff --git a/src/cascadia/CascadiaPackage/Package.appxmanifest b/src/cascadia/CascadiaPackage/Package.appxmanifest
+index 85cd6b2cd27..2d11e18f517 100644
+--- a/src/cascadia/CascadiaPackage/Package.appxmanifest
++++ b/src/cascadia/CascadiaPackage/Package.appxmanifest
+@@ -12,7 +12,6 @@
+   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+   xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+   xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
+-  xmlns:desktop6="http://schemas.microsoft.com/appx/manifest/desktop/windows10/6"
+   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+   IgnorableNamespaces="uap mp rescap uap3">
+ 
+@@ -25,7 +24,6 @@
+     <DisplayName>Windows Terminal</DisplayName>
+     <PublisherDisplayName>Microsoft Corporation</PublisherDisplayName>
+     <Logo>Images\StoreLogo.png</Logo>
+-    <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
+   </Properties>
+ 
+   <Dependencies>
+@@ -137,7 +135,6 @@
+   <Capabilities>
+     <Capability Name="internetClient" />
+     <rescap:Capability Name="runFullTrust" />
+-    <rescap:Capability Name="unvirtualizedResources" />
+   </Capabilities>
+ 
+   <Extensions>
+diff --git a/src/cascadia/TerminalSettingsModel/DefaultTerminal.cpp b/src/cascadia/TerminalSettingsModel/DefaultTerminal.cpp
+index 2eb158b3600..8dced934bde 100644
+--- a/src/cascadia/TerminalSettingsModel/DefaultTerminal.cpp
++++ b/src/cascadia/TerminalSettingsModel/DefaultTerminal.cpp
+@@ -86,6 +86,6 @@ Model::DefaultTerminal DefaultTerminal::Current()
+ 
+ void DefaultTerminal::Current(const Model::DefaultTerminal& term)
+ {
+-    THROW_IF_FAILED(DelegationConfig::s_SetDefaultByPackage(winrt::get_self<DefaultTerminal>(term)->_pkg));
++    THROW_IF_FAILED(DelegationConfig::s_SetDefaultByPackage(winrt::get_self<DefaultTerminal>(term)->_pkg, true));
+     _current = term;
+ }
+diff --git a/src/propslib/DelegationConfig.cpp b/src/propslib/DelegationConfig.cpp
+index 11a0c994ba9..5acfd3f64fd 100644
+--- a/src/propslib/DelegationConfig.cpp
++++ b/src/propslib/DelegationConfig.cpp
+@@ -239,20 +239,20 @@ try
+ }
+ CATCH_RETURN()
+ 
+-[[nodiscard]] HRESULT DelegationConfig::s_SetDefaultConsoleById(const IID& iid) noexcept
++[[nodiscard]] HRESULT DelegationConfig::s_SetDefaultConsoleById(const IID& iid, const bool useRegExe) noexcept
+ {
+-    return s_Set(DELEGATION_CONSOLE_KEY_NAME, iid);
++    return s_Set(DELEGATION_CONSOLE_KEY_NAME, iid, useRegExe);
+ }
+ 
+-[[nodiscard]] HRESULT DelegationConfig::s_SetDefaultTerminalById(const IID& iid) noexcept
++[[nodiscard]] HRESULT DelegationConfig::s_SetDefaultTerminalById(const IID& iid, const bool useRegExe) noexcept
+ {
+-    return s_Set(DELEGATION_TERMINAL_KEY_NAME, iid);
++    return s_Set(DELEGATION_TERMINAL_KEY_NAME, iid, useRegExe);
+ }
+ 
+-[[nodiscard]] HRESULT DelegationConfig::s_SetDefaultByPackage(const DelegationPackage& package) noexcept
++[[nodiscard]] HRESULT DelegationConfig::s_SetDefaultByPackage(const DelegationPackage& package, const bool useRegExe) noexcept
+ {
+-    RETURN_IF_FAILED(s_SetDefaultConsoleById(package.console.clsid));
+-    RETURN_IF_FAILED(s_SetDefaultTerminalById(package.terminal.clsid));
++    RETURN_IF_FAILED(s_SetDefaultConsoleById(package.console.clsid, useRegExe));
++    RETURN_IF_FAILED(s_SetDefaultTerminalById(package.terminal.clsid, useRegExe));
+     return S_OK;
+ }
+ 
+@@ -307,23 +307,64 @@ CATCH_RETURN()
+     return S_OK;
+ }
+ 
+-[[nodiscard]] HRESULT DelegationConfig::s_Set(PCWSTR value, const CLSID clsid) noexcept
++[[nodiscard]] HRESULT DelegationConfig::s_Set(PCWSTR value, const CLSID clsid, const bool useRegExe) noexcept
+ try
+ {
+-    wil::unique_hkey currentUserKey;
+-    wil::unique_hkey consoleKey;
++    // BODGY
++    // A Centennial application is not allowed to write the system registry and is redirected
++    // to a per-package copy-on-write hive.
++    // The restricted capability "unvirtualizedResources" can be combined with
++    // desktop6:RegistryWriteVirtualization to opt-out... but...
++    // - It will no longer be double-click installable through the App Installer
++    // - It requires a special exception to submit to the store
++    // - There MAY be some cleanup logic where the app catalog may try to undo
++    //   whatever the package did.
++    // This works around it by shelling out to reg.exe because somehow that's just peachy.
++    if (useRegExe)
++    {
++        wil::unique_cotaskmem_string str;
++        RETURN_IF_FAILED(StringFromCLSID(clsid, &str));
++
++        auto regExePath = wil::ExpandEnvironmentStringsW<std::wstring>(L"%WINDIR%\\System32\\reg.exe");
++
++        auto command = wil::str_printf<std::wstring>(L"%s ADD HKCU\\Console\\%%%%Startup /v %s /t REG_SZ /d %s /f", regExePath.c_str(), value, str.get() );
++
++        wil::unique_process_information pi;
++        STARTUPINFOEX siex{ 0 };
++        siex.StartupInfo.cb = sizeof(siex);
++
++        RETURN_IF_WIN32_BOOL_FALSE(CreateProcessW(
++            nullptr,
++            command.data(),
++            nullptr, // lpProcessAttributes
++            nullptr, // lpThreadAttributes
++            false, // bInheritHandles
++            EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW, // dwCreationFlags
++            nullptr, // lpEnvironment
++            nullptr,
++            &siex.StartupInfo, // lpStartupInfo
++            &pi // lpProcessInformation
++            ));
++
++        return S_OK;
++    }
++    else
++    {
++        wil::unique_hkey currentUserKey;
++        wil::unique_hkey consoleKey;
+ 
+-    RETURN_IF_NTSTATUS_FAILED(RegistrySerialization::s_OpenConsoleKey(&currentUserKey, &consoleKey));
++        RETURN_IF_NTSTATUS_FAILED(RegistrySerialization::s_OpenConsoleKey(&currentUserKey, &consoleKey));
+ 
+-    // Create method for registry is a "create if not exists, otherwise open" function.
+-    wil::unique_hkey startupKey;
+-    RETURN_IF_NTSTATUS_FAILED(RegistrySerialization::s_CreateKey(consoleKey.get(), L"%%Startup", &startupKey));
++        // Create method for registry is a "create if not exists, otherwise open" function.
++        wil::unique_hkey startupKey;
++        RETURN_IF_NTSTATUS_FAILED(RegistrySerialization::s_CreateKey(consoleKey.get(), L"%%Startup", &startupKey));
+ 
+-    wil::unique_cotaskmem_string str;
+-    RETURN_IF_FAILED(StringFromCLSID(clsid, &str));
++        wil::unique_cotaskmem_string str;
++        RETURN_IF_FAILED(StringFromCLSID(clsid, &str));
+ 
+-    RETURN_IF_NTSTATUS_FAILED(RegistrySerialization::s_SetValue(startupKey.get(), value, REG_SZ, reinterpret_cast<BYTE*>(str.get()), gsl::narrow<DWORD>(wcslen(str.get()) * sizeof(wchar_t))));
++        RETURN_IF_NTSTATUS_FAILED(RegistrySerialization::s_SetValue(startupKey.get(), value, REG_SZ, reinterpret_cast<BYTE*>(str.get()), gsl::narrow<DWORD>(wcslen(str.get()) * sizeof(wchar_t))));
+ 
+-    return S_OK;
++        return S_OK;
++    }
+ }
+ CATCH_RETURN()
+diff --git a/src/propslib/DelegationConfig.hpp b/src/propslib/DelegationConfig.hpp
+index 97d067246a9..8590333d06d 100644
+--- a/src/propslib/DelegationConfig.hpp
++++ b/src/propslib/DelegationConfig.hpp
+@@ -83,7 +83,7 @@ class DelegationConfig
+ 
+     [[nodiscard]] static HRESULT s_GetAvailablePackages(std::vector<DelegationPackage>& packages, DelegationPackage& def) noexcept;
+ 
+-    [[nodiscard]] static HRESULT s_SetDefaultByPackage(const DelegationPackage& pkg) noexcept;
++    [[nodiscard]] static HRESULT s_SetDefaultByPackage(const DelegationPackage& pkg, const bool useRegExe = false) noexcept;
+ 
+     [[nodiscard]] static HRESULT s_GetDefaultConsoleId(IID& iid) noexcept;
+     [[nodiscard]] static HRESULT s_GetDefaultTerminalId(IID& iid) noexcept;
+@@ -92,9 +92,9 @@ class DelegationConfig
+     [[nodiscard]] static HRESULT s_GetAvailableConsoles(std::vector<DelegationConsole>& consoles) noexcept;
+     [[nodiscard]] static HRESULT s_GetAvailableTerminals(std::vector<DelegationTerminal>& terminals) noexcept;
+ 
+-    [[nodiscard]] static HRESULT s_SetDefaultConsoleById(const IID& iid) noexcept;
+-    [[nodiscard]] static HRESULT s_SetDefaultTerminalById(const IID& iid) noexcept;
++    [[nodiscard]] static HRESULT s_SetDefaultConsoleById(const IID& iid, const bool useRegExe) noexcept;
++    [[nodiscard]] static HRESULT s_SetDefaultTerminalById(const IID& iid, const bool useRegExe) noexcept;
+ 
+     [[nodiscard]] static HRESULT s_Get(PCWSTR value, IID& iid) noexcept;
+-    [[nodiscard]] static HRESULT s_Set(PCWSTR value, const CLSID clsid) noexcept;
++    [[nodiscard]] static HRESULT s_Set(PCWSTR value, const CLSID clsid, const bool useRegExe) noexcept;
+ };

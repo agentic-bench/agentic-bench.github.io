@@ -168,6 +168,7 @@ body {
     font-size: .875rem;
     color: var(--text-muted);
     line-height: 1.6;
+    text-align: center;
 }
 .info-panel-steps {
     font-size: .85rem;
@@ -451,7 +452,7 @@ thead th {
 thead th:hover { background: var(--bg-surface3); color: var(--primary); }
 thead th.text-start { 
     text-align: left; 
-    min-width: 200px;
+    min-width: 275px;
 }
 
 /* Light mode: use a distinctly tinted header so it's not white */

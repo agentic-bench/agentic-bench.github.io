@@ -1,0 +1,47 @@
+diff --git a/packages/eslint-plugin-react-hooks/__tests__/ESLintRulesOfHooks-test.js b/packages/eslint-plugin-react-hooks/__tests__/ESLintRulesOfHooks-test.js
+index d9b63872ffce..4453842ce328 100644
+--- a/packages/eslint-plugin-react-hooks/__tests__/ESLintRulesOfHooks-test.js
++++ b/packages/eslint-plugin-react-hooks/__tests__/ESLintRulesOfHooks-test.js
+@@ -505,6 +505,29 @@ const tests = {
+         }
+       `,
+     },
++    {
++      only: true,
++      // because
++      // const useNamed = async () => useQuery();
++      // <Foo useData={useNamed} />;
++      // would also be valid
++      code: normalizeIndent`
++        function useQuery() {
++          return React.useState(null);
++        }
++        function App() {
++          const useNamed = async () => useQuery();
++
++          return (
++            <div className="App">
++              <Foo useData={async () => useQuery()} />
++              <Foo useData={useNamed} />
++              <Foo {...useHooks()} />
++            </div>
++          );
++        }
++      `
++    }
+   ],
+   invalid: [
+     {
+diff --git a/packages/eslint-plugin-react-hooks/src/RulesOfHooks.js b/packages/eslint-plugin-react-hooks/src/RulesOfHooks.js
+index b8f6a35008e3..6ba09e52e438 100644
+--- a/packages/eslint-plugin-react-hooks/src/RulesOfHooks.js
++++ b/packages/eslint-plugin-react-hooks/src/RulesOfHooks.js
+@@ -28,7 +28,7 @@ function isHookName(s) {
+  */
+ 
+ function isHook(node) {
+-  if (node.type === 'Identifier') {
++  if (node.type === 'Identifier' || node.type === 'JSXIdentifier') {
+     return isHookName(node.name);
+   } else if (
+     node.type === 'MemberExpression' &&

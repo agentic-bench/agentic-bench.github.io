@@ -73,7 +73,7 @@ src/
     base.py                    # BaseEvaluator (evaluate(), get_json_logger())
     bug/                       # bug-detection evaluators
     human/                     # human-alignment evaluators
-    judge/                     # LLM-as-judge evaluators
+    judge/                     # (Deprecated: Judge evaluators removed - not used by current benchmarks)
     ops/                       # operational cost evaluators
 
 leaderboard/
@@ -99,11 +99,34 @@ leaderboard/
 
 ### ContextCRBench (`contextcrbench`)
 - **Goal:** human-alignment — does the agent identify the same issues as human expert reviewers?
-- **Dataset:** 421 real GitHub pull requests across multiple open-source projects
-- **Ground truth:** 680 human expert review comments (file, line, content)
+- **Dataset:** 362 real GitHub pull requests across multiple open-source projects
+- **Ground truth:** 561 human expert review comments (file, line, content)
 - **Primary metric:** `and(metric/human/is_llm_human_aligned, metric/human/is_human_llm_location_matched)` — composite metric requiring BOTH human alignment AND correct localization
 - **Task accomplishment mode:** `submitted` — any diff present in llm-comments counts as accomplished
 - **Comprehensive dataset:** Full issue/PR context and commit diffs in `commit_diff/` directory
+
+**Dataset Annotation & Quality Control:**
+
+The dataset was manually reviewed and annotated to remove low-quality ground truth. Starting from **421 initial pull requests with 680 ground truth comments**, a verification process identified and excluded problematic annotations:
+
+- **59 fully excluded tasks** (all annotations invalid) — removed entirely from dataset.jsonl
+- **18 partially excluded tasks** (some annotations invalid) — retained in dataset.jsonl with only valid ground truth lines
+- **119 excluded ground truth lines** — removed from specific (file, line) positions within partially excluded tasks
+- **Final cleaned dataset:** 362 tasks with 561 valid ground truth comments
+
+**Exclusion reasons:**
+- **OoC (Out of Context) ground truth** (26 tasks) — Annotations refer to code not present in the diff
+- **Vague ground truth** (14 tasks) — Ambiguous or unclear annotations that don't provide meaningful feedback
+- **Change too large** (13 tasks) — Pull request scope too broad, annotations not specific enough
+- **Bot comments** (3 tasks) — Automated tool-generated comments lacking semantic value
+- **All changes removed** (3 tasks) — Diff content changed making original annotations invalid
+
+**Example excluded tasks:**
+- `airflow_issue_42331_pr_42277_xl_fac840e2` — change too large
+- `aspnetcore_issue_28335_pr_28763_l_3b5d4b24` — vague ground truth  
+- `gitea_issue_31002_pr_31003_sm_e67258d8` — OoC ground truth
+- `aseprite_issue_4781_pr_4925_l_52393980` — bot comment
+- `osu_issue_14015_pr_14017_sm_749d7a7b` — all changes removed
 
 ### SCRBench (`scrbench`)
 - **Goal:** bug-capacity — can the agent identify real security bugs (CVEs/CWEs)?
@@ -225,7 +248,7 @@ is extracted here and enriched with **cost calculations** from the `TrajectoryCo
 
 #### `{stem}_eval.log` — JSONL log of LLM judge calls
 
-One line per LLM call made by judge evaluators (e.g. `IsLLMHumanAligned`).
+One line per LLM call made by evaluators (e.g. `IsLLMHumanAligned`). Note: Judge evaluators have been deprecated.
 
 ---
 
@@ -491,8 +514,9 @@ class BaseEvaluator:
 | `IsLLMHumanAligned` | `human/` | Overall human alignment (composite) | `metric/human/is_llm_human_aligned` |
 | `IsBugLocationMatched` | `bug/` | Exact location match for security bugs | `metric/bug/is_bug_location_matched` |
 | `IsBugCommentTypeRelevant` | `bug/` | CWE-aware semantic matching | `metric/bug/is_bug_comment_type_relevant` |
-| `IsLLMContextAligned` | `judge/` | LLM-as-judge: context relevance | `metric/judge/is_comment_context_aligned` |
-| `IsCommentInformative` | `judge/` | LLM-as-judge: informativeness | `metric/judge/is_comment_informative` |
+| ~~`IsLLMContextAligned`~~ | ~~`judge/`~~ | ~~LLM-as-judge: context relevance~~ | ~~Removed - unused~~ |
+| ~~`IsCommentInformative`~~ | ~~`judge/`~~ | ~~LLM-as-judge: informativeness~~ | ~~Removed - unused~~ |
+| ~~`IsRelevantCommentDiff`~~ | ~~`judge/`~~ | ~~LLM-as-judge: relevance~~ | ~~Removed - unused~~ |
 
 **Evaluation order matters:**
 - Evaluators listed in `benchmark_info.json → evaluator_classes` run in order

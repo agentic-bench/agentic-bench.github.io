@@ -1,0 +1,2819 @@
+diff --git a/.coveragerc b/.coveragerc
+index 0cce852678415..d85d46a6c2f0f 100644
+--- a/.coveragerc
++++ b/.coveragerc
+@@ -822,7 +822,16 @@ omit =
+     homeassistant/components/todoist/const.py
+     homeassistant/components/tof/sensor.py
+     homeassistant/components/tomato/device_tracker.py
+-    homeassistant/components/toon/*
++    homeassistant/components/toon/__init__.py
++    homeassistant/components/toon/binary_sensor.py
++    homeassistant/components/toon/climate.py
++    homeassistant/components/toon/const.py
++    homeassistant/components/toon/coordinator.py
++    homeassistant/components/toon/helpers.py
++    homeassistant/components/toon/models.py
++    homeassistant/components/toon/oauth2.py
++    homeassistant/components/toon/sensor.py
++    homeassistant/components/toon/switch.py
+     homeassistant/components/torque/sensor.py
+     homeassistant/components/totalconnect/*
+     homeassistant/components/touchline/climate.py
+diff --git a/homeassistant/components/toon/__init__.py b/homeassistant/components/toon/__init__.py
+index b970ed2221b92..6565566454f50 100644
+--- a/homeassistant/components/toon/__init__.py
++++ b/homeassistant/components/toon/__init__.py
+@@ -1,289 +1,155 @@
+ """Support for Toon van Eneco devices."""
+-from functools import partial
++import asyncio
+ import logging
+-from typing import Any, Dict
+ 
+-from toonapilib import Toon
+ import voluptuous as vol
+ 
++from homeassistant.components.binary_sensor import DOMAIN as BINARY_SENSOR_DOMAIN
++from homeassistant.components.climate import DOMAIN as CLIMATE_DOMAIN
++from homeassistant.components.sensor import DOMAIN as SENSOR_DOMAIN
++from homeassistant.components.switch import DOMAIN as SWITCH_DOMAIN
++from homeassistant.config_entries import SOURCE_IMPORT, ConfigEntry
+ from homeassistant.const import (
+     CONF_CLIENT_ID,
+     CONF_CLIENT_SECRET,
+-    CONF_PASSWORD,
+     CONF_SCAN_INTERVAL,
+-    CONF_USERNAME,
++    EVENT_HOMEASSISTANT_STARTED,
+ )
+-from homeassistant.core import callback
++from homeassistant.core import CoreState, HomeAssistant
++from homeassistant.exceptions import ConfigEntryNotReady
+ from homeassistant.helpers import config_validation as cv, device_registry as dr
+-from homeassistant.helpers.dispatcher import async_dispatcher_connect, dispatcher_send
+-from homeassistant.helpers.entity import Entity
+-from homeassistant.helpers.event import async_track_time_interval
+-from homeassistant.helpers.typing import ConfigType, HomeAssistantType
+-
+-from . import config_flow  # noqa: F401
+-from .const import (
+-    CONF_DISPLAY,
+-    CONF_TENANT,
+-    DATA_TOON,
+-    DATA_TOON_CLIENT,
+-    DATA_TOON_CONFIG,
+-    DATA_TOON_UPDATED,
+-    DEFAULT_SCAN_INTERVAL,
+-    DOMAIN,
++from homeassistant.helpers.config_entry_oauth2_flow import (
++    OAuth2Session,
++    async_get_config_entry_implementation,
+ )
++from homeassistant.helpers.typing import ConfigType
++
++from .const import CONF_AGREEMENT_ID, DOMAIN
++from .coordinator import ToonDataUpdateCoordinator
++from .oauth2 import register_oauth2_implementations
++
++ENTITY_COMPONENTS = {
++    BINARY_SENSOR_DOMAIN,
++    CLIMATE_DOMAIN,
++    SENSOR_DOMAIN,
++    SWITCH_DOMAIN,
++}
+ 
+ _LOGGER = logging.getLogger(__name__)
+ 
+ # Validation of the user's configuration
+ CONFIG_SCHEMA = vol.Schema(
+     {
+-        DOMAIN: vol.Schema(
+-            {
+-                vol.Required(CONF_CLIENT_ID): cv.string,
+-                vol.Required(CONF_CLIENT_SECRET): cv.string,
+-                vol.Required(
+-                    CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL
+-                ): vol.All(cv.time_period, cv.positive_timedelta),
+-            }
++        DOMAIN: vol.All(
++            cv.deprecated(CONF_SCAN_INTERVAL),
++            vol.Schema(
++                {
++                    vol.Required(CONF_CLIENT_ID): cv.string,
++                    vol.Required(CONF_CLIENT_SECRET): cv.string,
++                }
++            ),
+         )
+     },
+     extra=vol.ALLOW_EXTRA,
+ )
+ 
+-SERVICE_SCHEMA = vol.Schema({vol.Optional(CONF_DISPLAY): cv.string})
+-
+ 
+-async def async_setup(hass: HomeAssistantType, config: ConfigType) -> bool:
++async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+     """Set up the Toon components."""
+     if DOMAIN not in config:
+         return True
+ 
+-    conf = config[DOMAIN]
++    register_oauth2_implementations(
++        hass, config[DOMAIN][CONF_CLIENT_ID], config[DOMAIN][CONF_CLIENT_SECRET]
++    )
+ 
+-    # Store config to be used during entry setup
+-    hass.data[DATA_TOON_CONFIG] = conf
++    hass.async_create_task(
++        hass.config_entries.flow.async_init(DOMAIN, context={"source": SOURCE_IMPORT})
++    )
+ 
+     return True
+ 
+ 
+-async def async_setup_entry(hass: HomeAssistantType, entry: ConfigType) -> bool:
+-    """Set up Toon from a config entry."""
++async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
++    """Handle migration of a previous version config entry."""
++    if entry.version == 1:
++        # There is no usable data in version 1 anymore.
++        # The integration switched to OAuth and because of this, uses
++        # different unique identifiers as well.
++        # Force this by removing the existing entry and trigger a new flow.
++        await hass.config_entries.async_remove(entry.entry_id)
++        hass.async_create_task(
++            hass.config_entries.flow.async_init(
++                DOMAIN, context={"source": SOURCE_IMPORT}
++            )
++        )
++        return False
+ 
+-    conf = hass.data.get(DATA_TOON_CONFIG)
++    return True
+ 
+-    toon = await hass.async_add_executor_job(
+-        partial(
+-            Toon,
+-            entry.data[CONF_USERNAME],
+-            entry.data[CONF_PASSWORD],
+-            conf[CONF_CLIENT_ID],
+-            conf[CONF_CLIENT_SECRET],
+-            tenant_id=entry.data[CONF_TENANT],
+-            display_common_name=entry.data[CONF_DISPLAY],
+-        )
++
++async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
++    """Set up Toon from a config entry."""
++    implementation = await async_get_config_entry_implementation(hass, entry)
++    session = OAuth2Session(hass, entry, implementation)
++
++    coordinator = ToonDataUpdateCoordinator(hass, entry=entry, session=session)
++    await coordinator.toon.activate_agreement(
++        agreement_id=entry.data[CONF_AGREEMENT_ID]
+     )
+-    hass.data.setdefault(DATA_TOON_CLIENT, {})[entry.entry_id] = toon
++    await coordinator.async_refresh()
+ 
+-    toon_data = await hass.async_add_executor_job(ToonData, hass, entry, toon)
+-    hass.data.setdefault(DATA_TOON, {})[entry.entry_id] = toon_data
+-    async_track_time_interval(hass, toon_data.update, conf[CONF_SCAN_INTERVAL])
++    if not coordinator.last_update_success:
++        raise ConfigEntryNotReady
++
++    hass.data.setdefault(DOMAIN, {})
++    hass.data[DOMAIN][entry.entry_id] = coordinator
+ 
+     # Register device for the Meter Adapter, since it will have no entities.
+     device_registry = await dr.async_get_registry(hass)
+     device_registry.async_get_or_create(
+         config_entry_id=entry.entry_id,
+-        identifiers={(DOMAIN, toon.agreement.id, "meter_adapter")},
++        identifiers={
++            (DOMAIN, coordinator.data.agreement.agreement_id, "meter_adapter")
++        },
+         manufacturer="Eneco",
+         name="Meter Adapter",
+-        via_device=(DOMAIN, toon.agreement.id),
++        via_device=(DOMAIN, coordinator.data.agreement.agreement_id),
+     )
+ 
+-    def update(call):
+-        """Service call to manually update the data."""
+-        called_display = call.data.get(CONF_DISPLAY)
+-        for toon_data in hass.data[DATA_TOON].values():
+-            if (
+-                called_display and called_display == toon_data.display_name
+-            ) or not called_display:
+-                toon_data.update()
+-
+-    hass.services.async_register(DOMAIN, "update", update, schema=SERVICE_SCHEMA)
+-
+-    for component in "binary_sensor", "climate", "sensor":
++    # Spin up the platforms
++    for component in ENTITY_COMPONENTS:
+         hass.async_create_task(
+             hass.config_entries.async_forward_entry_setup(entry, component)
+         )
+ 
+-    return True
+-
+-
+-class ToonData:
+-    """Communication class for interacting with toonapilib."""
+-
+-    def __init__(self, hass: HomeAssistantType, entry: ConfigType, toon):
+-        """Initialize the Toon data object."""
+-        self._hass = hass
+-        self._toon = toon
+-        self._entry = entry
+-        self.agreement = toon.agreement
+-        self.gas = toon.gas
+-        self.power = toon.power
+-        self.solar = toon.solar
+-        self.temperature = toon.temperature
+-        self.thermostat = toon.thermostat
+-        self.thermostat_info = toon.thermostat_info
+-        self.thermostat_state = toon.thermostat_state
+-
+-    @property
+-    def display_name(self):
+-        """Return the display connected to."""
+-        return self._entry.data[CONF_DISPLAY]
+-
+-    def update(self, now=None):
+-        """Update all Toon data and notify entities."""
+-        # Ignore the TTL mechanism from client library
+-        # It causes a lots of issues, hence we take control over caching
+-        self._toon._clear_cache()  # pylint: disable=protected-access
+-
+-        # Gather data from client library (single API call)
+-        self.gas = self._toon.gas
+-        self.power = self._toon.power
+-        self.solar = self._toon.solar
+-        self.temperature = self._toon.temperature
+-        self.thermostat = self._toon.thermostat
+-        self.thermostat_info = self._toon.thermostat_info
+-        self.thermostat_state = self._toon.thermostat_state
+-
+-        # Notify all entities
+-        dispatcher_send(self._hass, DATA_TOON_UPDATED, self._entry.data[CONF_DISPLAY])
+-
+-
+-class ToonEntity(Entity):
+-    """Defines a base Toon entity."""
+-
+-    def __init__(self, toon: ToonData, name: str, icon: str) -> None:
+-        """Initialize the Toon entity."""
+-        self._name = name
+-        self._state = None
+-        self._icon = icon
+-        self.toon = toon
+-        self._unsub_dispatcher = None
+-
+-    @property
+-    def name(self) -> str:
+-        """Return the name of the entity."""
+-        return self._name
+-
+-    @property
+-    def icon(self) -> str:
+-        """Return the mdi icon of the entity."""
+-        return self._icon
+-
+-    @property
+-    def should_poll(self) -> bool:
+-        """Return the polling requirement of the entity."""
+-        return False
+-
+-    async def async_added_to_hass(self) -> None:
+-        """Connect to dispatcher listening for entity data notifications."""
+-        self._unsub_dispatcher = async_dispatcher_connect(
+-            self.hass, DATA_TOON_UPDATED, self._schedule_immediate_update
++    # If Home Assistant is already in a running state, register the webhook
++    # immediately, else trigger it after Home Assistant has finished starting.
++    if hass.state == CoreState.running:
++        hass.async_create_task(coordinator.register_webhook())
++    else:
++        hass.bus.async_listen_once(
++            EVENT_HOMEASSISTANT_STARTED, coordinator.register_webhook
+         )
+ 
+-    async def async_will_remove_from_hass(self) -> None:
+-        """Disconnect from update signal."""
+-        self._unsub_dispatcher()
+-
+-    @callback
+-    def _schedule_immediate_update(self, display_name: str) -> None:
+-        """Schedule an immediate update of the entity."""
+-        if display_name == self.toon.display_name:
+-            self.async_schedule_update_ha_state(True)
+-
+-
+-class ToonDisplayDeviceEntity(ToonEntity):
+-    """Defines a Toon display device entity."""
+-
+-    @property
+-    def device_info(self) -> Dict[str, Any]:
+-        """Return device information about this thermostat."""
+-        agreement = self.toon.agreement
+-        model = agreement.display_hardware_version.rpartition("/")[0]
+-        sw_version = agreement.display_software_version.rpartition("/")[-1]
+-        return {
+-            "identifiers": {(DOMAIN, agreement.id)},
+-            "name": "Toon Display",
+-            "manufacturer": "Eneco",
+-            "model": model,
+-            "sw_version": sw_version,
+-        }
+-
+-
+-class ToonElectricityMeterDeviceEntity(ToonEntity):
+-    """Defines a Electricity Meter device entity."""
+-
+-    @property
+-    def device_info(self) -> Dict[str, Any]:
+-        """Return device information about this entity."""
+-        return {
+-            "name": "Electricity Meter",
+-            "identifiers": {(DOMAIN, self.toon.agreement.id, "electricity")},
+-            "via_device": (DOMAIN, self.toon.agreement.id, "meter_adapter"),
+-        }
+-
+-
+-class ToonGasMeterDeviceEntity(ToonEntity):
+-    """Defines a Gas Meter device entity."""
+-
+-    @property
+-    def device_info(self) -> Dict[str, Any]:
+-        """Return device information about this entity."""
+-        via_device = "meter_adapter"
+-        if self.toon.gas.is_smart:
+-            via_device = "electricity"
+-
+-        return {
+-            "name": "Gas Meter",
+-            "identifiers": {(DOMAIN, self.toon.agreement.id, "gas")},
+-            "via_device": (DOMAIN, self.toon.agreement.id, via_device),
+-        }
+-
+-
+-class ToonSolarDeviceEntity(ToonEntity):
+-    """Defines a Solar Device device entity."""
+-
+-    @property
+-    def device_info(self) -> Dict[str, Any]:
+-        """Return device information about this entity."""
+-        return {
+-            "name": "Solar Panels",
+-            "identifiers": {(DOMAIN, self.toon.agreement.id, "solar")},
+-            "via_device": (DOMAIN, self.toon.agreement.id, "meter_adapter"),
+-        }
++    return True
+ 
+ 
+-class ToonBoilerModuleDeviceEntity(ToonEntity):
+-    """Defines a Boiler Module device entity."""
++async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
++    """Unload Toon config entry."""
+ 
+-    @property
+-    def device_info(self) -> Dict[str, Any]:
+-        """Return device information about this entity."""
+-        return {
+-            "name": "Boiler Module",
+-            "manufacturer": "Eneco",
+-            "identifiers": {(DOMAIN, self.toon.agreement.id, "boiler_module")},
+-            "via_device": (DOMAIN, self.toon.agreement.id),
+-        }
++    # Remove webhooks registration
++    await hass.data[DOMAIN][entry.entry_id].unregister_webhook()
+ 
++    # Unload entities for this entry/device.
++    await asyncio.gather(
++        *(
++            hass.config_entries.async_forward_entry_unload(entry, component)
++            for component in ENTITY_COMPONENTS
++        )
++    )
+ 
+-class ToonBoilerDeviceEntity(ToonEntity):
+-    """Defines a Boiler device entity."""
++    # Cleanup
++    del hass.data[DOMAIN][entry.entry_id]
+ 
+-    @property
+-    def device_info(self) -> Dict[str, Any]:
+-        """Return device information about this entity."""
+-        return {
+-            "name": "Boiler",
+-            "identifiers": {(DOMAIN, self.toon.agreement.id, "boiler")},
+-            "via_device": (DOMAIN, self.toon.agreement.id, "boiler_module"),
+-        }
++    return True
+diff --git a/homeassistant/components/toon/binary_sensor.py b/homeassistant/components/toon/binary_sensor.py
+index 500cbec152618..e551d3672991f 100644
+--- a/homeassistant/components/toon/binary_sensor.py
++++ b/homeassistant/components/toon/binary_sensor.py
+@@ -1,20 +1,29 @@
+ """Support for Toon binary sensors."""
+-
+ import logging
+-from typing import Any
++from typing import Optional
+ 
+ from homeassistant.components.binary_sensor import BinarySensorEntity
+ from homeassistant.config_entries import ConfigEntry
+ from homeassistant.helpers.typing import HomeAssistantType
+ 
+-from . import (
++from .const import (
++    ATTR_DEFAULT_ENABLED,
++    ATTR_DEVICE_CLASS,
++    ATTR_ICON,
++    ATTR_INVERTED,
++    ATTR_MEASUREMENT,
++    ATTR_NAME,
++    ATTR_SECTION,
++    BINARY_SENSOR_ENTITIES,
++    DOMAIN,
++)
++from .coordinator import ToonDataUpdateCoordinator
++from .models import (
+     ToonBoilerDeviceEntity,
+     ToonBoilerModuleDeviceEntity,
+-    ToonData,
+     ToonDisplayDeviceEntity,
+     ToonEntity,
+ )
+-from .const import DATA_TOON, DOMAIN
+ 
+ _LOGGER = logging.getLogger(__name__)
+ 
+@@ -23,87 +32,27 @@ async def async_setup_entry(
+     hass: HomeAssistantType, entry: ConfigEntry, async_add_entities
+ ) -> None:
+     """Set up a Toon binary sensor based on a config entry."""
+-    toon = hass.data[DATA_TOON][entry.entry_id]
++    coordinator = hass.data[DOMAIN][entry.entry_id]
+ 
+     sensors = [
+         ToonBoilerModuleBinarySensor(
+-            toon,
+-            "thermostat_info",
+-            "boiler_connected",
+-            None,
+-            "Boiler Module Connection",
+-            "mdi:check-network-outline",
+-            "connectivity",
+-        ),
+-        ToonDisplayBinarySensor(
+-            toon,
+-            "thermostat_info",
+-            "active_state",
+-            4,
+-            "Toon Holiday Mode",
+-            "mdi:airport",
+-            None,
+-        ),
+-        ToonDisplayBinarySensor(
+-            toon,
+-            "thermostat_info",
+-            "next_program",
+-            None,
+-            "Toon Program",
+-            "mdi:calendar-clock",
+-            None,
++            coordinator, key="thermostat_info_boiler_connected_None"
+         ),
++        ToonDisplayBinarySensor(coordinator, key="thermostat_program_overridden"),
+     ]
+ 
+-    if toon.thermostat_info.have_ot_boiler:
++    if coordinator.data.thermostat.have_opentherm_boiler:
+         sensors.extend(
+             [
+-                ToonBoilerBinarySensor(
+-                    toon,
+-                    "thermostat_info",
+-                    "ot_communication_error",
+-                    "0",
+-                    "OpenTherm Connection",
+-                    "mdi:check-network-outline",
+-                    "connectivity",
+-                ),
+-                ToonBoilerBinarySensor(
+-                    toon,
+-                    "thermostat_info",
+-                    "error_found",
+-                    255,
+-                    "Boiler Status",
+-                    "mdi:alert",
+-                    "problem",
+-                    inverted=True,
+-                ),
+-                ToonBoilerBinarySensor(
+-                    toon,
+-                    "thermostat_info",
+-                    "burner_info",
+-                    None,
+-                    "Boiler Burner",
+-                    "mdi:fire",
+-                    None,
+-                ),
+-                ToonBoilerBinarySensor(
+-                    toon,
+-                    "thermostat_info",
+-                    "burner_info",
+-                    "2",
+-                    "Hot Tap Water",
+-                    "mdi:water-pump",
+-                    None,
+-                ),
+-                ToonBoilerBinarySensor(
+-                    toon,
+-                    "thermostat_info",
+-                    "burner_info",
+-                    "3",
+-                    "Boiler Preheating",
+-                    "mdi:fire",
+-                    None,
+-                ),
++                ToonBoilerBinarySensor(coordinator, key=key)
++                for key in [
++                    "thermostat_info_ot_communication_error_0",
++                    "thermostat_info_error_found_255",
++                    "thermostat_info_burner_info_None",
++                    "thermostat_info_burner_info_1",
++                    "thermostat_info_burner_info_2",
++                    "thermostat_info_burner_info_3",
++                ]
+             ]
+         )
+ 
+@@ -113,66 +62,46 @@ async def async_setup_entry(
+ class ToonBinarySensor(ToonEntity, BinarySensorEntity):
+     """Defines an Toon binary sensor."""
+ 
+-    def __init__(
+-        self,
+-        toon: ToonData,
+-        section: str,
+-        measurement: str,
+-        on_value: Any,
+-        name: str,
+-        icon: str,
+-        device_class: str,
+-        inverted: bool = False,
+-    ) -> None:
++    def __init__(self, coordinator: ToonDataUpdateCoordinator, *, key: str) -> None:
+         """Initialize the Toon sensor."""
+-        self._state = inverted
+-        self._device_class = device_class
+-        self.section = section
+-        self.measurement = measurement
+-        self.on_value = on_value
+-        self.inverted = inverted
++        self.key = key
+ 
+-        super().__init__(toon, name, icon)
++        super().__init__(
++            coordinator,
++            enabled_default=BINARY_SENSOR_ENTITIES[key][ATTR_DEFAULT_ENABLED],
++            icon=BINARY_SENSOR_ENTITIES[key][ATTR_ICON],
++            name=BINARY_SENSOR_ENTITIES[key][ATTR_NAME],
++        )
+ 
+     @property
+     def unique_id(self) -> str:
+         """Return the unique ID for this binary sensor."""
+-        return "_".join(
+-            [
+-                DOMAIN,
+-                self.toon.agreement.id,
+-                "binary_sensor",
+-                self.section,
+-                self.measurement,
+-                str(self.on_value),
+-            ]
+-        )
++        agreement_id = self.coordinator.data.agreement.agreement_id
++        # This unique ID is a bit ugly and contains unneeded information.
++        # It is here for lecagy / backward compatible reasons.
++        return f"{DOMAIN}_{agreement_id}_binary_sensor_{self.key}"
+ 
+     @property
+     def device_class(self) -> str:
+         """Return the device class."""
+-        return self._device_class
++        return BINARY_SENSOR_ENTITIES[self.key][ATTR_DEVICE_CLASS]
+ 
+     @property
+-    def is_on(self) -> bool:
++    def is_on(self) -> Optional[bool]:
+         """Return the status of the binary sensor."""
+-        if self.on_value is not None:
+-            value = self._state == self.on_value
+-        elif self._state is None:
+-            value = False
+-        else:
+-            value = bool(max(0, int(self._state)))
+-
+-        if self.inverted:
++        section = getattr(
++            self.coordinator.data, BINARY_SENSOR_ENTITIES[self.key][ATTR_SECTION]
++        )
++        value = getattr(section, BINARY_SENSOR_ENTITIES[self.key][ATTR_MEASUREMENT])
++
++        if value is None:
++            return None
++
++        if BINARY_SENSOR_ENTITIES[self.key][ATTR_INVERTED]:
+             return not value
+ 
+         return value
+ 
+-    def update(self) -> None:
+-        """Get the latest data from the binary sensor."""
+-        section = getattr(self.toon, self.section)
+-        self._state = getattr(section, self.measurement)
+-
+ 
+ class ToonBoilerBinarySensor(ToonBinarySensor, ToonBoilerDeviceEntity):
+     """Defines a Boiler binary sensor."""
+diff --git a/homeassistant/components/toon/climate.py b/homeassistant/components/toon/climate.py
+index f3c3d9a69bf95..06f64262d2b26 100644
+--- a/homeassistant/components/toon/climate.py
++++ b/homeassistant/components/toon/climate.py
+@@ -1,8 +1,14 @@
+ """Support for Toon thermostat."""
+-
+ import logging
+ from typing import Any, Dict, List, Optional
+ 
++from toonapi import (
++    ACTIVE_STATE_AWAY,
++    ACTIVE_STATE_COMFORT,
++    ACTIVE_STATE_HOME,
++    ACTIVE_STATE_SLEEP,
++)
++
+ from homeassistant.components.climate import ClimateEntity
+ from homeassistant.components.climate.const import (
+     CURRENT_HVAC_HEAT,
+@@ -19,56 +25,38 @@
+ from homeassistant.const import ATTR_TEMPERATURE, TEMP_CELSIUS
+ from homeassistant.helpers.typing import HomeAssistantType
+ 
+-from . import ToonData, ToonDisplayDeviceEntity
+-from .const import (
+-    DATA_TOON,
+-    DATA_TOON_CLIENT,
+-    DEFAULT_MAX_TEMP,
+-    DEFAULT_MIN_TEMP,
+-    DOMAIN,
+-)
++from .const import DEFAULT_MAX_TEMP, DEFAULT_MIN_TEMP, DOMAIN
++from .helpers import toon_exception_handler
++from .models import ToonDisplayDeviceEntity
+ 
+ _LOGGER = logging.getLogger(__name__)
+ 
+-SUPPORT_FLAGS = SUPPORT_TARGET_TEMPERATURE | SUPPORT_PRESET_MODE
+-SUPPORT_PRESET = [PRESET_AWAY, PRESET_COMFORT, PRESET_HOME, PRESET_SLEEP]
+-
+ 
+ async def async_setup_entry(
+     hass: HomeAssistantType, entry: ConfigEntry, async_add_entities
+ ) -> None:
+     """Set up a Toon binary sensors based on a config entry."""
+-    toon_client = hass.data[DATA_TOON_CLIENT][entry.entry_id]
+-    toon_data = hass.data[DATA_TOON][entry.entry_id]
+-    async_add_entities([ToonThermostatDevice(toon_client, toon_data)], True)
++    coordinator = hass.data[DOMAIN][entry.entry_id]
++    async_add_entities(
++        [ToonThermostatDevice(coordinator, name="Thermostat", icon="mdi:thermostat")]
++    )
+ 
+ 
+ class ToonThermostatDevice(ToonDisplayDeviceEntity, ClimateEntity):
+     """Representation of a Toon climate device."""
+ 
+-    def __init__(self, toon_client, toon_data: ToonData) -> None:
+-        """Initialize the Toon climate device."""
+-        self._client = toon_client
+-
+-        self._current_temperature = None
+-        self._target_temperature = None
+-        self._heating = False
+-        self._next_target_temperature = None
+-        self._preset = None
+-
+-        self._heating_type = None
+-
+-        super().__init__(toon_data, "Toon Thermostat", "mdi:thermostat")
+-
+     @property
+     def unique_id(self) -> str:
+         """Return the unique ID for this thermostat."""
+-        return "_".join([DOMAIN, self.toon.agreement.id, "climate"])
++        agreement_id = self.coordinator.data.agreement.agreement_id
++        # This unique ID is a bit ugly and contains unneeded information.
++        # It is here for lecagy / backward compatible reasons.
++        return f"{DOMAIN}_{agreement_id}_climate"
+ 
+     @property
+     def supported_features(self) -> int:
+         """Return the list of supported features."""
+-        return SUPPORT_FLAGS
++        return SUPPORT_TARGET_TEMPERATURE | SUPPORT_PRESET_MODE
+ 
+     @property
+     def hvac_mode(self) -> str:
+@@ -83,7 +71,7 @@ def hvac_modes(self) -> List[str]:
+     @property
+     def hvac_action(self) -> Optional[str]:
+         """Return the current running hvac operation."""
+-        if self._heating:
++        if self.coordinator.data.thermostat.heating:
+             return CURRENT_HVAC_HEAT
+         return CURRENT_HVAC_IDLE
+ 
+@@ -95,24 +83,28 @@ def temperature_unit(self) -> str:
+     @property
+     def preset_mode(self) -> Optional[str]:
+         """Return the current preset mode, e.g., home, away, temp."""
+-        if self._preset is not None:
+-            return self._preset.lower()
+-        return None
++        mapping = {
++            ACTIVE_STATE_AWAY: PRESET_AWAY,
++            ACTIVE_STATE_COMFORT: PRESET_COMFORT,
++            ACTIVE_STATE_HOME: PRESET_HOME,
++            ACTIVE_STATE_SLEEP: PRESET_SLEEP,
++        }
++        return mapping.get(self.coordinator.data.thermostat.active_state)
+ 
+     @property
+     def preset_modes(self) -> List[str]:
+         """Return a list of available preset modes."""
+-        return SUPPORT_PRESET
++        return [PRESET_AWAY, PRESET_COMFORT, PRESET_HOME, PRESET_SLEEP]
+ 
+     @property
+     def current_temperature(self) -> Optional[float]:
+         """Return the current temperature."""
+-        return self._current_temperature
++        return self.coordinator.data.thermostat.current_display_temperature
+ 
+     @property
+     def target_temperature(self) -> Optional[float]:
+         """Return the temperature we try to reach."""
+-        return self._target_temperature
++        return self.coordinator.data.thermostat.current_setpoint
+ 
+     @property
+     def min_temp(self) -> float:
+@@ -127,30 +119,27 @@ def max_temp(self) -> float:
+     @property
+     def device_state_attributes(self) -> Dict[str, Any]:
+         """Return the current state of the burner."""
+-        return {"heating_type": self._heating_type}
++        return {"heating_type": self.coordinator.data.agreement.heating_type}
+ 
+-    def set_temperature(self, **kwargs) -> None:
++    @toon_exception_handler
++    async def async_set_temperature(self, **kwargs) -> None:
+         """Change the setpoint of the thermostat."""
+         temperature = kwargs.get(ATTR_TEMPERATURE)
+-        self._client.thermostat = self._target_temperature = temperature
+-        self.schedule_update_ha_state()
++        await self.coordinator.toon.set_current_setpoint(temperature)
+ 
+-    def set_preset_mode(self, preset_mode: str) -> None:
++    @toon_exception_handler
++    async def async_set_preset_mode(self, preset_mode: str) -> None:
+         """Set new preset mode."""
+-        self._client.thermostat_state = self._preset = preset_mode
+-        self.schedule_update_ha_state()
++        mapping = {
++            PRESET_AWAY: ACTIVE_STATE_AWAY,
++            PRESET_COMFORT: ACTIVE_STATE_COMFORT,
++            PRESET_HOME: ACTIVE_STATE_HOME,
++            PRESET_SLEEP: ACTIVE_STATE_SLEEP,
++        }
++        if preset_mode in mapping:
++            await self.coordinator.toon.set_active_state(mapping[preset_mode])
+ 
+     def set_hvac_mode(self, hvac_mode: str) -> None:
+         """Set new target hvac mode."""
+-
+-    def update(self) -> None:
+-        """Update local state."""
+-        if self.toon.thermostat_state is None:
+-            self._preset = None
+-        else:
+-            self._preset = self.toon.thermostat_state.name
+-
+-        self._current_temperature = self.toon.temperature
+-        self._target_temperature = self.toon.thermostat
+-        self._heating_type = self.toon.agreement.heating_type
+-        self._heating = self.toon.thermostat_info.burner_info == 1
++        # Intentionally left empty
++        # The HAVC mode is always HEAT
+diff --git a/homeassistant/components/toon/config_flow.py b/homeassistant/components/toon/config_flow.py
+index b584b7bd6cb70..6839433a45ed6 100644
+--- a/homeassistant/components/toon/config_flow.py
++++ b/homeassistant/components/toon/config_flow.py
+@@ -1,166 +1,92 @@
+ """Config flow to configure the Toon component."""
+-from collections import OrderedDict
+-from functools import partial
+ import logging
++from typing import Any, Dict, List, Optional
+ 
+-from toonapilib import Toon
+-from toonapilib.toonapilibexceptions import (
+-    AgreementsRetrievalError,
+-    InvalidConsumerKey,
+-    InvalidConsumerSecret,
+-    InvalidCredentials,
+-)
++from toonapi import Agreement, Toon, ToonError
+ import voluptuous as vol
+ 
+ from homeassistant import config_entries
+-from homeassistant.const import (
+-    CONF_CLIENT_ID,
+-    CONF_CLIENT_SECRET,
+-    CONF_PASSWORD,
+-    CONF_USERNAME,
+-)
+-from homeassistant.core import callback
++from homeassistant.helpers.aiohttp_client import async_get_clientsession
++from homeassistant.helpers.config_entry_oauth2_flow import AbstractOAuth2FlowHandler
+ 
+-from .const import CONF_DISPLAY, CONF_TENANT, DATA_TOON_CONFIG, DOMAIN
++from .const import CONF_AGREEMENT, CONF_AGREEMENT_ID, DOMAIN
+ 
+ _LOGGER = logging.getLogger(__name__)
+ 
+ 
+-@callback
+-def configured_displays(hass):
+-    """Return a set of configured Toon displays."""
+-    return {
+-        entry.data[CONF_DISPLAY] for entry in hass.config_entries.async_entries(DOMAIN)
+-    }
+-
+-
+-@config_entries.HANDLERS.register(DOMAIN)
+-class ToonFlowHandler(config_entries.ConfigFlow):
++class ToonFlowHandler(AbstractOAuth2FlowHandler, domain=DOMAIN):
+     """Handle a Toon config flow."""
+ 
+-    VERSION = 1
+     CONNECTION_CLASS = config_entries.CONN_CLASS_CLOUD_POLL
++    DOMAIN = DOMAIN
++    VERSION = 2
+ 
+-    def __init__(self):
+-        """Initialize the Toon flow."""
+-        self.displays = None
+-        self.username = None
+-        self.password = None
+-        self.tenant = None
+-
+-    async def async_step_user(self, user_input=None):
+-        """Handle a flow initiated by the user."""
+-        app = self.hass.data.get(DATA_TOON_CONFIG, {})
+-
+-        if not app:
+-            return self.async_abort(reason="no_app")
+-
+-        return await self.async_step_authenticate(user_input)
+-
+-    async def _show_authenticaticate_form(self, errors=None):
+-        """Show the authentication form to the user."""
+-        fields = OrderedDict()
+-        fields[vol.Required(CONF_USERNAME)] = str
+-        fields[vol.Required(CONF_PASSWORD)] = str
+-        fields[vol.Optional(CONF_TENANT)] = vol.In(["eneco", "electrabel", "viesgo"])
+-
+-        return self.async_show_form(
+-            step_id="authenticate",
+-            data_schema=vol.Schema(fields),
+-            errors=errors if errors else {},
+-        )
++    agreements: Optional[List[Agreement]] = None
++    data: Optional[Dict[str, Any]] = None
+ 
+-    async def async_step_authenticate(self, user_input=None):
+-        """Attempt to authenticate with the Toon account."""
++    @property
++    def logger(self) -> logging.Logger:
++        """Return logger."""
++        return logging.getLogger(__name__)
+ 
+-        if user_input is None:
+-            return await self._show_authenticaticate_form()
++    async def async_oauth_create_entry(self, data: Dict[str, Any]) -> Dict[str, Any]:
++        """Test connection and load up agreements."""
++        self.data = data
+ 
+-        app = self.hass.data.get(DATA_TOON_CONFIG, {})
++        toon = Toon(
++            token=self.data["token"]["access_token"],
++            session=async_get_clientsession(self.hass),
++        )
+         try:
+-            toon = await self.hass.async_add_executor_job(
+-                partial(
+-                    Toon,
+-                    user_input[CONF_USERNAME],
+-                    user_input[CONF_PASSWORD],
+-                    app[CONF_CLIENT_ID],
+-                    app[CONF_CLIENT_SECRET],
+-                    tenant_id=user_input[CONF_TENANT],
+-                )
+-            )
+-
+-            displays = toon.display_names
+-
+-        except InvalidConsumerKey:
+-            return self.async_abort(reason=CONF_CLIENT_ID)
+-
+-        except InvalidConsumerSecret:
+-            return self.async_abort(reason=CONF_CLIENT_SECRET)
++            self.agreements = await toon.agreements()
++        except ToonError:
++            return self.async_abort(reason="connection_error")
+ 
+-        except InvalidCredentials:
+-            return await self._show_authenticaticate_form({"base": "credentials"})
+-
+-        except AgreementsRetrievalError:
++        if not self.agreements:
+             return self.async_abort(reason="no_agreements")
+ 
+-        except Exception:  # pylint: disable=broad-except
+-            _LOGGER.exception("Unexpected error while authenticating")
+-            return self.async_abort(reason="unknown_auth_fail")
+-
+-        self.displays = displays
+-        self.username = user_input[CONF_USERNAME]
+-        self.password = user_input[CONF_PASSWORD]
+-        self.tenant = user_input[CONF_TENANT]
++        return await self.async_step_agreement()
+ 
+-        return await self.async_step_display()
++    async def async_step_import(self, config: Dict[str, Any]) -> Dict[str, Any]:
++        """Start a configuration flow based on imported data.
+ 
+-    async def _show_display_form(self, errors=None):
+-        """Show the select display form to the user."""
+-        fields = OrderedDict()
+-        fields[vol.Required(CONF_DISPLAY)] = vol.In(self.displays)
+-
+-        return self.async_show_form(
+-            step_id="display",
+-            data_schema=vol.Schema(fields),
+-            errors=errors if errors else {},
+-        )
++        This step is merely here to trigger "discovery" when the `toon`
++        integration is listed in the user configuration, or when migrating from
++        the version 1 schema.
++        """
++        await self._async_handle_discovery_without_unique_id()
++        return await self.async_step_user()
+ 
+-    async def async_step_display(self, user_input=None):
+-        """Select Toon display to add."""
++    async def async_step_agreement(
++        self, user_input: Dict[str, Any] = None
++    ) -> Dict[str, Any]:
++        """Select Toon agreement to add."""
++        if len(self.agreements) == 1:
++            return await self._create_entry(self.agreements[0])
+ 
+-        if not self.displays:
+-            return self.async_abort(reason="no_displays")
++        agreements_list = [
++            f"{agreement.agreement_id} - {agreement.street} {agreement.house_number}, {agreement.city}"
++            for agreement in self.agreements
++        ]
+ 
+         if user_input is None:
+-            return await self._show_display_form()
+-
+-        if user_input[CONF_DISPLAY] in configured_displays(self.hass):
+-            return await self._show_display_form({"base": "display_exists"})
+-
+-        app = self.hass.data.get(DATA_TOON_CONFIG, {})
+-        try:
+-            await self.hass.async_add_executor_job(
+-                partial(
+-                    Toon,
+-                    self.username,
+-                    self.password,
+-                    app[CONF_CLIENT_ID],
+-                    app[CONF_CLIENT_SECRET],
+-                    tenant_id=self.tenant,
+-                    display_common_name=user_input[CONF_DISPLAY],
+-                )
++            return self.async_show_form(
++                step_id="agreement",
++                data_schema=vol.Schema(
++                    {vol.Required(CONF_AGREEMENT): vol.In(agreements_list)}
++                ),
+             )
+ 
+-        except Exception:  # pylint: disable=broad-except
+-            _LOGGER.exception("Unexpected error while authenticating")
+-            return self.async_abort(reason="unknown_auth_fail")
++        _LOGGER.error(user_input)
++        agreement_index = agreements_list.index(user_input[CONF_AGREEMENT])
++        return await self._create_entry(self.agreements[agreement_index])
++
++    async def _create_entry(self, agreement: Agreement) -> Dict[str, Any]:
++        await self.async_set_unique_id(agreement.agreement_id)
++        self._abort_if_unique_id_configured()
+ 
++        self.data[CONF_AGREEMENT_ID] = agreement.agreement_id
+         return self.async_create_entry(
+-            title=user_input[CONF_DISPLAY],
+-            data={
+-                CONF_USERNAME: self.username,
+-                CONF_PASSWORD: self.password,
+-                CONF_TENANT: self.tenant,
+-                CONF_DISPLAY: user_input[CONF_DISPLAY],
+-            },
++            title=f"{agreement.agreement_id} - {agreement.street} {agreement.house_number}, {agreement.city}",
++            data=self.data,
+         )
+diff --git a/homeassistant/components/toon/const.py b/homeassistant/components/toon/const.py
+index 5f26035065e37..b50a2cebfabeb 100644
+--- a/homeassistant/components/toon/const.py
++++ b/homeassistant/components/toon/const.py
+@@ -1,15 +1,26 @@
+ """Constants for the Toon integration."""
+ from datetime import timedelta
+ 
+-DOMAIN = "toon"
++from homeassistant.components.binary_sensor import (
++    DEVICE_CLASS_CONNECTIVITY,
++    DEVICE_CLASS_PROBLEM,
++)
++from homeassistant.components.sensor import DEVICE_CLASS_POWER
++from homeassistant.const import (
++    ATTR_DEVICE_CLASS,
++    ATTR_ICON,
++    ATTR_NAME,
++    ATTR_UNIT_OF_MEASUREMENT,
++    ENERGY_KILO_WATT_HOUR,
++    POWER_WATT,
++    UNIT_PERCENTAGE,
++)
+ 
+-DATA_TOON = "toon"
+-DATA_TOON_CLIENT = "toon_client"
+-DATA_TOON_CONFIG = "toon_config"
+-DATA_TOON_UPDATED = "toon_updated"
++DOMAIN = "toon"
+ 
+-CONF_DISPLAY = "display"
+-CONF_TENANT = "tenant"
++CONF_AGREEMENT = "agreement"
++CONF_AGREEMENT_ID = "agreement_id"
++CONF_CLOUDHOOK_URL = "cloudhook_url"
+ 
+ DEFAULT_SCAN_INTERVAL = timedelta(seconds=300)
+ DEFAULT_MAX_TEMP = 30.0
+@@ -18,3 +29,321 @@
+ CURRENCY_EUR = "EUR"
+ VOLUME_CM3 = "CM3"
+ VOLUME_M3 = "M3"
++
++ATTR_SECTION = "section"
++ATTR_MEASUREMENT = "measurement"
++ATTR_DEFAULT_ENABLED = "default_enabled"
++ATTR_INVERTED = "inverted"
++
++BINARY_SENSOR_ENTITIES = {
++    "thermostat_info_boiler_connected_None": {
++        ATTR_NAME: "Boiler Module Connection",
++        ATTR_SECTION: "thermostat",
++        ATTR_MEASUREMENT: "boiler_module_connected",
++        ATTR_INVERTED: False,
++        ATTR_DEVICE_CLASS: DEVICE_CLASS_CONNECTIVITY,
++        ATTR_ICON: "mdi:check-network-outline",
++        ATTR_DEFAULT_ENABLED: False,
++    },
++    "thermostat_info_burner_info_1": {
++        ATTR_NAME: "Boiler Heating",
++        ATTR_SECTION: "thermostat",
++        ATTR_MEASUREMENT: "heating",
++        ATTR_INVERTED: False,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:fire",
++        ATTR_DEFAULT_ENABLED: False,
++    },
++    "thermostat_info_burner_info_2": {
++        ATTR_NAME: "Hot Tap Water",
++        ATTR_SECTION: "thermostat",
++        ATTR_MEASUREMENT: "hot_tapwater",
++        ATTR_INVERTED: False,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:water-pump",
++        ATTR_DEFAULT_ENABLED: True,
++    },
++    "thermostat_info_burner_info_3": {
++        ATTR_NAME: "Boiler Preheating",
++        ATTR_SECTION: "thermostat",
++        ATTR_MEASUREMENT: "pre_heating",
++        ATTR_INVERTED: False,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:fire",
++        ATTR_DEFAULT_ENABLED: False,
++    },
++    "thermostat_info_burner_info_None": {
++        ATTR_NAME: "Boiler Burner",
++        ATTR_SECTION: "thermostat",
++        ATTR_MEASUREMENT: "burner",
++        ATTR_INVERTED: False,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:fire",
++        ATTR_DEFAULT_ENABLED: True,
++    },
++    "thermostat_info_error_found_255": {
++        ATTR_NAME: "Boiler Status",
++        ATTR_SECTION: "thermostat",
++        ATTR_MEASUREMENT: "error_found",
++        ATTR_INVERTED: False,
++        ATTR_DEVICE_CLASS: DEVICE_CLASS_PROBLEM,
++        ATTR_ICON: "mdi:alert",
++        ATTR_DEFAULT_ENABLED: True,
++    },
++    "thermostat_info_ot_communication_error_0": {
++        ATTR_NAME: "OpenTherm Connection",
++        ATTR_SECTION: "thermostat",
++        ATTR_MEASUREMENT: "opentherm_communication_error",
++        ATTR_INVERTED: False,
++        ATTR_DEVICE_CLASS: DEVICE_CLASS_PROBLEM,
++        ATTR_ICON: "mdi:check-network-outline",
++        ATTR_DEFAULT_ENABLED: False,
++    },
++    "thermostat_program_overridden": {
++        ATTR_NAME: "Thermostat Program Override",
++        ATTR_SECTION: "thermostat",
++        ATTR_MEASUREMENT: "program_overridden",
++        ATTR_INVERTED: False,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:gesture-tap",
++        ATTR_DEFAULT_ENABLED: True,
++    },
++}
++
++SENSOR_ENTITIES = {
++    "gas_average": {
++        ATTR_NAME: "Average Gas Usage",
++        ATTR_SECTION: "gas_usage",
++        ATTR_MEASUREMENT: "average",
++        ATTR_UNIT_OF_MEASUREMENT: VOLUME_CM3,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:gas-cylinder",
++        ATTR_DEFAULT_ENABLED: True,
++    },
++    "gas_average_daily": {
++        ATTR_NAME: "Average Daily Gas Usage",
++        ATTR_SECTION: "gas_usage",
++        ATTR_MEASUREMENT: "day_average",
++        ATTR_UNIT_OF_MEASUREMENT: VOLUME_M3,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:gas-cylinder",
++        ATTR_DEFAULT_ENABLED: False,
++    },
++    "gas_daily_usage": {
++        ATTR_NAME: "Gas Usage Today",
++        ATTR_SECTION: "gas_usage",
++        ATTR_MEASUREMENT: "day_usage",
++        ATTR_UNIT_OF_MEASUREMENT: VOLUME_M3,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:gas-cylinder",
++        ATTR_DEFAULT_ENABLED: True,
++    },
++    "gas_daily_cost": {
++        ATTR_NAME: "Gas Cost Today",
++        ATTR_SECTION: "gas_usage",
++        ATTR_MEASUREMENT: "day_cost",
++        ATTR_UNIT_OF_MEASUREMENT: CURRENCY_EUR,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:gas-cylinder",
++        ATTR_DEFAULT_ENABLED: True,
++    },
++    "gas_meter_reading": {
++        ATTR_NAME: "Gas Meter",
++        ATTR_SECTION: "gas_usage",
++        ATTR_MEASUREMENT: "meter",
++        ATTR_UNIT_OF_MEASUREMENT: VOLUME_M3,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:gas-cylinder",
++        ATTR_DEFAULT_ENABLED: False,
++    },
++    "gas_value": {
++        ATTR_NAME: "Current Gas Usage",
++        ATTR_SECTION: "gas_usage",
++        ATTR_MEASUREMENT: "current",
++        ATTR_UNIT_OF_MEASUREMENT: VOLUME_CM3,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:gas-cylinder",
++        ATTR_DEFAULT_ENABLED: True,
++    },
++    "power_average": {
++        ATTR_NAME: "Average Power Usage",
++        ATTR_SECTION: "power_usage",
++        ATTR_MEASUREMENT: "average",
++        ATTR_UNIT_OF_MEASUREMENT: POWER_WATT,
++        ATTR_DEVICE_CLASS: DEVICE_CLASS_POWER,
++        ATTR_ICON: "mdi:power-plug",
++        ATTR_DEFAULT_ENABLED: False,
++    },
++    "power_average_daily": {
++        ATTR_NAME: "Average Daily Energy Usage",
++        ATTR_SECTION: "power_usage",
++        ATTR_MEASUREMENT: "day_average",
++        ATTR_UNIT_OF_MEASUREMENT: ENERGY_KILO_WATT_HOUR,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:power-plug",
++        ATTR_DEFAULT_ENABLED: False,
++    },
++    "power_daily_cost": {
++        ATTR_NAME: "Energy Cost Today",
++        ATTR_SECTION: "power_usage",
++        ATTR_MEASUREMENT: "day_cost",
++        ATTR_UNIT_OF_MEASUREMENT: CURRENCY_EUR,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:power-plug",
++        ATTR_DEFAULT_ENABLED: True,
++    },
++    "power_daily_value": {
++        ATTR_NAME: "Energy Usage Today",
++        ATTR_SECTION: "power_usage",
++        ATTR_MEASUREMENT: "day_usage",
++        ATTR_UNIT_OF_MEASUREMENT: ENERGY_KILO_WATT_HOUR,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:power-plug",
++        ATTR_DEFAULT_ENABLED: True,
++    },
++    "power_meter_reading": {
++        ATTR_NAME: "Electricity Meter Feed IN Tariff 1",
++        ATTR_SECTION: "power_usage",
++        ATTR_MEASUREMENT: "meter_high",
++        ATTR_UNIT_OF_MEASUREMENT: ENERGY_KILO_WATT_HOUR,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:power-plug",
++        ATTR_DEFAULT_ENABLED: False,
++    },
++    "power_meter_reading_low": {
++        ATTR_NAME: "Electricity Meter Feed IN Tariff 2",
++        ATTR_SECTION: "power_usage",
++        ATTR_MEASUREMENT: "meter_high",
++        ATTR_UNIT_OF_MEASUREMENT: ENERGY_KILO_WATT_HOUR,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:power-plug",
++        ATTR_DEFAULT_ENABLED: False,
++    },
++    "power_value": {
++        ATTR_NAME: "Current Power Usage",
++        ATTR_SECTION: "power_usage",
++        ATTR_MEASUREMENT: "current",
++        ATTR_UNIT_OF_MEASUREMENT: POWER_WATT,
++        ATTR_DEVICE_CLASS: DEVICE_CLASS_POWER,
++        ATTR_ICON: "mdi:power-plug",
++        ATTR_DEFAULT_ENABLED: True,
++    },
++    "solar_meter_reading_produced": {
++        ATTR_NAME: "Electricity Meter Feed OUT Tariff 1",
++        ATTR_SECTION: "power_usage",
++        ATTR_MEASUREMENT: "meter_produced_high",
++        ATTR_UNIT_OF_MEASUREMENT: ENERGY_KILO_WATT_HOUR,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:power-plug",
++        ATTR_DEFAULT_ENABLED: False,
++    },
++    "solar_meter_reading_low_produced": {
++        ATTR_NAME: "Electricity Meter Feed OUT Tariff 2",
++        ATTR_SECTION: "power_usage",
++        ATTR_MEASUREMENT: "meter_produced_low",
++        ATTR_UNIT_OF_MEASUREMENT: ENERGY_KILO_WATT_HOUR,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:power-plug",
++        ATTR_DEFAULT_ENABLED: False,
++    },
++    "solar_value": {
++        ATTR_NAME: "Current Solar Power Production",
++        ATTR_SECTION: "power_usage",
++        ATTR_MEASUREMENT: "current_solar",
++        ATTR_UNIT_OF_MEASUREMENT: POWER_WATT,
++        ATTR_DEVICE_CLASS: DEVICE_CLASS_POWER,
++        ATTR_ICON: "mdi:solar-power",
++        ATTR_DEFAULT_ENABLED: True,
++    },
++    "solar_maximum": {
++        ATTR_NAME: "Max Solar Power Production Today",
++        ATTR_SECTION: "power_usage",
++        ATTR_MEASUREMENT: "day_max_solar",
++        ATTR_UNIT_OF_MEASUREMENT: POWER_WATT,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:solar-power",
++        ATTR_DEFAULT_ENABLED: True,
++    },
++    "solar_produced": {
++        ATTR_NAME: "Solar Power Production to Grid",
++        ATTR_SECTION: "power_usage",
++        ATTR_MEASUREMENT: "current_produced",
++        ATTR_UNIT_OF_MEASUREMENT: POWER_WATT,
++        ATTR_DEVICE_CLASS: DEVICE_CLASS_POWER,
++        ATTR_ICON: "mdi:solar-power",
++        ATTR_DEFAULT_ENABLED: True,
++    },
++    "power_usage_day_produced_solar": {
++        ATTR_NAME: "Solar Energy Produced Today",
++        ATTR_SECTION: "power_usage",
++        ATTR_MEASUREMENT: "day_produced_solar",
++        ATTR_UNIT_OF_MEASUREMENT: ENERGY_KILO_WATT_HOUR,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:solar-power",
++        ATTR_DEFAULT_ENABLED: True,
++    },
++    "power_usage_day_to_grid_usage": {
++        ATTR_NAME: "Energy Produced To Grid Today",
++        ATTR_SECTION: "power_usage",
++        ATTR_MEASUREMENT: "day_to_grid_usage",
++        ATTR_UNIT_OF_MEASUREMENT: ENERGY_KILO_WATT_HOUR,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:solar-power",
++        ATTR_DEFAULT_ENABLED: False,
++    },
++    "power_usage_day_from_grid_usage": {
++        ATTR_NAME: "Energy Usage From Grid Today",
++        ATTR_SECTION: "power_usage",
++        ATTR_MEASUREMENT: "day_from_grid_usage",
++        ATTR_UNIT_OF_MEASUREMENT: ENERGY_KILO_WATT_HOUR,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:power-plug",
++        ATTR_DEFAULT_ENABLED: False,
++    },
++    "solar_average_produced": {
++        ATTR_NAME: "Average Solar Power Production to Grid",
++        ATTR_SECTION: "power_usage",
++        ATTR_MEASUREMENT: "average_produced",
++        ATTR_UNIT_OF_MEASUREMENT: POWER_WATT,
++        ATTR_DEVICE_CLASS: DEVICE_CLASS_POWER,
++        ATTR_ICON: "mdi:solar-power",
++        ATTR_DEFAULT_ENABLED: False,
++    },
++    "thermostat_info_current_modulation_level": {
++        ATTR_NAME: "Boiler Modulation Level",
++        ATTR_SECTION: "thermostat",
++        ATTR_MEASUREMENT: "current_modulation_level",
++        ATTR_UNIT_OF_MEASUREMENT: UNIT_PERCENTAGE,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:percent",
++        ATTR_DEFAULT_ENABLED: False,
++    },
++    "power_usage_current_covered_by_solar": {
++        ATTR_NAME: "Current Power Usage Covered By Solar",
++        ATTR_SECTION: "power_usage",
++        ATTR_MEASUREMENT: "current_covered_by_solar",
++        ATTR_UNIT_OF_MEASUREMENT: UNIT_PERCENTAGE,
++        ATTR_DEVICE_CLASS: None,
++        ATTR_ICON: "mdi:solar-power",
++        ATTR_DEFAULT_ENABLED: True,
++    },
++}
++
++SWITCH_ENTITIES = {
++    "thermostat_holiday_mode": {
++        ATTR_NAME: "Holiday Mode",
++        ATTR_SECTION: "thermostat",
++        ATTR_MEASUREMENT: "holiday_mode",
++        ATTR_INVERTED: False,
++        ATTR_ICON: "mdi:airport",
++        ATTR_DEFAULT_ENABLED: True,
++    },
++    "thermostat_program": {
++        ATTR_NAME: "Thermostat Program",
++        ATTR_SECTION: "thermostat",
++        ATTR_MEASUREMENT: "program",
++        ATTR_INVERTED: False,
++        ATTR_ICON: "mdi:calendar-clock",
++        ATTR_DEFAULT_ENABLED: True,
++    },
++}
+diff --git a/homeassistant/components/toon/coordinator.py b/homeassistant/components/toon/coordinator.py
+new file mode 100644
+index 0000000000000..1c123790db7e8
+--- /dev/null
++++ b/homeassistant/components/toon/coordinator.py
+@@ -0,0 +1,132 @@
++"""Provides the Toon DataUpdateCoordinator."""
++import logging
++import secrets
++from typing import Optional
++
++from toonapi import Status, Toon, ToonError
++
++from homeassistant.components.webhook import (
++    async_register as webhook_register,
++    async_unregister as webhook_unregister,
++)
++from homeassistant.config_entries import ConfigEntry
++from homeassistant.const import CONF_WEBHOOK_ID, EVENT_HOMEASSISTANT_STOP
++from homeassistant.core import Event, HomeAssistant
++from homeassistant.helpers.aiohttp_client import async_get_clientsession
++from homeassistant.helpers.config_entry_oauth2_flow import OAuth2Session
++from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
++
++from .const import CONF_CLOUDHOOK_URL, DEFAULT_SCAN_INTERVAL, DOMAIN
++
++_LOGGER = logging.getLogger(__name__)
++
++
++class ToonDataUpdateCoordinator(DataUpdateCoordinator):
++    """Class to manage fetching WLED data from single endpoint."""
++
++    def __init__(
++        self, hass: HomeAssistant, *, entry: ConfigEntry, session: OAuth2Session
++    ):
++        """Initialize global Toon data updater."""
++        self.session = session
++        self.entry = entry
++
++        async def async_token_refresh() -> str:
++            await session.async_ensure_token_valid()
++            return session.token["access_token"]
++
++        self.toon = Toon(
++            token=session.token["access_token"],
++            session=async_get_clientsession(hass),
++            token_refresh_method=async_token_refresh,
++        )
++
++        super().__init__(
++            hass, _LOGGER, name=DOMAIN, update_interval=DEFAULT_SCAN_INTERVAL
++        )
++
++    def update_listeners(self) -> None:
++        """Call update on all listeners."""
++        for update_callback in self._listeners:
++            update_callback()
++
++    async def register_webhook(self, event: Optional[Event] = None) -> None:
++        """Register a webhook with Toon to get live updates."""
++        if CONF_WEBHOOK_ID not in self.entry.data:
++            data = {**self.entry.data, CONF_WEBHOOK_ID: secrets.token_hex()}
++            self.hass.config_entries.async_update_entry(self.entry, data=data)
++
++        if self.hass.components.cloud.async_active_subscription():
++
++            if CONF_CLOUDHOOK_URL not in self.entry.data:
++                webhook_url = await self.hass.components.cloud.async_create_cloudhook(
++                    self.entry.data[CONF_WEBHOOK_ID]
++                )
++                data = {**self.entry.data, CONF_CLOUDHOOK_URL: webhook_url}
++                self.hass.config_entries.async_update_entry(self.entry, data=data)
++            else:
++                webhook_url = self.entry.data[CONF_CLOUDHOOK_URL]
++        else:
++            webhook_url = self.hass.components.webhook.async_generate_url(
++                self.entry.data[CONF_WEBHOOK_ID]
++            )
++
++        webhook_register(
++            self.hass,
++            DOMAIN,
++            "Toon",
++            self.entry.data[CONF_WEBHOOK_ID],
++            self.handle_webhook,
++        )
++
++        try:
++            await self.toon.subscribe_webhook(
++                application_id=self.entry.entry_id, url=webhook_url
++            )
++            _LOGGER.info("Registered Toon webhook: %s", webhook_url)
++        except ToonError as err:
++            _LOGGER.error("Error during webhook registration - %s", err)
++
++        self.hass.bus.async_listen_once(
++            EVENT_HOMEASSISTANT_STOP, self.unregister_webhook
++        )
++
++    async def handle_webhook(
++        self, hass: HomeAssistant, webhook_id: str, request
++    ) -> None:
++        """Handle webhook callback."""
++        try:
++            data = await request.json()
++        except ValueError:
++            return
++
++        _LOGGER.debug("Got webhook data: %s", data)
++
++        # Webhook expired notification, re-register
++        if data.get("code") == 510:
++            return await self.register_webhook()
++
++        try:
++            await self.toon.update(data.get("updateDataSet", {}))
++            self.update_listeners()
++        except ToonError as err:
++            _LOGGER.error("Could not process data received from Toon webhook - %s", err)
++
++    async def unregister_webhook(self, event: Optional[Event] = None) -> None:
++        """Remove / Unregister webhook for toon."""
++        _LOGGER.debug(
++            "Unregistering Toon webhook (%s)", self.entry.data[CONF_WEBHOOK_ID]
++        )
++        try:
++            await self.toon.unsubscribe_webhook(self.entry.entry_id)
++        except ToonError as err:
++            _LOGGER.error("Failed unregistering Toon webhook - %s", err)
++
++        webhook_unregister(self.hass, self.entry.data[CONF_WEBHOOK_ID])
++
++    async def _async_update_data(self) -> Status:
++        """Fetch data from Toon."""
++        try:
++            return await self.toon.update()
++        except ToonError as error:
++            raise UpdateFailed(f"Invalid response from API: {error}")
+diff --git a/homeassistant/components/toon/helpers.py b/homeassistant/components/toon/helpers.py
+new file mode 100644
+index 0000000000000..405ecc36d7f57
+--- /dev/null
++++ b/homeassistant/components/toon/helpers.py
+@@ -0,0 +1,29 @@
++"""Helpers for Toon."""
++import logging
++
++from toonapi import ToonConnectionError, ToonError
++
++_LOGGER = logging.getLogger(__name__)
++
++
++def toon_exception_handler(func):
++    """Decorate Toon calls to handle Toon exceptions.
++
++    A decorator that wraps the passed in function, catches Toon errors,
++    and handles the availability of the device in the data coordinator.
++    """
++
++    async def handler(self, *args, **kwargs):
++        try:
++            await func(self, *args, **kwargs)
++            self.coordinator.update_listeners()
++
++        except ToonConnectionError as error:
++            _LOGGER.error("Error communicating with API: %s", error)
++            self.coordinator.last_update_success = False
++            self.coordinator.update_listeners()
++
++        except ToonError as error:
++            _LOGGER.error("Invalid response from API: %s", error)
++
++    return handler
+diff --git a/homeassistant/components/toon/manifest.json b/homeassistant/components/toon/manifest.json
+index 230b7986fbd6a..2ced62ffc6c0d 100644
+--- a/homeassistant/components/toon/manifest.json
++++ b/homeassistant/components/toon/manifest.json
+@@ -3,6 +3,8 @@
+   "name": "Toon",
+   "config_flow": true,
+   "documentation": "https://www.home-assistant.io/integrations/toon",
+-  "requirements": ["toonapilib==3.2.4"],
++  "requirements": ["toonapi==0.1.0"],
++  "dependencies": ["http"],
++  "after_dependencies": ["cloud"],
+   "codeowners": ["@frenck"]
+ }
+diff --git a/homeassistant/components/toon/models.py b/homeassistant/components/toon/models.py
+new file mode 100644
+index 0000000000000..2aa4cebc5feba
+--- /dev/null
++++ b/homeassistant/components/toon/models.py
+@@ -0,0 +1,153 @@
++"""DataUpdate Coordinator, and base Entity and Device models for Toon."""
++import logging
++from typing import Any, Dict, Optional
++
++from homeassistant.helpers.entity import Entity
++
++from .const import DOMAIN
++from .coordinator import ToonDataUpdateCoordinator
++
++_LOGGER = logging.getLogger(__name__)
++
++
++class ToonEntity(Entity):
++    """Defines a base Toon entity."""
++
++    def __init__(
++        self,
++        coordinator: ToonDataUpdateCoordinator,
++        *,
++        name: str,
++        icon: str,
++        enabled_default: bool = True,
++    ) -> None:
++        """Initialize the Toon entity."""
++        self._enabled_default = enabled_default
++        self._icon = icon
++        self._name = name
++        self._state = None
++        self.coordinator = coordinator
++
++    @property
++    def name(self) -> str:
++        """Return the name of the entity."""
++        return self._name
++
++    @property
++    def icon(self) -> Optional[str]:
++        """Return the mdi icon of the entity."""
++        return self._icon
++
++    @property
++    def available(self) -> bool:
++        """Return True if entity is available."""
++        return self.coordinator.last_update_success
++
++    @property
++    def entity_registry_enabled_default(self) -> bool:
++        """Return if the entity should be enabled when first added to the entity registry."""
++        return self._enabled_default
++
++    @property
++    def should_poll(self) -> bool:
++        """Return the polling requirement of the entity."""
++        return False
++
++    async def async_added_to_hass(self) -> None:
++        """Connect to dispatcher listening for entity data notifications."""
++        self.async_on_remove(
++            self.coordinator.async_add_listener(self.async_write_ha_state)
++        )
++
++    async def async_update(self) -> None:
++        """Update Toon entity."""
++        await self.coordinator.async_request_refresh()
++
++
++class ToonDisplayDeviceEntity(ToonEntity):
++    """Defines a Toon display device entity."""
++
++    @property
++    def device_info(self) -> Dict[str, Any]:
++        """Return device information about this thermostat."""
++        agreement = self.coordinator.data.agreement
++        model = agreement.display_hardware_version.rpartition("/")[0]
++        sw_version = agreement.display_software_version.rpartition("/")[-1]
++        return {
++            "identifiers": {(DOMAIN, agreement.agreement_id)},
++            "name": "Toon Display",
++            "manufacturer": "Eneco",
++            "model": model,
++            "sw_version": sw_version,
++        }
++
++
++class ToonElectricityMeterDeviceEntity(ToonEntity):
++    """Defines a Electricity Meter device entity."""
++
++    @property
++    def device_info(self) -> Dict[str, Any]:
++        """Return device information about this entity."""
++        agreement_id = self.coordinator.data.agreement.agreement_id
++        return {
++            "name": "Electricity Meter",
++            "identifiers": {(DOMAIN, agreement_id, "electricity")},
++            "via_device": (DOMAIN, agreement_id, "meter_adapter",),
++        }
++
++
++class ToonGasMeterDeviceEntity(ToonEntity):
++    """Defines a Gas Meter device entity."""
++
++    @property
++    def device_info(self) -> Dict[str, Any]:
++        """Return device information about this entity."""
++        agreement_id = self.coordinator.data.agreement.agreement_id
++        return {
++            "name": "Gas Meter",
++            "identifiers": {(DOMAIN, agreement_id, "gas")},
++            "via_device": (DOMAIN, agreement_id, "electricity",),
++        }
++
++
++class ToonSolarDeviceEntity(ToonEntity):
++    """Defines a Solar Device device entity."""
++
++    @property
++    def device_info(self) -> Dict[str, Any]:
++        """Return device information about this entity."""
++        agreement_id = self.coordinator.data.agreement.agreement_id
++        return {
++            "name": "Solar Panels",
++            "identifiers": {(DOMAIN, agreement_id, "solar")},
++            "via_device": (DOMAIN, agreement_id, "meter_adapter",),
++        }
++
++
++class ToonBoilerModuleDeviceEntity(ToonEntity):
++    """Defines a Boiler Module device entity."""
++
++    @property
++    def device_info(self) -> Dict[str, Any]:
++        """Return device information about this entity."""
++        agreement_id = self.coordinator.data.agreement.agreement_id
++        return {
++            "name": "Boiler Module",
++            "manufacturer": "Eneco",
++            "identifiers": {(DOMAIN, agreement_id, "boiler_module")},
++            "via_device": (DOMAIN, agreement_id),
++        }
++
++
++class ToonBoilerDeviceEntity(ToonEntity):
++    """Defines a Boiler device entity."""
++
++    @property
++    def device_info(self) -> Dict[str, Any]:
++        """Return device information about this entity."""
++        agreement_id = self.coordinator.data.agreement.agreement_id
++        return {
++            "name": "Boiler",
++            "identifiers": {(DOMAIN, agreement_id, "boiler")},
++            "via_device": (DOMAIN, agreement_id, "boiler_module",),
++        }
+diff --git a/homeassistant/components/toon/oauth2.py b/homeassistant/components/toon/oauth2.py
+new file mode 100644
+index 0000000000000..9cb960957dc8d
+--- /dev/null
++++ b/homeassistant/components/toon/oauth2.py
+@@ -0,0 +1,137 @@
++"""OAuth2 implementations for Toon."""
++import logging
++from typing import Any, Optional, cast
++
++from yarl import URL
++
++from homeassistant.core import HomeAssistant
++from homeassistant.helpers import config_entry_oauth2_flow
++from homeassistant.helpers.aiohttp_client import async_get_clientsession
++
++from . import config_flow
++
++_LOGGER = logging.getLogger(__name__)
++
++
++def register_oauth2_implementations(
++    hass: HomeAssistant, client_id: str, client_secret: str
++) -> None:
++    """Register Toon OAuth2 implementations."""
++    config_flow.ToonFlowHandler.async_register_implementation(
++        hass,
++        ToonLocalOAuth2Implementation(
++            hass,
++            client_id=client_id,
++            client_secret=client_secret,
++            name="Eneco Toon",
++            tenant_id="eneco",
++            issuer="identity.toon.eu",
++        ),
++    )
++    config_flow.ToonFlowHandler.async_register_implementation(
++        hass,
++        ToonLocalOAuth2Implementation(
++            hass,
++            client_id=client_id,
++            client_secret=client_secret,
++            name="Engie Electrabel Boxx",
++            tenant_id="electrabel",
++        ),
++    )
++    config_flow.ToonFlowHandler.async_register_implementation(
++        hass,
++        ToonLocalOAuth2Implementation(
++            hass,
++            client_id=client_id,
++            client_secret=client_secret,
++            name="Viesgo",
++            tenant_id="viesgo",
++        ),
++    )
++
++
++class ToonLocalOAuth2Implementation(config_entry_oauth2_flow.LocalOAuth2Implementation):
++    """Local OAuth2 implementation for Toon."""
++
++    def __init__(
++        self,
++        hass: HomeAssistant,
++        client_id: str,
++        client_secret: str,
++        name: str,
++        tenant_id: str,
++        issuer: Optional[str] = None,
++    ):
++        """Local Toon Oauth Implementation."""
++        self._name = name
++        self.tenant_id = tenant_id
++        self.issuer = issuer
++
++        super().__init__(
++            hass=hass,
++            domain=tenant_id,
++            client_id=client_id,
++            client_secret=client_secret,
++            authorize_url="https://api.toon.eu/authorize",
++            token_url="https://api.toon.eu/token",
++        )
++
++    @property
++    def name(self) -> str:
++        """Name of the implementation."""
++        return f"{self._name} via Configuration.yaml"
++
++    async def async_generate_authorize_url(self, flow_id: str) -> str:
++        """Generate a url for the user to authorize."""
++        data = {"tenant_id": self.tenant_id}
++
++        if self.issuer is not None:
++            data["issuer"] = self.issuer
++
++        url = await super().async_generate_authorize_url(flow_id)
++        return str(URL(url).update_query(data))
++
++    async def async_resolve_external_data(self, external_data: Any) -> dict:
++        """Initialize local Toon auth implementation."""
++        data = {
++            "grant_type": "authorization_code",
++            "code": external_data,
++            "redirect_uri": self.redirect_uri,
++            "tenant_id": self.tenant_id,
++        }
++
++        if self.issuer is not None:
++            data["issuer"] = self.issuer
++
++        return await self._token_request(data)
++
++    async def _async_refresh_token(self, token: dict) -> dict:
++        """Refresh tokens."""
++        data = {
++            "grant_type": "refresh_token",
++            "client_id": self.client_id,
++            "refresh_token": token["refresh_token"],
++            "tenant_id": self.tenant_id,
++        }
++
++        new_token = await self._token_request(data)
++        return {**token, **new_token}
++
++    async def _token_request(self, data: dict) -> dict:
++        """Make a token request."""
++        session = async_get_clientsession(self.hass)
++        headers = {}
++
++        data["client_id"] = self.client_id
++        data["tenant_id"] = self.tenant_id
++
++        if self.client_secret is not None:
++            data["client_secret"] = self.client_secret
++
++        if self.issuer is not None:
++            data["issuer"] = self.issuer
++            headers["issuer"] = self.issuer
++
++        resp = await session.post(self.token_url, data=data, headers=headers)
++        resp.raise_for_status()
++        return cast(dict, await resp.json())
+diff --git a/homeassistant/components/toon/sensor.py b/homeassistant/components/toon/sensor.py
+index 157c357e180ca..8f0764e8333f5 100644
+--- a/homeassistant/components/toon/sensor.py
++++ b/homeassistant/components/toon/sensor.py
+@@ -1,202 +1,91 @@
+ """Support for Toon sensors."""
+ import logging
++from typing import Optional
+ 
+ from homeassistant.config_entries import ConfigEntry
+-from homeassistant.const import ENERGY_KILO_WATT_HOUR, POWER_WATT, UNIT_PERCENTAGE
+-from homeassistant.helpers.typing import HomeAssistantType
+-
+-from . import (
++from homeassistant.core import HomeAssistant
++
++from .const import (
++    ATTR_DEFAULT_ENABLED,
++    ATTR_DEVICE_CLASS,
++    ATTR_ICON,
++    ATTR_MEASUREMENT,
++    ATTR_NAME,
++    ATTR_SECTION,
++    ATTR_UNIT_OF_MEASUREMENT,
++    DOMAIN,
++    SENSOR_ENTITIES,
++)
++from .coordinator import ToonDataUpdateCoordinator
++from .models import (
+     ToonBoilerDeviceEntity,
+-    ToonData,
+     ToonElectricityMeterDeviceEntity,
+     ToonEntity,
+     ToonGasMeterDeviceEntity,
+     ToonSolarDeviceEntity,
+ )
+-from .const import CURRENCY_EUR, DATA_TOON, DOMAIN, VOLUME_CM3, VOLUME_M3
+ 
+ _LOGGER = logging.getLogger(__name__)
+ 
+ 
+ async def async_setup_entry(
+-    hass: HomeAssistantType, entry: ConfigEntry, async_add_entities
++    hass: HomeAssistant, entry: ConfigEntry, async_add_entities
+ ) -> None:
+     """Set up Toon sensors based on a config entry."""
+-    toon = hass.data[DATA_TOON][entry.entry_id]
++    coordinator = hass.data[DOMAIN][entry.entry_id]
+ 
+     sensors = [
+-        ToonElectricityMeterDeviceSensor(
+-            toon, "power", "value", "Current Power Usage", "mdi:power-plug", POWER_WATT
+-        ),
+-        ToonElectricityMeterDeviceSensor(
+-            toon,
+-            "power",
+-            "average",
+-            "Average Power Usage",
+-            "mdi:power-plug",
+-            POWER_WATT,
+-        ),
+-        ToonElectricityMeterDeviceSensor(
+-            toon,
+-            "power",
+-            "daily_value",
+-            "Power Usage Today",
+-            "mdi:power-plug",
+-            ENERGY_KILO_WATT_HOUR,
+-        ),
+-        ToonElectricityMeterDeviceSensor(
+-            toon,
+-            "power",
+-            "daily_cost",
+-            "Power Cost Today",
+-            "mdi:power-plug",
+-            CURRENCY_EUR,
+-        ),
+-        ToonElectricityMeterDeviceSensor(
+-            toon,
+-            "power",
+-            "average_daily",
+-            "Average Daily Power Usage",
+-            "mdi:power-plug",
+-            ENERGY_KILO_WATT_HOUR,
+-        ),
+-        ToonElectricityMeterDeviceSensor(
+-            toon,
+-            "power",
+-            "meter_reading",
+-            "Power Meter Feed IN Tariff 1",
+-            "mdi:power-plug",
+-            ENERGY_KILO_WATT_HOUR,
+-        ),
+-        ToonElectricityMeterDeviceSensor(
+-            toon,
+-            "power",
+-            "meter_reading_low",
+-            "Power Meter Feed IN Tariff 2",
+-            "mdi:power-plug",
+-            ENERGY_KILO_WATT_HOUR,
+-        ),
++        ToonElectricityMeterDeviceSensor(coordinator, key=key)
++        for key in {
++            "power_average_daily",
++            "power_average",
++            "power_daily_cost",
++            "power_daily_value",
++            "power_meter_reading_low",
++            "power_meter_reading",
++            "power_value",
++            "solar_meter_reading_low_produced",
++            "solar_meter_reading_produced",
++        }
+     ]
+ 
+-    if toon.gas:
++    if coordinator.data.gas_usage and coordinator.data.gas_usage.is_smart:
+         sensors.extend(
+             [
+-                ToonGasMeterDeviceSensor(
+-                    toon,
+-                    "gas",
+-                    "value",
+-                    "Current Gas Usage",
+-                    "mdi:gas-cylinder",
+-                    VOLUME_CM3,
+-                ),
+-                ToonGasMeterDeviceSensor(
+-                    toon,
+-                    "gas",
+-                    "average",
+-                    "Average Gas Usage",
+-                    "mdi:gas-cylinder",
+-                    VOLUME_CM3,
+-                ),
+-                ToonGasMeterDeviceSensor(
+-                    toon,
+-                    "gas",
+-                    "daily_usage",
+-                    "Gas Usage Today",
+-                    "mdi:gas-cylinder",
+-                    VOLUME_M3,
+-                ),
+-                ToonGasMeterDeviceSensor(
+-                    toon,
+-                    "gas",
+-                    "average_daily",
+-                    "Average Daily Gas Usage",
+-                    "mdi:gas-cylinder",
+-                    VOLUME_M3,
+-                ),
+-                ToonGasMeterDeviceSensor(
+-                    toon,
+-                    "gas",
+-                    "meter_reading",
+-                    "Gas Meter",
+-                    "mdi:gas-cylinder",
+-                    VOLUME_M3,
+-                ),
+-                ToonGasMeterDeviceSensor(
+-                    toon,
+-                    "gas",
+-                    "daily_cost",
+-                    "Gas Cost Today",
+-                    "mdi:gas-cylinder",
+-                    CURRENCY_EUR,
+-                ),
++                ToonGasMeterDeviceSensor(coordinator, key=key)
++                for key in {
++                    "gas_average_daily",
++                    "gas_average",
++                    "gas_daily_cost",
++                    "gas_daily_usage",
++                    "gas_meter_reading",
++                    "gas_value",
++                }
+             ]
+         )
+ 
+-    if toon.solar:
++    if coordinator.data.agreement.is_toon_solar:
+         sensors.extend(
+             [
+-                ToonSolarDeviceSensor(
+-                    toon,
+-                    "solar",
+-                    "value",
+-                    "Current Solar Production",
+-                    "mdi:solar-power",
+-                    POWER_WATT,
+-                ),
+-                ToonSolarDeviceSensor(
+-                    toon,
+-                    "solar",
+-                    "maximum",
+-                    "Max Solar Production",
+-                    "mdi:solar-power",
+-                    POWER_WATT,
+-                ),
+-                ToonSolarDeviceSensor(
+-                    toon,
+-                    "solar",
+-                    "produced",
+-                    "Solar Production to Grid",
+-                    "mdi:solar-power",
+-                    POWER_WATT,
+-                ),
+-                ToonSolarDeviceSensor(
+-                    toon,
+-                    "solar",
+-                    "average_produced",
+-                    "Average Solar Production to Grid",
+-                    "mdi:solar-power",
+-                    POWER_WATT,
+-                ),
+-                ToonElectricityMeterDeviceSensor(
+-                    toon,
+-                    "solar",
+-                    "meter_reading_produced",
+-                    "Power Meter Feed OUT Tariff 1",
+-                    "mdi:solar-power",
+-                    ENERGY_KILO_WATT_HOUR,
+-                ),
+-                ToonElectricityMeterDeviceSensor(
+-                    toon,
+-                    "solar",
+-                    "meter_reading_low_produced",
+-                    "Power Meter Feed OUT Tariff 2",
+-                    "mdi:solar-power",
+-                    ENERGY_KILO_WATT_HOUR,
+-                ),
++                ToonSolarDeviceSensor(coordinator, key=key)
++                for key in [
++                    "solar_value",
++                    "solar_maximum",
++                    "solar_produced",
++                    "solar_average_produced",
++                    "power_usage_day_produced_solar",
++                    "power_usage_day_from_grid_usage",
++                    "power_usage_day_to_grid_usage",
++                    "power_usage_current_covered_by_solar",
++                ]
+             ]
+         )
+ 
+-    if toon.thermostat_info.have_ot_boiler:
++    if coordinator.data.thermostat.have_opentherm_boiler:
+         sensors.extend(
+             [
+-                ToonBoilerDeviceSensor(
+-                    toon,
+-                    "thermostat_info",
+-                    "current_modulation_level",
+-                    "Boiler Modulation Level",
+-                    "mdi:percent",
+-                    UNIT_PERCENTAGE,
+-                )
++                ToonBoilerDeviceSensor(coordinator, key=key)
++                for key in ["thermostat_info_current_modulation_level"]
+             ]
+         )
+ 
+@@ -206,78 +95,42 @@ async def async_setup_entry(
+ class ToonSensor(ToonEntity):
+     """Defines a Toon sensor."""
+ 
+-    def __init__(
+-        self,
+-        toon: ToonData,
+-        section: str,
+-        measurement: str,
+-        name: str,
+-        icon: str,
+-        unit_of_measurement: str,
+-    ) -> None:
++    def __init__(self, coordinator: ToonDataUpdateCoordinator, *, key: str) -> None:
+         """Initialize the Toon sensor."""
+-        self._state = None
+-        self._unit_of_measurement = unit_of_measurement
+-        self.section = section
+-        self.measurement = measurement
++        self.key = key
+ 
+-        super().__init__(toon, name, icon)
++        super().__init__(
++            coordinator,
++            enabled_default=SENSOR_ENTITIES[key][ATTR_DEFAULT_ENABLED],
++            icon=SENSOR_ENTITIES[key][ATTR_ICON],
++            name=SENSOR_ENTITIES[key][ATTR_NAME],
++        )
+ 
+     @property
+     def unique_id(self) -> str:
+         """Return the unique ID for this sensor."""
+-        return "_".join(
+-            [DOMAIN, self.toon.agreement.id, "sensor", self.section, self.measurement]
+-        )
++        agreement_id = self.coordinator.data.agreement.agreement_id
++        # This unique ID is a bit ugly and contains unneeded information.
++        # It is here for lecagy / backward compatible reasons.
++        return f"{DOMAIN}_{agreement_id}_sensor_{self.key}"
+ 
+     @property
+-    def state(self):
++    def state(self) -> Optional[str]:
+         """Return the state of the sensor."""
+-        return self._state
++        section = getattr(
++            self.coordinator.data, SENSOR_ENTITIES[self.key][ATTR_SECTION]
++        )
++        return getattr(section, SENSOR_ENTITIES[self.key][ATTR_MEASUREMENT])
+ 
+     @property
+-    def unit_of_measurement(self) -> str:
++    def unit_of_measurement(self) -> Optional[str]:
+         """Return the unit this state is expressed in."""
+-        return self._unit_of_measurement
+-
+-    def update(self) -> None:
+-        """Get the latest data from the sensor."""
+-        section = getattr(self.toon, self.section)
+-        value = None
+-
+-        if not section:
+-            return
++        return SENSOR_ENTITIES[self.key][ATTR_UNIT_OF_MEASUREMENT]
+ 
+-        if self.section == "power" and self.measurement == "daily_value":
+-            value = round(
+-                (float(section.daily_usage) + float(section.daily_usage_low)) / 1000.0,
+-                2,
+-            )
+-
+-        if value is None:
+-            value = getattr(section, self.measurement)
+-
+-        if self.section == "power" and self.measurement in [
+-            "meter_reading",
+-            "meter_reading_low",
+-            "average_daily",
+-        ]:
+-            value = round(float(value) / 1000.0, 2)
+-
+-        if self.section == "solar" and self.measurement in [
+-            "meter_reading_produced",
+-            "meter_reading_low_produced",
+-        ]:
+-            value = float(value) / 1000.0
+-
+-        if self.section == "gas" and self.measurement in [
+-            "average_daily",
+-            "daily_usage",
+-            "meter_reading",
+-        ]:
+-            value = round(float(value) / 1000.0, 2)
+-
+-        self._state = max(0, value)
++    @property
++    def device_class(self) -> Optional[str]:
++        """Return the device class."""
++        return SENSOR_ENTITIES[self.key][ATTR_DEVICE_CLASS]
+ 
+ 
+ class ToonElectricityMeterDeviceSensor(ToonSensor, ToonElectricityMeterDeviceEntity):
+diff --git a/homeassistant/components/toon/switch.py b/homeassistant/components/toon/switch.py
+new file mode 100644
+index 0000000000000..166d8d14ea35a
+--- /dev/null
++++ b/homeassistant/components/toon/switch.py
+@@ -0,0 +1,121 @@
++"""Support for Toon switches."""
++import logging
++from typing import Any
++
++from toonapi import (
++    ACTIVE_STATE_AWAY,
++    ACTIVE_STATE_HOLIDAY,
++    PROGRAM_STATE_OFF,
++    PROGRAM_STATE_ON,
++)
++
++from homeassistant.components.switch import SwitchEntity
++from homeassistant.config_entries import ConfigEntry
++from homeassistant.helpers.typing import HomeAssistantType
++
++from .const import (
++    ATTR_DEFAULT_ENABLED,
++    ATTR_ICON,
++    ATTR_INVERTED,
++    ATTR_MEASUREMENT,
++    ATTR_NAME,
++    ATTR_SECTION,
++    DOMAIN,
++    SWITCH_ENTITIES,
++)
++from .coordinator import ToonDataUpdateCoordinator
++from .helpers import toon_exception_handler
++from .models import ToonDisplayDeviceEntity, ToonEntity
++
++_LOGGER = logging.getLogger(__name__)
++
++
++async def async_setup_entry(
++    hass: HomeAssistantType, entry: ConfigEntry, async_add_entities
++) -> None:
++    """Set up a Toon switches based on a config entry."""
++    coordinator = hass.data[DOMAIN][entry.entry_id]
++
++    async_add_entities(
++        [ToonProgramSwitch(coordinator), ToonHolidayModeSwitch(coordinator)]
++    )
++
++
++class ToonSwitch(ToonEntity, SwitchEntity):
++    """Defines an Toon switch."""
++
++    def __init__(self, coordinator: ToonDataUpdateCoordinator, *, key: str) -> None:
++        """Initialize the Toon switch."""
++        self.key = key
++
++        super().__init__(
++            coordinator,
++            enabled_default=SWITCH_ENTITIES[key][ATTR_DEFAULT_ENABLED],
++            icon=SWITCH_ENTITIES[key][ATTR_ICON],
++            name=SWITCH_ENTITIES[key][ATTR_NAME],
++        )
++
++    @property
++    def unique_id(self) -> str:
++        """Return the unique ID for this binary sensor."""
++        agreement_id = self.coordinator.data.agreement.agreement_id
++        # This unique ID is a bit ugly and contains unneeded information.
++        # It is here for lecagy / backward compatible reasons.
++        return f"{DOMAIN}_{agreement_id}_switch_{self.key}"
++
++    @property
++    def is_on(self) -> bool:
++        """Return the status of the binary sensor."""
++        section = getattr(
++            self.coordinator.data, SWITCH_ENTITIES[self.key][ATTR_SECTION]
++        )
++        value = getattr(section, SWITCH_ENTITIES[self.key][ATTR_MEASUREMENT])
++
++        if SWITCH_ENTITIES[self.key][ATTR_INVERTED]:
++            return not value
++
++        return value
++
++
++class ToonProgramSwitch(ToonSwitch, ToonDisplayDeviceEntity):
++    """Defines a Toon program switch."""
++
++    def __init__(self, coordinator: ToonDataUpdateCoordinator) -> None:
++        """Initialize the Toon program switch."""
++        super().__init__(coordinator, key="thermostat_program")
++
++    @toon_exception_handler
++    async def async_turn_off(self, **kwargs: Any) -> None:
++        """Turn off the Toon program switch."""
++        await self.coordinator.toon.set_active_state(
++            ACTIVE_STATE_AWAY, PROGRAM_STATE_OFF
++        )
++
++    @toon_exception_handler
++    async def async_turn_on(self, **kwargs: Any) -> None:
++        """Turn on the Toon program switch."""
++        await self.coordinator.toon.set_active_state(
++            ACTIVE_STATE_AWAY, PROGRAM_STATE_ON
++        )
++
++
++class ToonHolidayModeSwitch(ToonSwitch, ToonDisplayDeviceEntity):
++    """Defines a Toon Holiday mode switch."""
++
++    def __init__(self, coordinator: ToonDataUpdateCoordinator) -> None:
++        """Initialize the Toon holiday switch."""
++        super().__init__(coordinator, key="thermostat_holiday_mode")
++
++    @toon_exception_handler
++    async def async_turn_off(self, **kwargs: Any) -> None:
++        """Turn off the Toon holiday mode switch."""
++        await self.coordinator.toon.set_active_state(
++            ACTIVE_STATE_AWAY, PROGRAM_STATE_ON
++        )
++
++    @toon_exception_handler
++    async def async_turn_on(self, **kwargs: Any) -> None:
++        """Turn on the Toon holiday mode switch."""
++        await self.coordinator.toon.set_active_state(
++            ACTIVE_STATE_HOLIDAY, PROGRAM_STATE_OFF
++        )
+diff --git a/requirements_all.txt b/requirements_all.txt
+index 65f51ffba9e72..76c102ba6cb36 100644
+--- a/requirements_all.txt
++++ b/requirements_all.txt
+@@ -2112,7 +2112,7 @@ tmb==0.0.4
+ todoist-python==8.0.0
+ 
+ # homeassistant.components.toon
+-toonapilib==3.2.4
++toonapi==0.1.0
+ 
+ # homeassistant.components.totalconnect
+ total_connect_client==0.55
+diff --git a/requirements_test_all.txt b/requirements_test_all.txt
+index b6139ee6b11a0..f7da2b28012be 100644
+--- a/requirements_test_all.txt
++++ b/requirements_test_all.txt
+@@ -878,7 +878,7 @@ tesla-powerwall==0.2.11
+ teslajsonpy==0.8.1
+ 
+ # homeassistant.components.toon
+-toonapilib==3.2.4
++toonapi==0.1.0
+ 
+ # homeassistant.components.totalconnect
+ total_connect_client==0.55
+diff --git a/tests/components/toon/test_config_flow.py b/tests/components/toon/test_config_flow.py
+index 4ba7424587686..8071fab2d86e1 100644
+--- a/tests/components/toon/test_config_flow.py
++++ b/tests/components/toon/test_config_flow.py
+@@ -1,182 +1,247 @@
+ """Tests for the Toon config flow."""
+ 
+-import pytest
+-from toonapilib.toonapilibexceptions import (
+-    AgreementsRetrievalError,
+-    InvalidConsumerKey,
+-    InvalidConsumerSecret,
+-    InvalidCredentials,
+-)
++from toonapi import Agreement, ToonError
+ 
+ from homeassistant import data_entry_flow
+-from homeassistant.components.toon import config_flow
+-from homeassistant.components.toon.const import CONF_DISPLAY, CONF_TENANT, DOMAIN
+-from homeassistant.const import (
+-    CONF_CLIENT_ID,
+-    CONF_CLIENT_SECRET,
+-    CONF_PASSWORD,
+-    CONF_USERNAME,
+-)
++from homeassistant.components.toon.const import CONF_AGREEMENT, DOMAIN
++from homeassistant.config import async_process_ha_core_config
++from homeassistant.config_entries import SOURCE_IMPORT, SOURCE_USER
++from homeassistant.const import CONF_CLIENT_ID, CONF_CLIENT_SECRET
++from homeassistant.helpers import config_entry_oauth2_flow
+ from homeassistant.setup import async_setup_component
+ 
+ from tests.async_mock import patch
+ from tests.common import MockConfigEntry
+ 
+-FIXTURE_APP = {
+-    DOMAIN: {CONF_CLIENT_ID: "1234567890abcdef", CONF_CLIENT_SECRET: "1234567890abcdef"}
+-}
+-
+-FIXTURE_CREDENTIALS = {
+-    CONF_USERNAME: "john.doe",
+-    CONF_PASSWORD: "secret",
+-    CONF_TENANT: "eneco",
+-}
+-
+-FIXTURE_DISPLAY = {CONF_DISPLAY: "display1"}
+-
+-
+-@pytest.fixture
+-def mock_toonapilib():
+-    """Mock toonapilib."""
+-    with patch("homeassistant.components.toon.config_flow.Toon") as Toon:
+-        Toon().display_names = [FIXTURE_DISPLAY[CONF_DISPLAY]]
+-        yield Toon
+-
+ 
+ async def setup_component(hass):
+     """Set up Toon component."""
++    await async_process_ha_core_config(
++        hass, {"external_url": "https://example.com"},
++    )
++
+     with patch("os.path.isfile", return_value=False):
+-        assert await async_setup_component(hass, DOMAIN, FIXTURE_APP)
++        assert await async_setup_component(
++            hass,
++            DOMAIN,
++            {DOMAIN: {CONF_CLIENT_ID: "client", CONF_CLIENT_SECRET: "secret"}},
++        )
+         await hass.async_block_till_done()
+ 
+ 
+-async def test_abort_if_no_app_configured(hass):
++async def test_abort_if_no_configuration(hass):
+     """Test abort if no app is configured."""
+-    flow = config_flow.ToonFlowHandler()
+-    flow.hass = hass
+-    result = await flow.async_step_user()
++    result = await hass.config_entries.flow.async_init(
++        DOMAIN, context={"source": SOURCE_USER}
++    )
+ 
+     assert result["type"] == data_entry_flow.RESULT_TYPE_ABORT
+-    assert result["reason"] == "no_app"
+-
++    assert result["reason"] == "missing_configuration"
+ 
+-async def test_show_authenticate_form(hass):
+-    """Test that the authentication form is served."""
+-    await setup_component(hass)
+-
+-    flow = config_flow.ToonFlowHandler()
+-    flow.hass = hass
+-    result = await flow.async_step_user(user_input=None)
+-
+-    assert result["type"] == data_entry_flow.RESULT_TYPE_FORM
+-    assert result["step_id"] == "authenticate"
+-
+-
+-@pytest.mark.parametrize(
+-    "side_effect,reason",
+-    [
+-        (InvalidConsumerKey, CONF_CLIENT_ID),
+-        (InvalidConsumerSecret, CONF_CLIENT_SECRET),
+-        (AgreementsRetrievalError, "no_agreements"),
+-        (Exception, "unknown_auth_fail"),
+-    ],
+-)
+-async def test_toon_abort(hass, mock_toonapilib, side_effect, reason):
+-    """Test we abort on Toon error."""
+-    await setup_component(hass)
+-
+-    flow = config_flow.ToonFlowHandler()
+-    flow.hass = hass
+-
+-    mock_toonapilib.side_effect = side_effect
+-
+-    result = await flow.async_step_authenticate(user_input=FIXTURE_CREDENTIALS)
+-
+-    assert result["type"] == data_entry_flow.RESULT_TYPE_ABORT
+-    assert result["reason"] == reason
+-
+-
+-async def test_invalid_credentials(hass, mock_toonapilib):
+-    """Test we show authentication form on Toon auth error."""
+-    mock_toonapilib.side_effect = InvalidCredentials
+-
+-    await setup_component(hass)
+-
+-    flow = config_flow.ToonFlowHandler()
+-    flow.hass = hass
+-    result = await flow.async_step_user(user_input=FIXTURE_CREDENTIALS)
+-
+-    assert result["type"] == data_entry_flow.RESULT_TYPE_FORM
+-    assert result["step_id"] == "authenticate"
+-    assert result["errors"] == {"base": "credentials"}
+ 
+-
+-async def test_full_flow_implementation(hass, mock_toonapilib):
++async def test_full_flow_implementation(hass, aiohttp_client, aioclient_mock):
+     """Test registering an integration and finishing flow works."""
+     await setup_component(hass)
+ 
+-    flow = config_flow.ToonFlowHandler()
+-    flow.hass = hass
+-    result = await flow.async_step_user(user_input=None)
+-    assert result["type"] == data_entry_flow.RESULT_TYPE_FORM
+-    assert result["step_id"] == "authenticate"
++    result = await hass.config_entries.flow.async_init(
++        DOMAIN, context={"source": SOURCE_USER}
++    )
+ 
+-    result = await flow.async_step_user(user_input=FIXTURE_CREDENTIALS)
+     assert result["type"] == data_entry_flow.RESULT_TYPE_FORM
+-    assert result["step_id"] == "display"
+-
+-    result = await flow.async_step_display(user_input=FIXTURE_DISPLAY)
+-    assert result["type"] == data_entry_flow.RESULT_TYPE_CREATE_ENTRY
+-    assert result["title"] == FIXTURE_DISPLAY[CONF_DISPLAY]
+-    assert result["data"][CONF_USERNAME] == FIXTURE_CREDENTIALS[CONF_USERNAME]
+-    assert result["data"][CONF_PASSWORD] == FIXTURE_CREDENTIALS[CONF_PASSWORD]
+-    assert result["data"][CONF_TENANT] == FIXTURE_CREDENTIALS[CONF_TENANT]
+-    assert result["data"][CONF_DISPLAY] == FIXTURE_DISPLAY[CONF_DISPLAY]
+-
+-
+-async def test_no_displays(hass, mock_toonapilib):
++    assert result["step_id"] == "pick_implementation"
++
++    # pylint: disable=protected-access
++    state = config_entry_oauth2_flow._encode_jwt(hass, {"flow_id": result["flow_id"]})
++
++    result2 = await hass.config_entries.flow.async_configure(
++        result["flow_id"], {"implementation": "eneco"}
++    )
++
++    assert result2["type"] == data_entry_flow.RESULT_TYPE_EXTERNAL_STEP
++    assert result2["url"] == (
++        "https://api.toon.eu/authorize"
++        "?response_type=code&client_id=client"
++        "&redirect_uri=https://example.com/auth/external/callback"
++        f"&state={state}"
++        "&tenant_id=eneco&issuer=identity.toon.eu"
++    )
++
++    client = await aiohttp_client(hass.http.app)
++    resp = await client.get(f"/auth/external/callback?code=abcd&state={state}")
++    assert resp.status == 200
++    assert resp.headers["content-type"] == "text/html; charset=utf-8"
++
++    aioclient_mock.post(
++        "https://api.toon.eu/token",
++        json={
++            "refresh_token": "mock-refresh-token",
++            "access_token": "mock-access-token",
++            "type": "Bearer",
++            "expires_in": 60,
++        },
++    )
++
++    with patch("toonapi.Toon.agreements", return_value=[Agreement(agreement_id=123)]):
++        result3 = await hass.config_entries.flow.async_configure(result["flow_id"])
++
++    assert result3["data"]["auth_implementation"] == "eneco"
++    assert result3["data"]["agreement_id"] == 123
++    result3["data"]["token"].pop("expires_at")
++    assert result3["data"]["token"] == {
++        "refresh_token": "mock-refresh-token",
++        "access_token": "mock-access-token",
++        "type": "Bearer",
++        "expires_in": 60,
++    }
++
++
++async def test_no_agreements(hass, aiohttp_client, aioclient_mock):
+     """Test abort when there are no displays."""
+     await setup_component(hass)
+-
+-    mock_toonapilib().display_names = []
+-
+-    flow = config_flow.ToonFlowHandler()
+-    flow.hass = hass
+-    await flow.async_step_user(user_input=FIXTURE_CREDENTIALS)
+-
+-    result = await flow.async_step_display(user_input=None)
+-
+-    assert result["type"] == data_entry_flow.RESULT_TYPE_ABORT
+-    assert result["reason"] == "no_displays"
+-
+-
+-async def test_display_already_exists(hass, mock_toonapilib):
++    result = await hass.config_entries.flow.async_init(
++        DOMAIN, context={"source": SOURCE_USER}
++    )
++
++    # pylint: disable=protected-access
++    state = config_entry_oauth2_flow._encode_jwt(hass, {"flow_id": result["flow_id"]})
++    await hass.config_entries.flow.async_configure(
++        result["flow_id"], {"implementation": "eneco"}
++    )
++
++    client = await aiohttp_client(hass.http.app)
++    await client.get(f"/auth/external/callback?code=abcd&state={state}")
++    aioclient_mock.post(
++        "https://api.toon.eu/token",
++        json={
++            "refresh_token": "mock-refresh-token",
++            "access_token": "mock-access-token",
++            "type": "Bearer",
++            "expires_in": 60,
++        },
++    )
++
++    with patch("toonapi.Toon.agreements", return_value=[]):
++        result3 = await hass.config_entries.flow.async_configure(result["flow_id"])
++
++    assert result3["type"] == data_entry_flow.RESULT_TYPE_ABORT
++    assert result3["reason"] == "no_agreements"
++
++
++async def test_multiple_agreements(hass, aiohttp_client, aioclient_mock):
++    """Test abort when there are no displays."""
++    await setup_component(hass)
++    result = await hass.config_entries.flow.async_init(
++        DOMAIN, context={"source": SOURCE_USER}
++    )
++
++    # pylint: disable=protected-access
++    state = config_entry_oauth2_flow._encode_jwt(hass, {"flow_id": result["flow_id"]})
++    await hass.config_entries.flow.async_configure(
++        result["flow_id"], {"implementation": "eneco"}
++    )
++
++    client = await aiohttp_client(hass.http.app)
++    await client.get(f"/auth/external/callback?code=abcd&state={state}")
++
++    aioclient_mock.post(
++        "https://api.toon.eu/token",
++        json={
++            "refresh_token": "mock-refresh-token",
++            "access_token": "mock-access-token",
++            "type": "Bearer",
++            "expires_in": 60,
++        },
++    )
++
++    with patch(
++        "toonapi.Toon.agreements",
++        return_value=[Agreement(agreement_id=1), Agreement(agreement_id=2)],
++    ):
++        result3 = await hass.config_entries.flow.async_configure(result["flow_id"])
++
++        assert result3["type"] == data_entry_flow.RESULT_TYPE_FORM
++        assert result3["step_id"] == "agreement"
++
++        result4 = await hass.config_entries.flow.async_configure(
++            result["flow_id"], {CONF_AGREEMENT: "1 - None None, None"}
++        )
++        assert result4["data"]["auth_implementation"] == "eneco"
++        assert result4["data"]["agreement_id"] == 1
++
++
++async def test_agreement_already_set_up(hass, aiohttp_client, aioclient_mock):
+     """Test showing display form again if display already exists."""
+     await setup_component(hass)
+-
+-    flow = config_flow.ToonFlowHandler()
+-    flow.hass = hass
+-    await flow.async_step_user(user_input=FIXTURE_CREDENTIALS)
+-
+-    MockConfigEntry(domain=DOMAIN, data=FIXTURE_DISPLAY).add_to_hass(hass)
+-
+-    result = await flow.async_step_display(user_input=FIXTURE_DISPLAY)
+-
+-    assert result["type"] == data_entry_flow.RESULT_TYPE_FORM
+-    assert result["step_id"] == "display"
+-    assert result["errors"] == {"base": "display_exists"}
+-
+-
+-async def test_abort_last_minute_fail(hass, mock_toonapilib):
+-    """Test we abort when API communication fails in the last step."""
++    MockConfigEntry(domain=DOMAIN, unique_id=123).add_to_hass(hass)
++    result = await hass.config_entries.flow.async_init(
++        DOMAIN, context={"source": SOURCE_USER}
++    )
++
++    # pylint: disable=protected-access
++    state = config_entry_oauth2_flow._encode_jwt(hass, {"flow_id": result["flow_id"]})
++    await hass.config_entries.flow.async_configure(
++        result["flow_id"], {"implementation": "eneco"}
++    )
++
++    client = await aiohttp_client(hass.http.app)
++    await client.get(f"/auth/external/callback?code=abcd&state={state}")
++    aioclient_mock.post(
++        "https://api.toon.eu/token",
++        json={
++            "refresh_token": "mock-refresh-token",
++            "access_token": "mock-access-token",
++            "type": "Bearer",
++            "expires_in": 60,
++        },
++    )
++
++    with patch("toonapi.Toon.agreements", return_value=[Agreement(agreement_id=123)]):
++        result3 = await hass.config_entries.flow.async_configure(result["flow_id"])
++
++        assert result3["type"] == data_entry_flow.RESULT_TYPE_ABORT
++        assert result3["reason"] == "already_configured"
++
++
++async def test_toon_abort(hass, aiohttp_client, aioclient_mock):
++    """Test we abort on Toon error."""
++    await setup_component(hass)
++    result = await hass.config_entries.flow.async_init(
++        DOMAIN, context={"source": SOURCE_USER}
++    )
++    # pylint: disable=protected-access
++    state = config_entry_oauth2_flow._encode_jwt(hass, {"flow_id": result["flow_id"]})
++    await hass.config_entries.flow.async_configure(
++        result["flow_id"], {"implementation": "eneco"}
++    )
++
++    client = await aiohttp_client(hass.http.app)
++    await client.get(f"/auth/external/callback?code=abcd&state={state}")
++    aioclient_mock.post(
++        "https://api.toon.eu/token",
++        json={
++            "refresh_token": "mock-refresh-token",
++            "access_token": "mock-access-token",
++            "type": "Bearer",
++            "expires_in": 60,
++        },
++    )
++
++    with patch("toonapi.Toon.agreements", side_effect=ToonError):
++        result2 = await hass.config_entries.flow.async_configure(result["flow_id"])
++
++        assert result2["type"] == data_entry_flow.RESULT_TYPE_ABORT
++        assert result2["reason"] == "connection_error"
++
++
++async def test_import(hass):
++    """Test if importing step works."""
+     await setup_component(hass)
+ 
+-    flow = config_flow.ToonFlowHandler()
+-    flow.hass = hass
+-    await flow.async_step_user(user_input=FIXTURE_CREDENTIALS)
+-
+-    mock_toonapilib.side_effect = Exception
++    # Setting up the component without entries, should already have triggered
++    # it. Hence, expect this to throw an already_in_progress.
++    result = await hass.config_entries.flow.async_init(
++        DOMAIN, context={"source": SOURCE_IMPORT}
++    )
+ 
+-    result = await flow.async_step_display(user_input=FIXTURE_DISPLAY)
+     assert result["type"] == data_entry_flow.RESULT_TYPE_ABORT
+-    assert result["reason"] == "unknown_auth_fail"
++    assert result["reason"] == "already_in_progress"

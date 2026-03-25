@@ -13,6 +13,7 @@
       "total_diffs": 10,
       "total_comments": 28,
       "overall_weighted_score": 0.2857142857142857,
+      "conditional_alignment": null,
       "group_score/Code Review Capability": 0.29826992525405227,
       "group_score/Trajectory": null,
       "metric/bug/is_bug_location_matched": 0.7142857142857143,
@@ -42,6 +43,7 @@
       "total_diffs": 137,
       "total_comments": 1070,
       "overall_weighted_score": 0.07102803738317758,
+      "conditional_alignment": null,
       "group_score/Code Review Capability": 0.18342948348140456,
       "group_score/Trajectory": null,
       "metric/bug/is_bug_location_matched": 0.16542056074766356,
@@ -70,6 +72,7 @@
       "total_diffs": 119,
       "total_comments": 1106,
       "overall_weighted_score": 0.0108499095840868,
+      "conditional_alignment": null,
       "group_score/Code Review Capability": 0.027848079592247933,
       "group_score/Trajectory": null,
       "metric/bug/is_bug_location_matched": 0.021957913998170174,
@@ -98,6 +101,7 @@
       "total_diffs": 114,
       "total_comments": 428,
       "overall_weighted_score": 0.030373831775700934,
+      "conditional_alignment": null,
       "group_score/Code Review Capability": 0.08933695361293997,
       "group_score/Trajectory": null,
       "metric/bug/is_bug_location_matched": 0.034031413612565446,
@@ -126,6 +130,7 @@
       "total_diffs": 37,
       "total_comments": 318,
       "overall_weighted_score": 0.006289308176100629,
+      "conditional_alignment": null,
       "group_score/Code Review Capability": 0.046969226389212415,
       "group_score/Trajectory": null,
       "metric/bug/is_bug_location_matched": 0.006289308176100629,
@@ -154,6 +159,7 @@
       "total_diffs": 133,
       "total_comments": 662,
       "overall_weighted_score": 0.1165644171779141,
+      "conditional_alignment": null,
       "group_score/Code Review Capability": 0.2645800196924941,
       "group_score/Trajectory": null,
       "metric/bug/is_bug_location_matched": 0.21319018404907975,
@@ -337,5 +343,40 @@
       "Others_only": 2
     },
     "total_unique_diffs": 75
+  },
+  "gt_coverage_diagram": {
+    "agents": [
+      "rovodev-cli-0-12-16-cwe-validation",
+      "secure-reviewer",
+      "rovodev-cli-0-12-16-line-correction",
+      "Others"
+    ],
+    "sets": {
+      "rovodev-cli-0-12-16-cwe-validation": [],
+      "secure-reviewer": [],
+      "rovodev-cli-0-12-16-line-correction": [],
+      "Others": []
+    },
+    "intersections": {
+      "all_4": 0,
+      "rovodev-cli-0-12-16-cwe-validation_secure-reviewer": 0,
+      "rovodev-cli-0-12-16-cwe-validation_rovodev-cli-0-12-16-line-correction": 0,
+      "rovodev-cli-0-12-16-cwe-validation_Others": 0,
+      "secure-reviewer_rovodev-cli-0-12-16-line-correction": 0,
+      "secure-reviewer_Others": 0,
+      "rovodev-cli-0-12-16-line-correction_Others": 0,
+      "rovodev-cli-0-12-16-cwe-validation_only": 0,
+      "secure-reviewer_only": 0,
+      "rovodev-cli-0-12-16-line-correction_only": 0,
+      "Others_only": 0
+    },
+    "coverage_pct": {
+      "rovodev-cli-0-12-16-cwe-validation": 0.0,
+      "secure-reviewer": 0.0,
+      "rovodev-cli-0-12-16-line-correction": 0.0,
+      "Others": 0.0
+    },
+    "total_gt": 243,
+    "total_unique_gt": 0
   }
 }

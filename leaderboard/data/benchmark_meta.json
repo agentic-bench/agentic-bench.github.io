@@ -1,9 +1,9 @@
 {
-  "contextcrbench": {
-    "display_name": "ContextCRBench",
+  "contextcr-verified": {
+    "display_name": "ContextCR-Verified",
     "benchmark_goal": "human-alignment",
     "description": "Measures how well LLM-generated code review comments align with human reviewer comments on real-world PRs.",
-    "primary_metric": "and(metric/human/is_llm_human_aligned, metric/human/is_human_llm_location_matched)",
+    "primary_metric": "and(metric/human/is_human_llm_location_matched, metric/human/is_llm_human_aligned)",
     "column_groups": {
       "Code Review Capability": [
         "metric/human/is_llm_human_aligned",
@@ -26,7 +26,7 @@
     },
     "group_summary": {
       "Code Review Capability": {
-        "method": "mean",
+        "method": "harmonic_mean",
         "columns": [
           "metric/human/is_llm_human_aligned",
           "metric/human/is_human_llm_location_matched"
@@ -56,7 +56,8 @@
       "metric/human/is_llm_context_aligned": "precision",
       "trajectory/trajectory_input_costs": "sum",
       "trajectory/trajectory_output_costs": "sum",
-      "trajectory/trajectory_total_costs": "sum"
+      "trajectory/trajectory_total_costs": "sum",
+      "metric/human/is_llm_hunk_context_aligned": "precision"
     },
     "display_names": {
       "metric/human/is_llm_human_aligned": "LLM Alignment to Human",
@@ -76,9 +77,11 @@
       "model": "Model",
       "total_diffs": "PRs",
       "total_comments": "Comments",
-      "overall_weighted_score": "Ground Truth Score"
+      "overall_weighted_score": "Signal-to-Noise Ratio",
+      "metric/human/is_llm_hunk_context_aligned": "Hunk Context Alignment",
+      "conditional_alignment": "Conditional Alignment"
     },
-    "dataset_total_diffs": 421
+    "dataset_total_diffs": 362
   },
   "scrbench": {
     "display_name": "SCRBench",

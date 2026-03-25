@@ -1,0 +1,55 @@
+{
+  "benchmark_name": "contextcr-verified",
+  "current_version": "1.0",
+  "versions": {
+    "1.0": {
+      "description": "Initial evaluation version - baseline metric set for human alignment",
+      "released_date": "2026-01-10",
+      "evaluators": [
+        {
+          "class": "human.IsHumanLLMLocationMatched",
+          "llm_model": null
+        },
+        {
+          "class": "human.LLMCommentRouge1Score",
+          "llm_model": null
+        },
+        {
+          "class": "human.LLMCommentRougeLScore",
+          "llm_model": null
+        },
+        {
+          "class": "human.LLMCommentBleuScore",
+          "llm_model": null
+        },
+        {
+          "class": "human.LLMCommentEditSimilarityScore",
+          "llm_model": null
+        },
+        {
+          "class": "human.IsLLMHumanAligned",
+          "llm_model": "gpt-5.1-2025-11-13"
+        },
+        {
+          "class": "human.IsLLMContextAligned",
+          "llm_model": "gpt-5.1-2025-11-13"
+        },
+        {
+          "class": "ops.TrajectoryCostMetrics",
+          "llm_model": null
+        }
+      ],
+      "notes": "8 evaluators total: 2 use LLM models (IsLLMContextAligned, IsLLMHumanAligned with gpt-5.1)",
+      "primary_metric": "Signal-to-Noise Ratio (SNR)",
+      "primary_metric_formula": "A / (T - A) where A = aligned comments, T = total comments",
+      "displayed_metric": "Code Review Capability (harmonic mean)",
+      "displayed_metric_formula": "2 / (1/alignment + 1/localization)",
+      "hidden_metrics": [
+        "overall_weighted_score (SNR)",
+        "conditional_alignment",
+        "is_llm_context_aligned",
+        "is_llm_hunk_context_aligned"
+      ]
+    }
+  }
+}

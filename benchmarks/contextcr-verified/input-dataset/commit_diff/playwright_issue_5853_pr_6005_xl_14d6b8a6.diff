@@ -1,0 +1,1669 @@
+diff --git a/docs/src/api/class-video.md b/docs/src/api/class-video.md
+index 09f141438c3db..626a9183cd599 100644
+--- a/docs/src/api/class-video.md
++++ b/docs/src/api/class-video.md
+@@ -18,6 +18,10 @@ print(await page.video.path())
+ print(page.video.path())
+ ```
+ 
++## async method: Video.delete
++
++Deletes the video file. Will wait for the video to finish if necessary.
++
+ ## async method: Video.path
+ - returns: <[path]>
+ 
+diff --git a/src/client/artifact.ts b/src/client/artifact.ts
+new file mode 100644
+index 0000000000000..358cf84dcf1b8
+--- /dev/null
++++ b/src/client/artifact.ts
+@@ -0,0 +1,79 @@
++/**
++ * Copyright (c) Microsoft Corporation.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import * as channels from '../protocol/channels';
++import * as fs from 'fs';
++import { Stream } from './stream';
++import { mkdirIfNeeded } from '../utils/utils';
++import { ChannelOwner } from './channelOwner';
++import { Readable } from 'stream';
++
++export class Artifact extends ChannelOwner<channels.ArtifactChannel, channels.ArtifactInitializer> {
++  _isRemote = false;
++  _apiName: string = '';
++
++  static from(channel: channels.ArtifactChannel): Artifact {
++    return (channel as any)._object;
++  }
++
++  async pathAfterFinished(): Promise<string | null> {
++    if (this._isRemote)
++      throw new Error(`Path is not available when using browserType.connect(). Use saveAs() to save a local copy.`);
++    return this._wrapApiCall(`${this._apiName}.path`, async (channel: channels.ArtifactChannel) => {
++      return (await channel.pathAfterFinished()).value || null;
++    });
++  }
++
++  async saveAs(path: string): Promise<void> {
++    return this._wrapApiCall(`${this._apiName}.saveAs`, async (channel: channels.ArtifactChannel) => {
++      if (!this._isRemote) {
++        await channel.saveAs({ path });
++        return;
++      }
++
++      const result = await channel.saveAsStream();
++      const stream = Stream.from(result.stream);
++      await mkdirIfNeeded(path);
++      await new Promise((resolve, reject) => {
++        stream.stream().pipe(fs.createWriteStream(path))
++            .on('finish' as any, resolve)
++            .on('error' as any, reject);
++      });
++    });
++  }
++
++  async failure(): Promise<string | null> {
++    return this._wrapApiCall(`${this._apiName}.failure`, async (channel: channels.ArtifactChannel) => {
++      return (await channel.failure()).error || null;
++    });
++  }
++
++  async createReadStream(): Promise<Readable | null> {
++    return this._wrapApiCall(`${this._apiName}.createReadStream`, async (channel: channels.ArtifactChannel) => {
++      const result = await channel.stream();
++      if (!result.stream)
++        return null;
++      const stream = Stream.from(result.stream);
++      return stream.stream();
++    });
++  }
++
++  async delete(): Promise<void> {
++    return this._wrapApiCall(`${this._apiName}.delete`, async (channel: channels.ArtifactChannel) => {
++      return channel.delete();
++    });
++  }
++}
+diff --git a/src/client/browserContext.ts b/src/client/browserContext.ts
+index e849f391826b2..8656dfe6811a3 100644
+--- a/src/client/browserContext.ts
++++ b/src/client/browserContext.ts
+@@ -64,6 +64,9 @@ export class BrowserContext extends ChannelOwner<channels.BrowserContextChannel,
+     this._channel.on('close', () => this._onClose());
+     this._channel.on('page', ({page}) => this._onPage(Page.from(page)));
+     this._channel.on('route', ({ route, request }) => this._onRoute(network.Route.from(route), network.Request.from(request)));
++    this._channel.on('video', ({ artifact }) => {
++      // We have nothing to do currently, but should be able to report videos on the context.
++    });
+     this._closedPromise = new Promise(f => this.once(Events.BrowserContext.Close, f));
+   }
+ 
+diff --git a/src/client/connection.ts b/src/client/connection.ts
+index 3956b2d1c3d26..bebab7e2066c0 100644
+--- a/src/client/connection.ts
++++ b/src/client/connection.ts
+@@ -26,7 +26,6 @@ import { Page, BindingCall } from './page';
+ import { Worker } from './worker';
+ import { ConsoleMessage } from './consoleMessage';
+ import { Dialog } from './dialog';
+-import { Download } from './download';
+ import { parseError } from '../protocol/serializers';
+ import { CDPSession } from './cdpSession';
+ import { Playwright } from './playwright';
+@@ -42,7 +41,7 @@ import { SelectorsOwner } from './selectors';
+ import { isUnderTest } from '../utils/utils';
+ import { Android, AndroidSocket, AndroidDevice } from './android';
+ import { captureStackTrace } from '../utils/stackTrace';
+-import { VideoImpl } from './video';
++import { Artifact } from './artifact';
+ 
+ class Root extends ChannelOwner<channels.Channel, {}> {
+   constructor(connection: Connection) {
+@@ -157,6 +156,9 @@ export class Connection {
+       case 'AndroidDevice':
+         result = new AndroidDevice(parent, type, guid, initializer);
+         break;
++      case 'Artifact':
++        result = new Artifact(parent, type, guid, initializer);
++        break;
+       case 'BindingCall':
+         result = new BindingCall(parent, type, guid, initializer);
+         break;
+@@ -192,9 +194,6 @@ export class Connection {
+       case 'Dialog':
+         result = new Dialog(parent, type, guid, initializer);
+         break;
+-      case 'Download':
+-        result = new Download(parent, type, guid, initializer);
+-        break;
+       case 'Electron':
+         result = new Electron(parent, type, guid, initializer);
+         break;
+@@ -234,9 +233,6 @@ export class Connection {
+       case 'Selectors':
+         result = new SelectorsOwner(parent, type, guid, initializer);
+         break;
+-      case 'Video':
+-        result = new VideoImpl(parent, type, guid, initializer);
+-        break;
+       case 'WebSocket':
+         result = new WebSocket(parent, type, guid, initializer);
+         break;
+diff --git a/src/client/download.ts b/src/client/download.ts
+index 3db51a74125d0..c34295fd9bf8f 100644
+--- a/src/client/download.ts
++++ b/src/client/download.ts
+@@ -14,81 +14,46 @@
+  * limitations under the License.
+  */
+ 
+-import * as channels from '../protocol/channels';
+-import { ChannelOwner } from './channelOwner';
+ import { Readable } from 'stream';
+-import { Stream } from './stream';
+-import { Browser } from './browser';
+-import { BrowserContext } from './browserContext';
+-import fs from 'fs';
+-import { mkdirIfNeeded } from '../utils/utils';
+ import * as api from '../../types/types';
++import { Artifact } from './artifact';
+ 
+-export class Download extends ChannelOwner<channels.DownloadChannel, channels.DownloadInitializer> implements api.Download {
+-  private _browser: Browser | null;
++export class Download implements api.Download {
++  private _url: string;
++  private _suggestedFilename: string;
++  private _artifact: Artifact;
+ 
+-  static from(download: channels.DownloadChannel): Download {
+-    return (download as any)._object;
+-  }
+-
+-  constructor(parent: ChannelOwner, type: string, guid: string, initializer: channels.DownloadInitializer) {
+-    super(parent, type, guid, initializer);
+-    this._browser = (parent as BrowserContext)._browser;
++  constructor(url: string, suggestedFilename: string, artifact: Artifact) {
++    this._url = url;
++    this._suggestedFilename = suggestedFilename;
++    this._artifact = artifact;
+   }
+ 
+   url(): string {
+-    return this._initializer.url;
++    return this._url;
+   }
+ 
+   suggestedFilename(): string {
+-    return this._initializer.suggestedFilename;
++    return this._suggestedFilename;
+   }
+ 
+   async path(): Promise<string | null> {
+-    if (this._browser && this._browser._isRemote)
+-      throw new Error(`Path is not available when using browserType.connect(). Use download.saveAs() to save a local copy.`);
+-    return this._wrapApiCall('download.path', async (channel: channels.DownloadChannel) => {
+-      return (await channel.path()).value || null;
+-    });
++    return this._artifact.pathAfterFinished();
+   }
+ 
+   async saveAs(path: string): Promise<void> {
+-    return this._wrapApiCall('download.saveAs', async (channel: channels.DownloadChannel) => {
+-      if (!this._browser || !this._browser._isRemote) {
+-        await channel.saveAs({ path });
+-        return;
+-      }
+-
+-      const result = await channel.saveAsStream();
+-      const stream = Stream.from(result.stream);
+-      await mkdirIfNeeded(path);
+-      await new Promise((resolve, reject) => {
+-        stream.stream().pipe(fs.createWriteStream(path))
+-            .on('finish' as any, resolve)
+-            .on('error' as any, reject);
+-      });
+-    });
++    return this._artifact.saveAs(path);
+   }
+ 
+   async failure(): Promise<string | null> {
+-    return this._wrapApiCall('download.failure', async (channel: channels.DownloadChannel) => {
+-      return (await channel.failure()).error || null;
+-    });
++    return this._artifact.failure();
+   }
+ 
+   async createReadStream(): Promise<Readable | null> {
+-    return this._wrapApiCall('download.createReadStream', async (channel: channels.DownloadChannel) => {
+-      const result = await channel.stream();
+-      if (!result.stream)
+-        return null;
+-      const stream = Stream.from(result.stream);
+-      return stream.stream();
+-    });
++    return this._artifact.createReadStream();
+   }
+ 
+   async delete(): Promise<void> {
+-    return this._wrapApiCall('download.delete', async (channel: channels.DownloadChannel) => {
+-      return channel.delete();
+-    });
++    return this._artifact.delete();
+   }
+ }
+diff --git a/src/client/page.ts b/src/client/page.ts
+index 04d06d264c04a..7ac6da41e84fe 100644
+--- a/src/client/page.ts
++++ b/src/client/page.ts
+@@ -45,8 +45,9 @@ import { Size, URLMatch, Headers, LifecycleEvent, WaitForEventOptions, SelectOpt
+ import { evaluationScript, urlMatches } from './clientHelper';
+ import { isString, isRegExp, isObject, mkdirIfNeeded, headersObjectToArray } from '../utils/utils';
+ import { isSafeCloseError } from '../utils/errors';
+-import { Video, VideoImpl } from './video';
++import { Video } from './video';
+ import type { ChromiumBrowserContext } from './chromiumBrowserContext';
++import { Artifact } from './artifact';
+ 
+ const fsWriteFileAsync = util.promisify(fs.writeFile.bind(fs));
+ const mkdirAsync = util.promisify(fs.mkdir);
+@@ -72,6 +73,7 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
+   private _frames = new Set<Frame>();
+   _workers = new Set<Worker>();
+   private _closed = false;
++  _closedOrCrashedPromise: Promise<void>;
+   private _viewportSize: Size | null;
+   private _routes: { url: URLMatch, handler: RouteHandler }[] = [];
+ 
+@@ -120,7 +122,11 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
+         dialog.dismiss().catch(() => {});
+     });
+     this._channel.on('domcontentloaded', () => this.emit(Events.Page.DOMContentLoaded, this));
+-    this._channel.on('download', ({ download }) => this.emit(Events.Page.Download, Download.from(download)));
++    this._channel.on('download', ({ url, suggestedFilename, artifact }) => {
++      const artifactObject = Artifact.from(artifact);
++      artifactObject._isRemote = !!this._browserContext._browser && this._browserContext._browser._isRemote;
++      this.emit(Events.Page.Download, new Download(url, suggestedFilename, artifactObject));
++    });
+     this._channel.on('fileChooser', ({ element, isMultiple }) => this.emit(Events.Page.FileChooser, new FileChooser(this, ElementHandle.from(element), isMultiple)));
+     this._channel.on('frameAttached', ({ frame }) => this._onFrameAttached(Frame.from(frame)));
+     this._channel.on('frameDetached', ({ frame }) => this._onFrameDetached(Frame.from(frame)));
+@@ -132,7 +138,10 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
+     this._channel.on('requestFinished', ({ request, responseEndTiming }) => this._onRequestFinished(Request.from(request), responseEndTiming));
+     this._channel.on('response', ({ response }) => this.emit(Events.Page.Response, Response.from(response)));
+     this._channel.on('route', ({ route, request }) => this._onRoute(Route.from(route), Request.from(request)));
+-    this._channel.on('video', ({ video }) => this.video()!._setImpl(VideoImpl.from(video)));
++    this._channel.on('video', ({ artifact }) => {
++      const artifactObject = Artifact.from(artifact);
++      this._forceVideo()._artifactReady(artifactObject);
++    });
+     this._channel.on('webSocket', ({ webSocket }) => this.emit(Events.Page.WebSocket, WebSocket.from(webSocket)));
+     this._channel.on('worker', ({ worker }) => this._onWorker(Worker.from(worker)));
+ 
+@@ -142,6 +151,11 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
+     } else {
+       this.pdf = undefined as any;
+     }
++
++    this._closedOrCrashedPromise = Promise.race([
++      new Promise<void>(f => this.once(Events.Page.Close, f)),
++      new Promise<void>(f => this.once(Events.Page.Crash, f)),
++    ]);
+   }
+ 
+   private _onRequestFailed(request: Request, responseEndTiming: number, failureText: string | undefined) {
+@@ -247,19 +261,19 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
+     this._channel.setDefaultTimeoutNoReply({ timeout });
+   }
+ 
++  private _forceVideo(): Video {
++    if (!this._video)
++      this._video = new Video(this);
++    return this._video;
++  }
++
+   video(): Video | null {
+     // Note: we are creating Video object lazily, because we do not know
+     // BrowserContextOptions when constructing the page - it is assigned
+     // too late during launchPersistentContext.
+-    if (this._video)
+-      return this._video;
+     if (!this._browserContext._options.recordVideo)
+       return null;
+-    this._video = new Video(this);
+-    // In case of persistent profile, we already have it.
+-    if (this._initializer.video)
+-      this._video._setImpl(VideoImpl.from(this._initializer.video));
+-    return this._video;
++    return this._forceVideo();
+   }
+ 
+   private _attributeToPage<T>(func: () => T): T {
+diff --git a/src/client/video.ts b/src/client/video.ts
+index 05749582b41e7..b6f8cfe3a0373 100644
+--- a/src/client/video.ts
++++ b/src/client/video.ts
+@@ -16,60 +16,46 @@
+ 
+ import { Page } from './page';
+ import * as api from '../../types/types';
+-import * as channels from '../protocol/channels';
+-import * as fs from 'fs';
+-import { Stream } from './stream';
+-import { mkdirIfNeeded } from '../utils/utils';
+-import { ChannelOwner } from './channelOwner';
++import { Artifact } from './artifact';
+ 
+ export class Video implements api.Video {
+-  private _page: Page;
+-  private _impl: VideoImpl | undefined;
+-  private _implCallback = () => {};
+-  private _implPromise: Promise<void>;
++  private _artifact: Promise<Artifact | null> | null = null;
++  private _artifactCallback = (artifact: Artifact) => {};
++  private _isRemote = false;
+ 
+   constructor(page: Page) {
+-    this._page = page;
+-    this._implPromise = new Promise(f => this._implCallback = f);
++    const browser = page.context()._browser;
++    this._isRemote = !!browser && browser._isRemote;
++    this._artifact = Promise.race([
++      new Promise<Artifact>(f => this._artifactCallback = f),
++      page._closedOrCrashedPromise.then(() => null),
++    ]);
+   }
+ 
+-  _setImpl(impl: VideoImpl) {
+-    this._impl = impl;
+-    this._implCallback();
++  _artifactReady(artifact: Artifact) {
++    artifact._isRemote = this._isRemote;
++    this._artifactCallback(artifact);
+   }
+ 
+   async path(): Promise<string> {
+-    const browser = this._page.context()._browser;
+-    if (browser && browser._isRemote)
+-      throw new Error(`Path is not available when using browserType.connect(). Use video.saveAs() to save a local copy.`);
+-    await this._implPromise;
+-    return this._impl!._initializer.absolutePath;
++    if (this._isRemote)
++      throw new Error(`Path is not available when using browserType.connect(). Use saveAs() to save a local copy.`);
++    const artifact = await this._artifact;
++    if (!artifact)
++      throw new Error('Page did not produce any video frames');
++    return artifact._initializer.absolutePath;
+   }
+ 
+   async saveAs(path: string): Promise<void> {
+-    await this._implPromise;
+-    const impl = this._impl!;
+-    return impl._wrapApiCall('video.saveAs', async (channel: channels.VideoChannel) => {
+-      const browser = this._page.context()._browser;
+-      if (!browser || !browser._isRemote) {
+-        await channel.saveAs({ path });
+-        return;
+-      }
+-
+-      const result = await channel.saveAsStream();
+-      const stream = Stream.from(result.stream);
+-      await mkdirIfNeeded(path);
+-      await new Promise((resolve, reject) => {
+-        stream.stream().pipe(fs.createWriteStream(path))
+-            .on('finish' as any, resolve)
+-            .on('error' as any, reject);
+-      });
+-    });
++    const artifact = await this._artifact;
++    if (!artifact)
++      throw new Error('Page did not produce any video frames');
++    return artifact.saveAs(path);
+   }
+-}
+ 
+-export class VideoImpl extends ChannelOwner<channels.VideoChannel, channels.VideoInitializer> {
+-  static from(channel: channels.VideoChannel): VideoImpl {
+-    return (channel as any)._object;
++  async delete(): Promise<void> {
++    const artifact = await this._artifact;
++    if (artifact)
++      await artifact.delete();
+   }
+ }
+diff --git a/src/dispatchers/downloadDispatcher.ts b/src/dispatchers/artifactDispatcher.ts
+similarity index 72%
+rename from src/dispatchers/downloadDispatcher.ts
+rename to src/dispatchers/artifactDispatcher.ts
+index 449522bd30527..c5a6e58b2eab9 100644
+--- a/src/dispatchers/downloadDispatcher.ts
++++ b/src/dispatchers/artifactDispatcher.ts
+@@ -14,35 +14,33 @@
+  * limitations under the License.
+  */
+ 
+-import { Download } from '../server/download';
+ import * as channels from '../protocol/channels';
+ import { Dispatcher, DispatcherScope } from './dispatcher';
+ import { StreamDispatcher } from './streamDispatcher';
+ import fs from 'fs';
+ import * as util from 'util';
+ import { mkdirIfNeeded } from '../utils/utils';
++import { Artifact } from '../server/artifact';
+ 
+-export class DownloadDispatcher extends Dispatcher<Download, channels.DownloadInitializer> implements channels.DownloadChannel {
+-  constructor(scope: DispatcherScope, download: Download) {
+-    super(scope, download, 'Download', {
+-      url: download.url(),
+-      suggestedFilename: download.suggestedFilename(),
++export class ArtifactDispatcher extends Dispatcher<Artifact, channels.ArtifactInitializer> implements channels.ArtifactChannel {
++  constructor(scope: DispatcherScope, artifact: Artifact) {
++    super(scope, artifact, 'Artifact', {
++      absolutePath: artifact.localPath(),
+     });
+   }
+ 
+-  async path(): Promise<channels.DownloadPathResult> {
+-    const path = await this._object.localPath();
++  async pathAfterFinished(): Promise<channels.ArtifactPathAfterFinishedResult> {
++    const path = await this._object.localPathAfterFinished();
+     return { value: path || undefined };
+   }
+ 
+-  async saveAs(params: channels.DownloadSaveAsParams): Promise<channels.DownloadSaveAsResult> {
++  async saveAs(params: channels.ArtifactSaveAsParams): Promise<channels.ArtifactSaveAsResult> {
+     return await new Promise((resolve, reject) => {
+       this._object.saveAs(async (localPath, error) => {
+         if (error !== undefined) {
+           reject(new Error(error));
+           return;
+         }
+-
+         try {
+           await mkdirIfNeeded(params.path);
+           await util.promisify(fs.copyFile)(localPath, params.path);
+@@ -54,21 +52,20 @@ export class DownloadDispatcher extends Dispatcher<Download, channels.DownloadIn
+     });
+   }
+ 
+-  async saveAsStream(): Promise<channels.DownloadSaveAsStreamResult> {
++  async saveAsStream(): Promise<channels.ArtifactSaveAsStreamResult> {
+     return await new Promise((resolve, reject) => {
+       this._object.saveAs(async (localPath, error) => {
+         if (error !== undefined) {
+           reject(new Error(error));
+           return;
+         }
+-
+         try {
+           const readable = fs.createReadStream(localPath);
+           await new Promise(f => readable.on('readable', f));
+           const stream = new StreamDispatcher(this._scope, readable);
+           // Resolve with a stream, so that client starts saving the data.
+           resolve({ stream });
+-          // Block the download until the stream is consumed.
++          // Block the Artifact until the stream is consumed.
+           await new Promise<void>(resolve => {
+             readable.on('close', resolve);
+             readable.on('end', resolve);
+@@ -81,8 +78,8 @@ export class DownloadDispatcher extends Dispatcher<Download, channels.DownloadIn
+     });
+   }
+ 
+-  async stream(): Promise<channels.DownloadStreamResult> {
+-    const fileName = await this._object.localPath();
++  async stream(): Promise<channels.ArtifactStreamResult> {
++    const fileName = await this._object.localPathAfterFinished();
+     if (!fileName)
+       return {};
+     const readable = fs.createReadStream(fileName);
+@@ -90,8 +87,8 @@ export class DownloadDispatcher extends Dispatcher<Download, channels.DownloadIn
+     return { stream: new StreamDispatcher(this._scope, readable) };
+   }
+ 
+-  async failure(): Promise<channels.DownloadFailureResult> {
+-    const error = await this._object.failure();
++  async failure(): Promise<channels.ArtifactFailureResult> {
++    const error = await this._object.failureError();
+     return { error: error || undefined };
+   }
+ 
+diff --git a/src/dispatchers/browserContextDispatcher.ts b/src/dispatchers/browserContextDispatcher.ts
+index b8da0615b7d81..f8bbdeffabba0 100644
+--- a/src/dispatchers/browserContextDispatcher.ts
++++ b/src/dispatchers/browserContextDispatcher.ts
+@@ -23,6 +23,8 @@ import { CRBrowserContext } from '../server/chromium/crBrowser';
+ import { CDPSessionDispatcher } from './cdpSessionDispatcher';
+ import { RecorderSupplement } from '../server/supplements/recorderSupplement';
+ import { CallMetadata } from '../server/instrumentation';
++import { ArtifactDispatcher } from './artifactDispatcher';
++import { Artifact } from '../server/artifact';
+ 
+ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channels.BrowserContextInitializer> implements channels.BrowserContextChannel {
+   private _context: BrowserContext;
+@@ -30,10 +32,24 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
+   constructor(scope: DispatcherScope, context: BrowserContext) {
+     super(scope, context, 'BrowserContext', { isChromium: context._browser.options.isChromium }, true);
+     this._context = context;
++    // Note: when launching persistent context, dispatcher is created very late,
++    // so we can already have pages, videos and everything else.
++
++    const onVideo = (artifact: Artifact) => {
++      // Note: Video must outlive Page and BrowserContext, so that client can saveAs it
++      // after closing the context. We use |scope| for it.
++      const artifactDispatcher = new ArtifactDispatcher(scope, artifact);
++      this._dispatchEvent('video', { artifact: artifactDispatcher });
++    };
++    context.on(BrowserContext.Events.VideoStarted, onVideo);
++    for (const video of context._browser._idToVideo.values()) {
++      if (video.context === context)
++        onVideo(video.artifact);
++    }
+ 
+     for (const page of context.pages())
+-      this._dispatchEvent('page', { page: new PageDispatcher(this._scope, page, scope) });
+-    context.on(BrowserContext.Events.Page, page => this._dispatchEvent('page', { page: new PageDispatcher(this._scope, page, scope) }));
++      this._dispatchEvent('page', { page: new PageDispatcher(this._scope, page) });
++    context.on(BrowserContext.Events.Page, page => this._dispatchEvent('page', { page: new PageDispatcher(this._scope, page) }));
+     context.on(BrowserContext.Events.Close, () => {
+       this._dispatchEvent('close');
+       this._dispose();
+@@ -41,8 +57,8 @@ export class BrowserContextDispatcher extends Dispatcher<BrowserContext, channel
+ 
+     if (context._browser.options.name === 'chromium') {
+       for (const page of (context as CRBrowserContext).backgroundPages())
+-        this._dispatchEvent('crBackgroundPage', { page: new PageDispatcher(this._scope, page, scope) });
+-      context.on(CRBrowserContext.CREvents.BackgroundPage, page => this._dispatchEvent('crBackgroundPage', { page: new PageDispatcher(this._scope, page, scope) }));
++        this._dispatchEvent('crBackgroundPage', { page: new PageDispatcher(this._scope, page) });
++      context.on(CRBrowserContext.CREvents.BackgroundPage, page => this._dispatchEvent('crBackgroundPage', { page: new PageDispatcher(this._scope, page) }));
+       for (const serviceWorker of (context as CRBrowserContext).serviceWorkers())
+         this._dispatchEvent('crServiceWorker', { worker: new WorkerDispatcher(this._scope, serviceWorker)});
+       context.on(CRBrowserContext.CREvents.ServiceWorker, serviceWorker => this._dispatchEvent('crServiceWorker', { worker: new WorkerDispatcher(this._scope, serviceWorker) }));
+diff --git a/src/dispatchers/pageDispatcher.ts b/src/dispatchers/pageDispatcher.ts
+index cb91125568f0f..580c7599baff2 100644
+--- a/src/dispatchers/pageDispatcher.ts
++++ b/src/dispatchers/pageDispatcher.ts
+@@ -14,16 +14,15 @@
+  * limitations under the License.
+  */
+ 
+-import { BrowserContext, Video } from '../server/browserContext';
++import { BrowserContext } from '../server/browserContext';
+ import { Frame } from '../server/frames';
+ import { Request } from '../server/network';
+ import { Page, Worker } from '../server/page';
+ import * as channels from '../protocol/channels';
+-import { Dispatcher, DispatcherScope, lookupDispatcher, lookupNullableDispatcher } from './dispatcher';
++import { Dispatcher, DispatcherScope, existingDispatcher, lookupDispatcher, lookupNullableDispatcher } from './dispatcher';
+ import { parseError, serializeError } from '../protocol/serializers';
+ import { ConsoleMessageDispatcher } from './consoleMessageDispatcher';
+ import { DialogDispatcher } from './dialogDispatcher';
+-import { DownloadDispatcher } from './downloadDispatcher';
+ import { FrameDispatcher } from './frameDispatcher';
+ import { RequestDispatcher, ResponseDispatcher, RouteDispatcher, WebSocketDispatcher } from './networkDispatchers';
+ import { serializeResult, parseArgument } from './jsHandleDispatcher';
+@@ -32,19 +31,18 @@ import { FileChooser } from '../server/fileChooser';
+ import { CRCoverage } from '../server/chromium/crCoverage';
+ import { JSHandle } from '../server/javascript';
+ import { CallMetadata } from '../server/instrumentation';
+-import { VideoDispatcher } from './videoDispatcher';
++import { Artifact } from '../server/artifact';
++import { ArtifactDispatcher } from './artifactDispatcher';
++import { Download } from '../server/download';
+ 
+ export class PageDispatcher extends Dispatcher<Page, channels.PageInitializer> implements channels.PageChannel {
+   private _page: Page;
+ 
+-  // Note: Video must outlive Page and BrowserContext, so that client can saveAs it
+-  // after closing the context.
+-  constructor(scope: DispatcherScope, page: Page, scopeForVideo: DispatcherScope) {
++  constructor(scope: DispatcherScope, page: Page) {
+     // TODO: theoretically, there could be more than one frame already.
+     // If we split pageCreated and pageReady, there should be no main frame during pageCreated.
+     super(scope, page, 'Page', {
+       mainFrame: FrameDispatcher.from(scope, page.mainFrame()),
+-      video: page._video ? new VideoDispatcher(scopeForVideo, page._video) : undefined,
+       viewportSize: page.viewportSize() || undefined,
+       isClosed: page.isClosed()
+     }, true);
+@@ -57,7 +55,9 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageInitializer> i
+     page.on(Page.Events.Crash, () => this._dispatchEvent('crash'));
+     page.on(Page.Events.DOMContentLoaded, () => this._dispatchEvent('domcontentloaded'));
+     page.on(Page.Events.Dialog, dialog => this._dispatchEvent('dialog', { dialog: new DialogDispatcher(this._scope, dialog) }));
+-    page.on(Page.Events.Download, download => this._dispatchEvent('download', { download: new DownloadDispatcher(scope, download) }));
++    page.on(Page.Events.Download, (download: Download) => {
++      this._dispatchEvent('download', { url: download.url, suggestedFilename: download.suggestedFilename(), artifact: new ArtifactDispatcher(scope, download.artifact) });
++    });
+     this._page.on(Page.Events.FileChooser, (fileChooser: FileChooser) => this._dispatchEvent('fileChooser', {
+       element: new ElementHandleDispatcher(this._scope, fileChooser.element()),
+       isMultiple: fileChooser.isMultiple()
+@@ -78,9 +78,11 @@ export class PageDispatcher extends Dispatcher<Page, channels.PageInitializer> i
+       responseEndTiming: request._responseEndTiming
+     }));
+     page.on(Page.Events.Response, response => this._dispatchEvent('response', { response: new ResponseDispatcher(this._scope, response) }));
+-    page.on(Page.Events.VideoStarted, (video: Video) => this._dispatchEvent('video', {  video: new VideoDispatcher(scopeForVideo, video) }));
+     page.on(Page.Events.WebSocket, webSocket => this._dispatchEvent('webSocket', { webSocket: new WebSocketDispatcher(this._scope, webSocket) }));
+     page.on(Page.Events.Worker, worker => this._dispatchEvent('worker', { worker: new WorkerDispatcher(this._scope, worker) }));
++    page.on(Page.Events.Video, (artifact: Artifact) => this._dispatchEvent('video', { artifact: existingDispatcher<ArtifactDispatcher>(artifact) }));
++    if (page._video)
++      this._dispatchEvent('video', { artifact: existingDispatcher<ArtifactDispatcher>(page._video) });
+   }
+ 
+   async setDefaultNavigationTimeoutNoReply(params: channels.PageSetDefaultNavigationTimeoutNoReplyParams, metadata: CallMetadata): Promise<void> {
+diff --git a/src/dispatchers/videoDispatcher.ts b/src/dispatchers/videoDispatcher.ts
+deleted file mode 100644
+index cf7550175533a..0000000000000
+--- a/src/dispatchers/videoDispatcher.ts
++++ /dev/null
+@@ -1,67 +0,0 @@
+-/**
+- * Copyright (c) Microsoft Corporation.
+- *
+- * Licensed under the Apache License, Version 2.0 (the 'License");
+- * you may not use this file except in compliance with the License.
+- * You may obtain a copy of the License at
+- *
+- * http://www.apache.org/licenses/LICENSE-2.0
+- *
+- * Unless required by applicable law or agreed to in writing, software
+- * distributed under the License is distributed on an "AS IS" BASIS,
+- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+- * See the License for the specific language governing permissions and
+- * limitations under the License.
+- */
+-
+-import * as channels from '../protocol/channels';
+-import { Dispatcher, DispatcherScope } from './dispatcher';
+-import { StreamDispatcher } from './streamDispatcher';
+-import fs from 'fs';
+-import * as util from 'util';
+-import { mkdirIfNeeded } from '../utils/utils';
+-import { Video } from '../server/browserContext';
+-
+-export class VideoDispatcher extends Dispatcher<Video, channels.VideoInitializer> implements channels.VideoChannel {
+-  constructor(scope: DispatcherScope, video: Video) {
+-    super(scope, video, 'Video', {
+-      absolutePath: video._path,
+-    });
+-  }
+-
+-  async saveAs(params: channels.VideoSaveAsParams): Promise<channels.VideoSaveAsResult> {
+-    return await new Promise((resolve, reject) => {
+-      this._object.saveAs(async localPath => {
+-        try {
+-          await mkdirIfNeeded(params.path);
+-          await util.promisify(fs.copyFile)(localPath, params.path);
+-          resolve();
+-        } catch (e) {
+-          reject(e);
+-        }
+-      });
+-    });
+-  }
+-
+-  async saveAsStream(): Promise<channels.VideoSaveAsStreamResult> {
+-    return await new Promise((resolve, reject) => {
+-      this._object.saveAs(async localPath => {
+-        try {
+-          const readable = fs.createReadStream(localPath);
+-          await new Promise(f => readable.on('readable', f));
+-          const stream = new StreamDispatcher(this._scope, readable);
+-          // Resolve with a stream, so that client starts saving the data.
+-          resolve({ stream });
+-          // Block the video until the stream is consumed.
+-          await new Promise<void>(resolve => {
+-            readable.on('close', resolve);
+-            readable.on('end', resolve);
+-            readable.on('error', resolve);
+-          });
+-        } catch (e) {
+-          reject(e);
+-        }
+-      });
+-    });
+-  }
+-}
+diff --git a/src/protocol/channels.ts b/src/protocol/channels.ts
+index bc059297bfd4d..37a8cb643e232 100644
+--- a/src/protocol/channels.ts
++++ b/src/protocol/channels.ts
+@@ -589,6 +589,7 @@ export interface BrowserContextChannel extends Channel {
+   on(event: 'close', callback: (params: BrowserContextCloseEvent) => void): this;
+   on(event: 'page', callback: (params: BrowserContextPageEvent) => void): this;
+   on(event: 'route', callback: (params: BrowserContextRouteEvent) => void): this;
++  on(event: 'video', callback: (params: BrowserContextVideoEvent) => void): this;
+   on(event: 'crBackgroundPage', callback: (params: BrowserContextCrBackgroundPageEvent) => void): this;
+   on(event: 'crServiceWorker', callback: (params: BrowserContextCrServiceWorkerEvent) => void): this;
+   addCookies(params: BrowserContextAddCookiesParams, metadata?: Metadata): Promise<BrowserContextAddCookiesResult>;
+@@ -623,6 +624,9 @@ export type BrowserContextRouteEvent = {
+   route: RouteChannel,
+   request: RequestChannel,
+ };
++export type BrowserContextVideoEvent = {
++  artifact: ArtifactChannel,
++};
+ export type BrowserContextCrBackgroundPageEvent = {
+   page: PageChannel,
+ };
+@@ -793,7 +797,6 @@ export type PageInitializer = {
+     height: number,
+   },
+   isClosed: boolean,
+-  video?: VideoChannel,
+ };
+ export interface PageChannel extends Channel {
+   on(event: 'bindingCall', callback: (params: PageBindingCallEvent) => void): this;
+@@ -862,7 +865,9 @@ export type PageDialogEvent = {
+   dialog: DialogChannel,
+ };
+ export type PageDownloadEvent = {
+-  download: DownloadChannel,
++  url: string,
++  suggestedFilename: string,
++  artifact: ArtifactChannel,
+ };
+ export type PageDomcontentloadedEvent = {};
+ export type PageFileChooserEvent = {
+@@ -902,7 +907,7 @@ export type PageRouteEvent = {
+   request: RequestChannel,
+ };
+ export type PageVideoEvent = {
+-  video: VideoChannel,
++  artifact: ArtifactChannel,
+ };
+ export type PageWebSocketEvent = {
+   webSocket: WebSocketChannel,
+@@ -1230,27 +1235,6 @@ export type PageBringToFrontParams = {};
+ export type PageBringToFrontOptions = {};
+ export type PageBringToFrontResult = void;
+ 
+-// ----------- Video -----------
+-export type VideoInitializer = {
+-  absolutePath: string,
+-};
+-export interface VideoChannel extends Channel {
+-  saveAs(params: VideoSaveAsParams, metadata?: Metadata): Promise<VideoSaveAsResult>;
+-  saveAsStream(params?: VideoSaveAsStreamParams, metadata?: Metadata): Promise<VideoSaveAsStreamResult>;
+-}
+-export type VideoSaveAsParams = {
+-  path: string,
+-};
+-export type VideoSaveAsOptions = {
+-
+-};
+-export type VideoSaveAsResult = void;
+-export type VideoSaveAsStreamParams = {};
+-export type VideoSaveAsStreamOptions = {};
+-export type VideoSaveAsStreamResult = {
+-  stream: StreamChannel,
+-};
+-
+ // ----------- Frame -----------
+ export type FrameInitializer = {
+   url: string,
+@@ -2425,49 +2409,48 @@ export type DialogDismissParams = {};
+ export type DialogDismissOptions = {};
+ export type DialogDismissResult = void;
+ 
+-// ----------- Download -----------
+-export type DownloadInitializer = {
+-  url: string,
+-  suggestedFilename: string,
++// ----------- Artifact -----------
++export type ArtifactInitializer = {
++  absolutePath: string,
+ };
+-export interface DownloadChannel extends Channel {
+-  path(params?: DownloadPathParams, metadata?: Metadata): Promise<DownloadPathResult>;
+-  saveAs(params: DownloadSaveAsParams, metadata?: Metadata): Promise<DownloadSaveAsResult>;
+-  saveAsStream(params?: DownloadSaveAsStreamParams, metadata?: Metadata): Promise<DownloadSaveAsStreamResult>;
+-  failure(params?: DownloadFailureParams, metadata?: Metadata): Promise<DownloadFailureResult>;
+-  stream(params?: DownloadStreamParams, metadata?: Metadata): Promise<DownloadStreamResult>;
+-  delete(params?: DownloadDeleteParams, metadata?: Metadata): Promise<DownloadDeleteResult>;
++export interface ArtifactChannel extends Channel {
++  pathAfterFinished(params?: ArtifactPathAfterFinishedParams, metadata?: Metadata): Promise<ArtifactPathAfterFinishedResult>;
++  saveAs(params: ArtifactSaveAsParams, metadata?: Metadata): Promise<ArtifactSaveAsResult>;
++  saveAsStream(params?: ArtifactSaveAsStreamParams, metadata?: Metadata): Promise<ArtifactSaveAsStreamResult>;
++  failure(params?: ArtifactFailureParams, metadata?: Metadata): Promise<ArtifactFailureResult>;
++  stream(params?: ArtifactStreamParams, metadata?: Metadata): Promise<ArtifactStreamResult>;
++  delete(params?: ArtifactDeleteParams, metadata?: Metadata): Promise<ArtifactDeleteResult>;
+ }
+-export type DownloadPathParams = {};
+-export type DownloadPathOptions = {};
+-export type DownloadPathResult = {
++export type ArtifactPathAfterFinishedParams = {};
++export type ArtifactPathAfterFinishedOptions = {};
++export type ArtifactPathAfterFinishedResult = {
+   value?: string,
+ };
+-export type DownloadSaveAsParams = {
++export type ArtifactSaveAsParams = {
+   path: string,
+ };
+-export type DownloadSaveAsOptions = {
++export type ArtifactSaveAsOptions = {
+ 
+ };
+-export type DownloadSaveAsResult = void;
+-export type DownloadSaveAsStreamParams = {};
+-export type DownloadSaveAsStreamOptions = {};
+-export type DownloadSaveAsStreamResult = {
++export type ArtifactSaveAsResult = void;
++export type ArtifactSaveAsStreamParams = {};
++export type ArtifactSaveAsStreamOptions = {};
++export type ArtifactSaveAsStreamResult = {
+   stream: StreamChannel,
+ };
+-export type DownloadFailureParams = {};
+-export type DownloadFailureOptions = {};
+-export type DownloadFailureResult = {
++export type ArtifactFailureParams = {};
++export type ArtifactFailureOptions = {};
++export type ArtifactFailureResult = {
+   error?: string,
+ };
+-export type DownloadStreamParams = {};
+-export type DownloadStreamOptions = {};
+-export type DownloadStreamResult = {
++export type ArtifactStreamParams = {};
++export type ArtifactStreamOptions = {};
++export type ArtifactStreamResult = {
+   stream?: StreamChannel,
+ };
+-export type DownloadDeleteParams = {};
+-export type DownloadDeleteOptions = {};
+-export type DownloadDeleteResult = void;
++export type ArtifactDeleteParams = {};
++export type ArtifactDeleteOptions = {};
++export type ArtifactDeleteResult = void;
+ 
+ // ----------- Stream -----------
+ export type StreamInitializer = {};
+diff --git a/src/protocol/protocol.yml b/src/protocol/protocol.yml
+index 88f8ec4f07cc9..368eb0ac78556 100644
+--- a/src/protocol/protocol.yml
++++ b/src/protocol/protocol.yml
+@@ -621,6 +621,10 @@ BrowserContext:
+         route: Route
+         request: Request
+ 
++    video:
++      parameters:
++        artifact: Artifact
++
+     crBackgroundPage:
+       parameters:
+         page: Page
+@@ -640,7 +644,6 @@ Page:
+         width: number
+         height: number
+     isClosed: boolean
+-    video: Video?
+ 
+   commands:
+ 
+@@ -930,7 +933,9 @@ Page:
+ 
+     download:
+       parameters:
+-        download: Download
++        url: string
++        suggestedFilename: string
++        artifact: Artifact
+ 
+     domcontentloaded:
+ 
+@@ -983,7 +988,7 @@ Page:
+ 
+     video:
+       parameters:
+-        video: Video
++        artifact: Artifact
+ 
+     webSocket:
+       parameters:
+@@ -994,25 +999,6 @@ Page:
+         worker: Worker
+ 
+ 
+-Video:
+-  type: interface
+-
+-  initializer:
+-    absolutePath: string
+-
+-  commands:
+-
+-    # Blocks context.close until saved to the local |path|.
+-    saveAs:
+-      parameters:
+-        path: string
+-
+-    # Blocks context.close until the stream is closed.
+-    saveAsStream:
+-      returns:
+-        stream: Stream
+-
+-
+ 
+ Frame:
+   type: interface
+@@ -2000,16 +1986,15 @@ Dialog:
+ 
+ 
+ 
+-Download:
++Artifact:
+   type: interface
+ 
+   initializer:
+-    url: string
+-    suggestedFilename: string
++    absolutePath: string
+ 
+   commands:
+ 
+-    path:
++    pathAfterFinished:
+       returns:
+         value: string?
+ 
+@@ -2034,7 +2019,6 @@ Download:
+     delete:
+ 
+ 
+-
+ Stream:
+   type: interface
+ 
+diff --git a/src/protocol/validator.ts b/src/protocol/validator.ts
+index 05d019ea4cba4..761173e66aee0 100644
+--- a/src/protocol/validator.ts
++++ b/src/protocol/validator.ts
+@@ -514,10 +514,6 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
+   });
+   scheme.PageCrStopCSSCoverageParams = tOptional(tObject({}));
+   scheme.PageBringToFrontParams = tOptional(tObject({}));
+-  scheme.VideoSaveAsParams = tObject({
+-    path: tString,
+-  });
+-  scheme.VideoSaveAsStreamParams = tOptional(tObject({}));
+   scheme.FrameEvalOnSelectorParams = tObject({
+     selector: tString,
+     expression: tString,
+@@ -930,14 +926,14 @@ export function createScheme(tChannel: (name: string) => Validator): Scheme {
+     promptText: tOptional(tString),
+   });
+   scheme.DialogDismissParams = tOptional(tObject({}));
+-  scheme.DownloadPathParams = tOptional(tObject({}));
+-  scheme.DownloadSaveAsParams = tObject({
++  scheme.ArtifactPathAfterFinishedParams = tOptional(tObject({}));
++  scheme.ArtifactSaveAsParams = tObject({
+     path: tString,
+   });
+-  scheme.DownloadSaveAsStreamParams = tOptional(tObject({}));
+-  scheme.DownloadFailureParams = tOptional(tObject({}));
+-  scheme.DownloadStreamParams = tOptional(tObject({}));
+-  scheme.DownloadDeleteParams = tOptional(tObject({}));
++  scheme.ArtifactSaveAsStreamParams = tOptional(tObject({}));
++  scheme.ArtifactFailureParams = tOptional(tObject({}));
++  scheme.ArtifactStreamParams = tOptional(tObject({}));
++  scheme.ArtifactDeleteParams = tOptional(tObject({}));
+   scheme.StreamReadParams = tObject({
+     size: tOptional(tNumber),
+   });
+diff --git a/src/server/artifact.ts b/src/server/artifact.ts
+new file mode 100644
+index 0000000000000..5750b5374024b
+--- /dev/null
++++ b/src/server/artifact.ts
+@@ -0,0 +1,117 @@
++/**
++ * Copyright (c) Microsoft Corporation.
++ *
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ *     http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++import fs from 'fs';
++import * as util from 'util';
++
++type SaveCallback = (localPath: string, error?: string) => Promise<void>;
++
++export class Artifact {
++  private _localPath: string;
++  private _unaccessibleErrorMessage: string | undefined;
++  private _finishedCallback: () => void;
++  private _finishedPromise: Promise<void>;
++  private _saveCallbacks: SaveCallback[] = [];
++  private _finished: boolean = false;
++  private _deleted = false;
++  private _failureError: string | null = null;
++
++  constructor(localPath: string, unaccessibleErrorMessage?: string) {
++    this._localPath = localPath;
++    this._unaccessibleErrorMessage = unaccessibleErrorMessage;
++    this._finishedCallback = () => {};
++    this._finishedPromise = new Promise(f => this._finishedCallback = f);
++  }
++
++  finishedPromise() {
++    return this._finishedPromise;
++  }
++
++  localPath() {
++    return this._localPath;
++  }
++
++  async localPathAfterFinished(): Promise<string | null> {
++    if (this._unaccessibleErrorMessage)
++      throw new Error(this._unaccessibleErrorMessage);
++    await this._finishedPromise;
++    if (this._failureError)
++      return null;
++    return this._localPath;
++  }
++
++  saveAs(saveCallback: SaveCallback) {
++    if (this._unaccessibleErrorMessage)
++      throw new Error(this._unaccessibleErrorMessage);
++    if (this._deleted)
++      throw new Error(`File already deleted. Save before deleting.`);
++    if (this._failureError)
++      throw new Error(`File not found on disk. Check download.failure() for details.`);
++
++    if (this._finished) {
++      saveCallback(this._localPath).catch(e => {});
++      return;
++    }
++    this._saveCallbacks.push(saveCallback);
++  }
++
++  async failureError(): Promise<string | null> {
++    if (this._unaccessibleErrorMessage)
++      return this._unaccessibleErrorMessage;
++    await this._finishedPromise;
++    return this._failureError;
++  }
++
++  async delete(): Promise<void> {
++    if (this._unaccessibleErrorMessage)
++      return;
++    const fileName = await this.localPathAfterFinished();
++    if (this._deleted)
++      return;
++    this._deleted = true;
++    if (fileName)
++      await util.promisify(fs.unlink)(fileName).catch(e => {});
++  }
++
++  async deleteOnContextClose(): Promise<void> {
++    // Compared to "delete", this method does not wait for the artifact to finish.
++    // We use it when closing the context to avoid stalling.
++    if (this._deleted)
++      return;
++    this._deleted = true;
++    if (!this._unaccessibleErrorMessage)
++      await util.promisify(fs.unlink)(this._localPath).catch(e => {});
++    await this.reportFinished('File deleted upon browser context closure.');
++  }
++
++  async reportFinished(error?: string) {
++    if (this._finished)
++      return;
++    this._finished = true;
++    this._failureError = error || null;
++
++    if (error) {
++      for (const callback of this._saveCallbacks)
++        await callback('', error);
++    } else {
++      for (const callback of this._saveCallbacks)
++        await callback(this._localPath);
++    }
++    this._saveCallbacks = [];
++
++    this._finishedCallback();
++  }
++}
+diff --git a/src/server/browser.ts b/src/server/browser.ts
+index 848f99ad9b033..9303674d623a1 100644
+--- a/src/server/browser.ts
++++ b/src/server/browser.ts
+@@ -15,7 +15,7 @@
+  */
+ 
+ import * as types from './types';
+-import { BrowserContext, Video } from './browserContext';
++import { BrowserContext } from './browserContext';
+ import { Page } from './page';
+ import { Download } from './download';
+ import { ProxySettings } from './types';
+@@ -23,6 +23,7 @@ import { ChildProcess } from 'child_process';
+ import { RecentLogsCollector } from '../utils/debugLogger';
+ import * as registry from '../utils/registry';
+ import { SdkObject } from './instrumentation';
++import { Artifact } from './artifact';
+ 
+ export interface BrowserProcess {
+   onclose?: ((exitCode: number | null, signal: string | null) => void);
+@@ -60,7 +61,7 @@ export abstract class Browser extends SdkObject {
+   private _downloads = new Map<string, Download>();
+   _defaultContext: BrowserContext | null = null;
+   private _startedClosing = false;
+-  readonly _idToVideo = new Map<string, Video>();
++  readonly _idToVideo = new Map<string, { context: BrowserContext, artifact: Artifact }>();
+ 
+   constructor(options: BrowserOptions) {
+     super(options.rootSdkObject);
+@@ -89,23 +90,26 @@ export abstract class Browser extends SdkObject {
+     const download = this._downloads.get(uuid);
+     if (!download)
+       return;
+-    download._reportFinished(error);
++    download.artifact.reportFinished(error);
+     this._downloads.delete(uuid);
+   }
+ 
+   _videoStarted(context: BrowserContext, videoId: string, path: string, pageOrError: Promise<Page | Error>) {
+-    const video = new Video(context, videoId, path);
+-    this._idToVideo.set(videoId, video);
+-    pageOrError.then(pageOrError => {
+-      if (pageOrError instanceof Page)
+-        pageOrError.videoStarted(video);
++    const artifact = new Artifact(path);
++    this._idToVideo.set(videoId, { context, artifact });
++    context.emit(BrowserContext.Events.VideoStarted, artifact);
++    pageOrError.then(page => {
++      if (page instanceof Page) {
++        page._video = artifact;
++        page.emit(Page.Events.Video, artifact);
++      }
+     });
+   }
+ 
+   _videoFinished(videoId: string) {
+-    const video = this._idToVideo.get(videoId)!;
++    const video = this._idToVideo.get(videoId);
+     this._idToVideo.delete(videoId);
+-    video._finish();
++    video?.artifact.reportFinished();
+   }
+ 
+   _didClose() {
+diff --git a/src/server/browserContext.ts b/src/server/browserContext.ts
+index c72f0476b7189..326b1df973231 100644
+--- a/src/server/browserContext.ts
++++ b/src/server/browserContext.ts
+@@ -29,44 +29,12 @@ import * as types from './types';
+ import path from 'path';
+ import { CallMetadata, internalCallMetadata, SdkObject } from './instrumentation';
+ 
+-type SaveVideoCallback = (localPath: string) => Promise<void>;
+-export class Video {
+-  readonly _videoId: string;
+-  readonly _path: string;
+-  readonly _context: BrowserContext;
+-  readonly _finishedPromise: Promise<void>;
+-  private _finishCallback: () => void = () => {};
+-  private _saveCallbacks: SaveVideoCallback[] = [];
+-  private _finished = false;
+-
+-  constructor(context: BrowserContext, videoId: string, p: string) {
+-    this._videoId = videoId;
+-    this._path = p;
+-    this._context = context;
+-    this._finishedPromise = new Promise(fulfill => this._finishCallback = fulfill);
+-  }
+-
+-  async _finish() {
+-    for (const callback of this._saveCallbacks)
+-      await callback(this._path);
+-    this._finished = true;
+-    this._finishCallback();
+-  }
+-
+-  saveAs(saveCallback: SaveVideoCallback) {
+-    if (this._finished) {
+-      saveCallback(this._path).catch(e => {});
+-      return;
+-    }
+-    this._saveCallbacks.push(saveCallback);
+-  }
+-}
+-
+ export abstract class BrowserContext extends SdkObject {
+   static Events = {
+     Close: 'close',
+     Page: 'page',
+     BeforeClose: 'beforeclose',
++    VideoStarted: 'videostarted',
+   };
+ 
+   readonly _timeoutSettings = new TimeoutSettings();
+@@ -271,15 +239,15 @@ export abstract class BrowserContext extends SdkObject {
+ 
+       // Cleanup.
+       const promises: Promise<void>[] = [];
+-      for (const video of this._browser._idToVideo.values()) {
++      for (const { context, artifact } of this._browser._idToVideo.values()) {
+         // Wait for the videos to finish.
+-        if (video._context === this)
+-          promises.push(video._finishedPromise);
++        if (context === this)
++          promises.push(artifact.finishedPromise());
+       }
+       for (const download of this._downloads) {
+         // We delete downloads after context closure
+         // so that browser does not write to the download file anymore.
+-        promises.push(download.deleteOnContextClose());
++        promises.push(download.artifact.deleteOnContextClose());
+       }
+       await Promise.all(promises);
+ 
+diff --git a/src/server/chromium/crPage.ts b/src/server/chromium/crPage.ts
+index 9f71b0404abe4..1ef1a94f3e1ed 100644
+--- a/src/server/chromium/crPage.ts
++++ b/src/server/chromium/crPage.ts
+@@ -863,7 +863,8 @@ class FrameSession {
+   }
+ 
+   async _startScreencast(options: types.PageScreencastOptions) {
+-    assert(this._screencastId);
++    const screencastId = this._screencastId;
++    assert(screencastId);
+     const gotFirstFrame = new Promise(f => this._client.once('Page.screencastFrame', f));
+     await this._client.send('Page.startScreencast', {
+       format: 'jpeg',
+@@ -872,7 +873,9 @@ class FrameSession {
+       maxHeight: options.height,
+     });
+     // Wait for the first frame before reporting video to the client.
+-    this._crPage._browserContext._browser._videoStarted(this._crPage._browserContext, this._screencastId, options.outputFile, gotFirstFrame.then(() => this._crPage.pageOrError()));
++    gotFirstFrame.then(() => {
++      this._crPage._browserContext._browser._videoStarted(this._crPage._browserContext, screencastId, options.outputFile, this._crPage.pageOrError());
++    });
+   }
+ 
+   async _stopScreencast(): Promise<void> {
+diff --git a/src/server/download.ts b/src/server/download.ts
+index 86f7252d651e0..138c024f1c47f 100644
+--- a/src/server/download.ts
++++ b/src/server/download.ts
+@@ -15,37 +15,23 @@
+  */
+ 
+ import path from 'path';
+-import fs from 'fs';
+-import * as util from 'util';
+ import { Page } from './page';
+ import { assert } from '../utils/utils';
+-
+-type SaveCallback = (localPath: string, error?: string) => Promise<void>;
++import { Artifact } from './artifact';
+ 
+ export class Download {
+-  private _downloadsPath: string;
+-  private _uuid: string;
+-  private _finishedCallback: () => void;
+-  private _finishedPromise: Promise<void>;
+-  private _saveCallbacks: SaveCallback[] = [];
+-  private _finished: boolean = false;
++  readonly artifact: Artifact;
++  readonly url: string;
+   private _page: Page;
+-  private _acceptDownloads: boolean;
+-  private _failure: string | null = null;
+-  private _deleted = false;
+-  private _url: string;
+   private _suggestedFilename: string | undefined;
+ 
+   constructor(page: Page, downloadsPath: string, uuid: string, url: string, suggestedFilename?: string) {
++    const unaccessibleErrorMessage = !page._browserContext._options.acceptDownloads ? 'Pass { acceptDownloads: true } when you are creating your browser context.' : undefined;
++    this.artifact = new Artifact(path.join(downloadsPath, uuid), unaccessibleErrorMessage);
+     this._page = page;
+-    this._downloadsPath = downloadsPath;
+-    this._uuid = uuid;
+-    this._url = url;
++    this.url = url;
+     this._suggestedFilename = suggestedFilename;
+-    this._finishedCallback = () => {};
+-    this._finishedPromise = new Promise(f => this._finishedCallback = f);
+     page._browserContext._downloads.add(this);
+-    this._acceptDownloads = !!this._page._browserContext._options.acceptDownloads;
+     if (suggestedFilename !== undefined)
+       this._page.emit(Page.Events.Download, this);
+   }
+@@ -56,86 +42,7 @@ export class Download {
+     this._page.emit(Page.Events.Download, this);
+   }
+ 
+-  url(): string {
+-    return this._url;
+-  }
+-
+   suggestedFilename(): string {
+     return this._suggestedFilename!;
+   }
+-
+-  async localPath(): Promise<string | null> {
+-    if (!this._acceptDownloads)
+-      throw new Error('Pass { acceptDownloads: true } when you are creating your browser context.');
+-    const fileName = path.join(this._downloadsPath, this._uuid);
+-    await this._finishedPromise;
+-    if (this._failure)
+-      return null;
+-    return fileName;
+-  }
+-
+-  saveAs(saveCallback: SaveCallback) {
+-    if (!this._acceptDownloads)
+-      throw new Error('Pass { acceptDownloads: true } when you are creating your browser context.');
+-    if (this._deleted)
+-      throw new Error('Download already deleted. Save before deleting.');
+-    if (this._failure)
+-      throw new Error('Download not found on disk. Check download.failure() for details.');
+-
+-    if (this._finished) {
+-      saveCallback(path.join(this._downloadsPath, this._uuid)).catch(e => {});
+-      return;
+-    }
+-    this._saveCallbacks.push(saveCallback);
+-  }
+-
+-  async failure(): Promise<string | null> {
+-    if (!this._acceptDownloads)
+-      return 'Pass { acceptDownloads: true } when you are creating your browser context.';
+-    await this._finishedPromise;
+-    return this._failure;
+-  }
+-
+-  async delete(): Promise<void> {
+-    if (!this._acceptDownloads)
+-      return;
+-    const fileName = await this.localPath();
+-    if (this._deleted)
+-      return;
+-    this._deleted = true;
+-    if (fileName)
+-      await util.promisify(fs.unlink)(fileName).catch(e => {});
+-  }
+-
+-  async deleteOnContextClose(): Promise<void> {
+-    // Compared to "delete", this method does not wait for the download to finish.
+-    // We use it when closing the context to avoid stalling.
+-    if (this._deleted)
+-      return;
+-    this._deleted = true;
+-    if (this._acceptDownloads) {
+-      const fileName = path.join(this._downloadsPath, this._uuid);
+-      await util.promisify(fs.unlink)(fileName).catch(e => {});
+-    }
+-    await this._reportFinished('Download deleted upon browser context closure.');
+-  }
+-
+-  async _reportFinished(error?: string) {
+-    if (this._finished)
+-      return;
+-    this._finished = true;
+-    this._failure = error || null;
+-
+-    if (error) {
+-      for (const callback of this._saveCallbacks)
+-        await callback('', error);
+-    } else {
+-      const fullPath = path.join(this._downloadsPath, this._uuid);
+-      for (const callback of this._saveCallbacks)
+-        await callback(fullPath);
+-    }
+-    this._saveCallbacks = [];
+-
+-    this._finishedCallback();
+-  }
+ }
+diff --git a/src/server/firefox/ffPage.ts b/src/server/firefox/ffPage.ts
+index 1653536551f1c..d0f54e672b02b 100644
+--- a/src/server/firefox/ffPage.ts
++++ b/src/server/firefox/ffPage.ts
+@@ -310,6 +310,8 @@ export class FFPage implements PageDelegate {
+   }
+ 
+   didClose() {
++    if (!this._initializedPage)
++      this._markAsError(new Error('Page has been closed'));
+     this._session.dispose();
+     helper.removeEventListeners(this._eventListeners);
+     this._networkManager.dispose();
+diff --git a/src/server/page.ts b/src/server/page.ts
+index 3877148502970..a8893acc44d5d 100644
+--- a/src/server/page.ts
++++ b/src/server/page.ts
+@@ -23,7 +23,7 @@ import * as network from './network';
+ import { Screenshotter } from './screenshotter';
+ import { TimeoutSettings } from '../utils/timeoutSettings';
+ import * as types from './types';
+-import { BrowserContext, Video } from './browserContext';
++import { BrowserContext } from './browserContext';
+ import { ConsoleMessage } from './console';
+ import * as accessibility from './accessibility';
+ import { FileChooser } from './fileChooser';
+@@ -32,6 +32,7 @@ import { assert, createGuid, isError } from '../utils/utils';
+ import { debugLogger } from '../utils/debugLogger';
+ import { Selectors } from './selectors';
+ import { CallMetadata, SdkObject } from './instrumentation';
++import { Artifact } from './artifact';
+ 
+ export interface PageDelegate {
+   readonly rawMouse: input.RawMouse;
+@@ -114,9 +115,9 @@ export class Page extends SdkObject {
+     InternalFrameNavigatedToNewDocument: 'internalframenavigatedtonewdocument',
+     Load: 'load',
+     Popup: 'popup',
++    Video: 'video',
+     WebSocket: 'websocket',
+     Worker: 'worker',
+-    VideoStarted: 'videostarted',
+   };
+ 
+   private _closedState: 'open' | 'closing' | 'closed' = 'open';
+@@ -146,9 +147,9 @@ export class Page extends SdkObject {
+   private _serverRequestInterceptor: network.RouteHandler | undefined;
+   _ownedContext: BrowserContext | undefined;
+   readonly selectors: Selectors;
+-  _video: Video | null = null;
+   readonly uniqueId: string;
+   _pageIsError: Error | undefined;
++  _video: Artifact | null = null;
+ 
+   constructor(delegate: PageDelegate, browserContext: BrowserContext) {
+     super(browserContext);
+@@ -181,7 +182,7 @@ export class Page extends SdkObject {
+     this.selectors = browserContext.selectors();
+   }
+ 
+-  async reportAsNew(error?: Error) {
++  reportAsNew(error?: Error) {
+     if (error) {
+       // Initialization error could have happened because of
+       // context/browser closure. Just ignore the page.
+@@ -478,11 +479,6 @@ export class Page extends SdkObject {
+     await this._delegate.setFileChooserIntercepted(enabled);
+   }
+ 
+-  videoStarted(video: Video) {
+-    this._video = video;
+-    this.emit(Page.Events.VideoStarted, video);
+-  }
+-
+   frameNavigatedToNewDocument(frame: frames.Frame) {
+     this.emit(Page.Events.InternalFrameNavigatedToNewDocument, frame);
+     const url = frame.url();
+diff --git a/test/browsertype-connect.spec.ts b/test/browsertype-connect.spec.ts
+index aec004d660cc4..4bf48a9339598 100644
+--- a/test/browsertype-connect.spec.ts
++++ b/test/browsertype-connect.spec.ts
+@@ -256,6 +256,8 @@ describe('connect', (suite, { mode }) => {
+     const savedAsPath = testInfo.outputPath('my-video.webm');
+     await page.video().saveAs(savedAsPath);
+     expect(fs.existsSync(savedAsPath)).toBeTruthy();
++    const error = await page.video().path().catch(e => e);
++    expect(error.message).toContain('Path is not available when using browserType.connect(). Use saveAs() to save a local copy.');
+   });
+ 
+   it('should be able to connect 20 times to a single server without warnings', async ({browserType, remoteServer, server}) => {
+diff --git a/test/download.spec.ts b/test/download.spec.ts
+index f167b0244a67f..295ccf6fa7661 100644
+--- a/test/download.spec.ts
++++ b/test/download.spec.ts
+@@ -189,7 +189,7 @@ describe('download event', () => {
+     expect(fs.existsSync(nestedPath)).toBeTruthy();
+     expect(fs.readFileSync(nestedPath).toString()).toBe('Hello world');
+     const error = await download.path().catch(e => e);
+-    expect(error.message).toContain('Path is not available when using browserType.connect(). Use download.saveAs() to save a local copy.');
++    expect(error.message).toContain('Path is not available when using browserType.connect(). Use saveAs() to save a local copy.');
+     await browser.close();
+   });
+ 
+@@ -216,7 +216,7 @@ describe('download event', () => {
+     const userPath = testInfo.outputPath('download.txt');
+     await download.delete();
+     const { message } = await download.saveAs(userPath).catch(e => e);
+-    expect(message).toContain('Download already deleted. Save before deleting.');
++    expect(message).toContain('File already deleted. Save before deleting.');
+     await page.close();
+   });
+ 
+@@ -233,7 +233,7 @@ describe('download event', () => {
+     const userPath = testInfo.outputPath('download.txt');
+     await download.delete();
+     const { message } = await download.saveAs(userPath).catch(e => e);
+-    expect(message).toContain('Download already deleted. Save before deleting.');
++    expect(message).toContain('File already deleted. Save before deleting.');
+     await browser.close();
+   });
+ 
+@@ -413,7 +413,7 @@ describe('download event', () => {
+       page.context().close(),
+     ]);
+     expect(downloadPath).toBe(null);
+-    expect(saveError.message).toContain('Download deleted upon browser context closure.');
++    expect(saveError.message).toContain('File deleted upon browser context closure.');
+   });
+ 
+   it('should close the context without awaiting the download', (test, { browserName, platform }) => {
+@@ -440,6 +440,6 @@ describe('download event', () => {
+       page.context().close(),
+     ]);
+     expect(downloadPath).toBe(null);
+-    expect(saveError.message).toContain('Download deleted upon browser context closure.');
++    expect(saveError.message).toContain('File deleted upon browser context closure.');
+   });
+ });
+diff --git a/test/screencast.spec.ts b/test/screencast.spec.ts
+index dd85ac6258426..59196c9bc43c1 100644
+--- a/test/screencast.spec.ts
++++ b/test/screencast.spec.ts
+@@ -231,6 +231,7 @@ describe('screencast', suite => {
+     });
+     const page = await context.newPage();
+     await page.evaluate(() => document.body.style.backgroundColor = 'red');
++    await page.waitForTimeout(1000);
+     await context.close();
+ 
+     const saveAsPath = testInfo.outputPath('my-video.webm');
+@@ -238,6 +239,57 @@ describe('screencast', suite => {
+     expect(fs.existsSync(saveAsPath)).toBeTruthy();
+   });
+ 
++  it('saveAs should throw when no video frames', async ({browser, browserName, testInfo}) => {
++    const videosPath = testInfo.outputPath('');
++    const size = { width: 320, height: 240 };
++    const context = await browser.newContext({
++      recordVideo: {
++        dir: videosPath,
++        size
++      },
++      viewport: size,
++    });
++
++    const page = await context.newPage();
++    const [popup] = await Promise.all([
++      page.context().waitForEvent('page'),
++      page.evaluate(() => {
++        const win = window.open('about:blank');
++        win.close();
++      }),
++    ]);
++    await page.close();
++
++    const saveAsPath = testInfo.outputPath('my-video.webm');
++    const error = await popup.video().saveAs(saveAsPath).catch(e => e);
++    // WebKit pauses renderer before win.close() and actually writes something.
++    if (browserName === 'webkit')
++      expect(fs.existsSync(saveAsPath)).toBeTruthy();
++    else
++      expect(error.message).toContain('Page did not produce any video frames');
++  });
++
++  it('should delete video', async ({browser, testInfo}) => {
++    const videosPath = testInfo.outputPath('');
++    const size = { width: 320, height: 240 };
++    const context = await browser.newContext({
++      recordVideo: {
++        dir: videosPath,
++        size
++      },
++      viewport: size,
++    });
++    const page = await context.newPage();
++    const deletePromise = page.video().delete();
++    await page.evaluate(() => document.body.style.backgroundColor = 'red');
++    await page.waitForTimeout(1000);
++    await context.close();
++
++    const videoPath = await page.video().path();
++    await deletePromise;
++    expect(fs.existsSync(videoPath)).toBeFalsy();
++  });
++
+   it('should expose video path blank page', async ({browser, testInfo}) => {
+     const videosPath = testInfo.outputPath('');
+     const size = { width: 320, height: 240 };
+diff --git a/types/types.d.ts b/types/types.d.ts
+index 842bf436daab7..703e7090d8777 100644
+--- a/types/types.d.ts
++++ b/types/types.d.ts
+@@ -10163,6 +10163,11 @@ export interface Touchscreen {
+  * 
+  */
+ export interface Video {
++  /**
++   * Deletes the video file. Will wait for the video to finish if necessary.
++   */
++  delete(): Promise<void>;
++
+   /**
+    * Returns the file system path this video will be recorded to. The video is guaranteed to be written to the filesystem
+    * upon closing the browser context. This method throws when connected remotely via

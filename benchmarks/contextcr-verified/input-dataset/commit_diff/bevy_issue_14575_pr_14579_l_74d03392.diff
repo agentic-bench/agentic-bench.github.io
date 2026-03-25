@@ -1,0 +1,278 @@
+diff --git a/crates/bevy_ecs/src/query/access.rs b/crates/bevy_ecs/src/query/access.rs
+index 25246ee68edd8..5d14c332cc527 100644
+--- a/crates/bevy_ecs/src/query/access.rs
++++ b/crates/bevy_ecs/src/query/access.rs
+@@ -1,7 +1,6 @@
+ use crate::storage::SparseSetIndex;
+-use bevy_utils::HashSet;
+ use core::fmt;
+-use std::fmt::{Debug, Formatter};
++use std::fmt::{Debug};
+ use fixedbitset::FixedBitSet;
+ use std::marker::PhantomData;
+ 
+@@ -270,7 +269,7 @@ impl<T: SparseSetIndex> Access<T> {
+     }
+ 
+     /// Returns a vector of elements that the access and `other` cannot access at the same time.
+-    pub fn get_conflicts(&self, other: &Access<T>) -> AccessConflict<T> {
++    pub fn get_conflicts(&self, other: &Access<T>) -> AccessConflict {
+         let mut conflicts = FixedBitSet::new();
+         if self.reads_all {
+             if other.writes_all {
+@@ -400,46 +399,25 @@ impl<T: SparseSetIndex> From<FilteredAccess<T>> for FilteredAccessSet<T> {
+ }
+ 
+ /// Records how two accesses conflict with each other
+-pub enum AccessConflict<T: SparseSetIndex> {
++#[derive(Debug, PartialEq)]
++pub enum AccessConflict {
+     /// Conflict is for all indices
+     All,
+     /// Conflict is only for a subset of indices
+     Individual(FixedBitSet)
+ }
+ 
+-impl<T: SparseSetIndex> Debug for AccessConflict<T> {
+-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+-        match self {
+-            AccessConflict::All => {
+-                write!(f, "All")
+-            }
+-            AccessConflict::Individual(set) => {
+-                write!(f, "{:?}", FormattedBitSet::<T>::new(set))
+-            }
+-        }
+-    }
+-}
+ 
+-impl<T: SparseSetIndex> PartialEq for AccessConflict<T> {
+-    fn eq(&self, other: &Self) -> bool {
++impl AccessConflict {
++    fn add(&mut self, other: &Self) {
+         match (self, other) {
+-            (AccessConflict::All, AccessConflict::All) => true,
+-            (AccessConflict::Individual(this), AccessConflict::Individual(other)) => this == other,
+-            _ => false
+-        }
+-    }
+-}
+-
+-
+-impl<T: SparseSetIndex> AccessConflict<T> {
+-    fn add(&mut self, other: &self) {
+-        match (self, other) {
+-            (AccessConflict::All, _) | (_, AccessConflict::All) => {
+-                *self = AccessConflict::All;
++            (s, AccessConflict::All) => {
++                *s = AccessConflict::All;
+             }
+             (AccessConflict::Individual(this), AccessConflict::Individual(other)) => {
+-                this.extend(other);
++                this.extend(other.ones());
+             }
++            _ => {}
+         }
+     }
+ 
+@@ -451,13 +429,19 @@ impl<T: SparseSetIndex> AccessConflict<T> {
+     }
+ }
+ 
+-impl<T: SparseSetIndex> From<FixedBitSet> for AccessConflict<T> {
++impl From<FixedBitSet> for AccessConflict {
+     fn from(value: FixedBitSet) -> Self {
+         Self::Individual(value)
+     }
+ }
+ 
+-impl<T: SparseSetIndex> Default for AccessConflict<T> {
++impl<T: SparseSetIndex> From<Vec<T>> for AccessConflict {
++    fn from(value: Vec<T>) -> Self {
++        Self::Individual(value.iter().map(T::sparse_set_index).collect())
++    }
++}
++
++impl Default for AccessConflict {
+     fn default() -> Self {
+         AccessConflict::Individual(FixedBitSet::new())
+     }
+@@ -570,7 +554,7 @@ impl<T: SparseSetIndex> FilteredAccess<T> {
+     }
+ 
+     /// Returns a vector of elements that this and `other` cannot access at the same time.
+-    pub fn get_conflicts(&self, other: &FilteredAccess<T>) -> AccessConflict<T> {
++    pub fn get_conflicts(&self, other: &FilteredAccess<T>) -> AccessConflict {
+         if !self.is_compatible(other) {
+             // filters are disjoint, so we can just look at the unfiltered intersection
+             return self.access.get_conflicts(&other.access);
+@@ -756,7 +740,7 @@ impl<T: SparseSetIndex> FilteredAccessSet<T> {
+     }
+ 
+     /// Returns a vector of elements that this set and `other` cannot access at the same time.
+-    pub fn get_conflicts(&self, other: &FilteredAccessSet<T>) -> AccessConflict<T> {
++    pub fn get_conflicts(&self, other: &FilteredAccessSet<T>) -> AccessConflict {
+         // if the unfiltered access is incompatible, must check each pair
+         let mut conflicts = AccessConflict::default();
+         if !self.combined_access.is_compatible(other.combined_access()) {
+@@ -770,7 +754,7 @@ impl<T: SparseSetIndex> FilteredAccessSet<T> {
+     }
+ 
+     /// Returns a vector of elements that this set and `other` cannot access at the same time.
+-    pub fn get_conflicts_single(&self, filtered_access: &FilteredAccess<T>) -> AccessConflict<T> {
++    pub fn get_conflicts_single(&self, filtered_access: &FilteredAccess<T>) -> AccessConflict {
+         // if the unfiltered access is incompatible, must check each pair
+         let mut conflicts = AccessConflict::default();
+         if !self.combined_access.is_compatible(filtered_access.access()) {
+@@ -841,7 +825,6 @@ mod tests {
+     use crate::query::{Access, AccessConflict, FilteredAccess, FilteredAccessSet};
+     use fixedbitset::FixedBitSet;
+     use std::marker::PhantomData;
+-    use crate::storage::SparseSetIndex;
+ 
+     fn create_sample_access() -> Access<usize> {
+         let mut access = Access::<usize>::default();
+@@ -1004,21 +987,21 @@ mod tests {
+         access_b.add_read(0);
+         access_b.add_write(1);
+ 
+-        assert_eq!(access_a.get_conflicts(&access_b), vec![1]);
++        assert_eq!(access_a.get_conflicts(&access_b), vec![1_usize].into());
+ 
+         let mut access_c = Access::<usize>::default();
+         access_c.add_write(0);
+         access_c.add_write(1);
+ 
+-        assert_eq!(access_a.get_conflicts(&access_c), vec![0, 1]);
+-        assert_eq!(access_b.get_conflicts(&access_c), vec![0, 1]);
++        assert_eq!(access_a.get_conflicts(&access_c), vec![0_usize, 1_usize].into());
++        assert_eq!(access_b.get_conflicts(&access_c), vec![0_usize, 1_usize].into());
+ 
+         let mut access_d = Access::<usize>::default();
+         access_d.add_read(0);
+ 
+-        assert_eq!(access_d.get_conflicts(&access_a), vec![]);
+-        assert_eq!(access_d.get_conflicts(&access_b), vec![]);
+-        assert_eq!(access_d.get_conflicts(&access_c), vec![0]);
++        assert_eq!(access_d.get_conflicts(&access_a), AccessConflict::default());
++        assert_eq!(access_d.get_conflicts(&access_b), AccessConflict::default());
++        assert_eq!(access_d.get_conflicts(&access_c), vec![0_usize].into());
+     }
+ 
+     #[test]
+diff --git a/crates/bevy_ecs/src/schedule/schedule.rs b/crates/bevy_ecs/src/schedule/schedule.rs
+index c9dc06438f0cf..4bdd92df22ccd 100644
+--- a/crates/bevy_ecs/src/schedule/schedule.rs
++++ b/crates/bevy_ecs/src/schedule/schedule.rs
+@@ -24,6 +24,8 @@ use crate::{
+ };
+ 
+ pub use stepping::Stepping;
++use crate::query::AccessConflict;
++use crate::storage::SparseSetIndex;
+ 
+ /// Resource that stores [`Schedule`]s mapped to [`ScheduleLabel`]s excluding the current running [`Schedule`].
+ #[derive(Default, Resource)]
+@@ -1363,14 +1365,22 @@ impl ScheduleGraph {
+                 let access_a = system_a.component_access();
+                 let access_b = system_b.component_access();
+                 if !access_a.is_compatible(access_b) {
+-                    let conflicts: Vec<_> = access_a
+-                        .get_conflicts(access_b)
+-                        .into_iter()
+-                        .filter(|id| !ignored_ambiguities.contains(id))
+-                        .collect();
+-
+-                    if !conflicts.is_empty() {
+-                        conflicting_systems.push((a, b, conflicts));
++                    match access_a.get_conflicts(access_b) {
++                        AccessConflict::Individual(conflicts) => {
++                            let conflicts: Vec<_> = conflicts
++                                .ones()
++                                .map(|i| ComponentId::get_sparse_set_index(i))
++                                .filter(|id| !ignored_ambiguities.contains(id))
++                                .collect();
++                            if !conflicts.is_empty() {
++                                conflicting_systems.push((a, b, conflicts));
++                            }
++                        }
++                        AccessConflict::All => {
++                            // there is no specific component conflicting, but the systems are overall incompatible
++                            // for example 2 systems with `Query<EntityMut>`
++                            conflicting_systems.push((a, b, Vec::new()));
++                        }
+                     }
+                 }
+             }
+diff --git a/crates/bevy_ecs/src/system/mod.rs b/crates/bevy_ecs/src/system/mod.rs
+index 4e209b06f52dc..b73a0b1da53a0 100644
+--- a/crates/bevy_ecs/src/system/mod.rs
++++ b/crates/bevy_ecs/src/system/mod.rs
+@@ -341,7 +341,6 @@ impl<T> std::ops::DerefMut for In<T> {
+ #[cfg(test)]
+ mod tests {
+     use std::any::TypeId;
+-    use fixedbitset::FixedBitSet;
+     use bevy_utils::default;
+ 
+     use crate::{
+@@ -364,8 +363,6 @@ mod tests {
+         },
+         world::{FromWorld, World},
+     };
+-    use crate::query::AccessConflict;
+-    use crate::storage::SparseSetIndex;
+     use crate::world::EntityMut;
+ 
+     #[derive(Resource, PartialEq, Debug)]
+@@ -1105,7 +1102,7 @@ mod tests {
+             .get_resource_id(TypeId::of::<B>())
+             .unwrap();
+         let d_id = world.components().get_id(TypeId::of::<D>()).unwrap();
+-        assert_eq!(conflicts, AccessConflict::Individual(vec![b_id.sparse_set_index(), d_id.sparse_set_index()].iter().copied().collect()));
++        assert_eq!(conflicts, vec![b_id, d_id].into());
+     }
+ 
+     #[test]
+@@ -1612,7 +1609,7 @@ mod tests {
+     }
+ 
+     #[test]
+-    #[should_panic]
++    #[should_panic(expected = "error[B0001]: Query<bevy_ecs::world::entity_ref::EntityMut, ()> in system bevy_ecs::system::tests::assert_entity_mut_system_does_conflict::system accesses component(s) in a way that conflicts with a previous system parameter. Consider using `Without<T>` to create disjoint Queries or merging conflicting Queries into a `ParamSet`. See: https://bevyengine.org/learn/errors/b0001")]
+     fn assert_entity_mut_system_does_conflict() {
+         fn system(_query: Query<EntityMut>, _q2: Query<EntityMut>) {}
+         super::assert_system_does_not_conflict(system);
+diff --git a/crates/bevy_ecs/src/system/system_param.rs b/crates/bevy_ecs/src/system/system_param.rs
+index 8898e34d092e1..893f8922cd930 100644
+--- a/crates/bevy_ecs/src/system/system_param.rs
++++ b/crates/bevy_ecs/src/system/system_param.rs
+@@ -25,6 +25,8 @@ use std::{
+     marker::PhantomData,
+     ops::{Deref, DerefMut},
+ };
++use crate::query::AccessConflict;
++use crate::storage::SparseSetIndex;
+ 
+ /// A parameter that can be used in a [`System`](super::System).
+ ///
+@@ -296,12 +298,13 @@ fn assert_component_access_compatibility(
+     if conflicts.is_empty() {
+         return;
+     }
+-    let conflicting_components = conflicts
+-        .into_iter()
+-        .map(|component_id| world.components.get_info(component_id).unwrap().name())
+-        .collect::<Vec<&str>>();
+-    let accesses = conflicting_components.join(", ");
+-    panic!("error[B0001]: Query<{query_type}, {filter_type}> in system {system_name} accesses component(s) {accesses} in a way that conflicts with a previous system parameter. Consider using `Without<T>` to create disjoint Queries or merging conflicting Queries into a `ParamSet`. See: https://bevyengine.org/learn/errors/b0001");
++    let accesses = match conflicts {
++        AccessConflict::All => {""}
++        AccessConflict::Individual(indices) => {
++            &format!(" {}", indices.ones().map(|index| world.components.get_info(ComponentId::get_sparse_set_index(index)).unwrap().name()).collect::<Vec<&str>>().join(", "))
++        }
++    };
++    panic!("error[B0001]: Query<{query_type}, {filter_type}> in system {system_name} accesses component(s){accesses} in a way that conflicts with a previous system parameter. Consider using `Without<T>` to create disjoint Queries or merging conflicting Queries into a `ParamSet`. See: https://bevyengine.org/learn/errors/b0001");
+ }
+ 
+ /// A collection of potentially conflicting [`SystemParam`]s allowed by disjoint access.

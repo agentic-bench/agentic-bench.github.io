@@ -77,8 +77,8 @@
             <div class="col-lg-6">
                 <div class="info-panel" id="venn-diagram-container" style="height:100%">
                     <div class="info-panel-header">
-                        <i class="fas fa-circle-nodes me-2"></i> 
-                        <span id="venn-title">Agent Overlap Analysis</span>
+                        <i class="fas fa-tasks me-2"></i> 
+                        <span id="venn-title">Task-Level Coverage Overlap</span>
                         <span style="font-size:.68rem;font-weight:500;background:var(--bg-surface3);color:var(--text-muted);border:1px solid var(--border);border-radius:4px;padding:1px 7px;margin-left:.5rem;vertical-align:middle">Experimental</span>
                     </div>
                     <div class="info-panel-body">
@@ -92,13 +92,45 @@
             <div class="col-lg-6">
                 <div class="info-panel" id="pareto-panel" style="height:100%">
                     <div class="info-panel-header">
-                        <i class="fas fa-chart-scatter me-2"></i>
+                        <i class="fas fa-dollar-sign me-2"></i>
                         Cost vs. Performance
                         <span style="font-size:.68rem;font-weight:500;background:var(--bg-surface3);color:var(--text-muted);border:1px solid var(--border);border-radius:4px;padding:1px 7px;margin-left:.5rem;vertical-align:middle">Experimental</span>
                         <span class="ms-auto" style="font-size:.75rem;font-weight:400;color:var(--text-muted)">X = total cost ($) &nbsp;·&nbsp; Y = overall score</span>
                     </div>
                     <div class="info-panel-body" id="pareto-panel-body">
                         <p class="info-panel-text text-muted small">Loading…</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Ground Truth Coverage Overlap Analysis and Placeholder -->
+        <div class="row mt-4 g-4">
+            <!-- GT Coverage Diagram (Left Column) -->
+            <div class="col-lg-6">
+                <div class="info-panel" id="gt-coverage-container" style="height:100%">
+                    <div class="info-panel-header">
+                        <i class="fas fa-circle-check me-2"></i> 
+                        <span id="gt-coverage-title">Human Comment Coverage Overlap</span>
+                        <span style="font-size:.68rem;font-weight:500;background:var(--bg-surface3);color:var(--text-muted);border:1px solid var(--border);border-radius:4px;padding:1px 7px;margin-left:.5rem;vertical-align:middle">Experimental</span>
+                    </div>
+                    <div class="info-panel-body">
+                        <div id="gt-coverage-svg" style="text-align:center"></div>
+                        <div id="gt-coverage-explanation"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Placeholder (Right Column) -->
+            <div class="col-lg-6">
+                <div class="info-panel" style="height:100%">
+                    <div class="info-panel-header">
+                        <i class="fas fa-info-circle me-2"></i>
+                        Additional Insights
+                        <span style="font-size:.68rem;font-weight:500;background:var(--bg-surface3);color:var(--text-muted);border:1px solid var(--border);border-radius:4px;padding:1px 7px;margin-left:.5rem;vertical-align:middle">Coming Soon</span>
+                    </div>
+                    <div class="info-panel-body">
+                        <p class="info-panel-text text-muted small">Future analysis and visualizations will appear here.</p>
                     </div>
                 </div>
             </div>

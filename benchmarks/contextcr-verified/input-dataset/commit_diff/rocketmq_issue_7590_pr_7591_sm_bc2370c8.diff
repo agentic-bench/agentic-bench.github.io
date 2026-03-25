@@ -1,0 +1,13 @@
+diff --git a/common/src/test/java/org/apache/rocketmq/common/utils/ConcurrentHashMapUtilsTest.java b/common/src/test/java/org/apache/rocketmq/common/utils/ConcurrentHashMapUtilsTest.java
+index fa97ddb1cc3..dbecb35d995 100644
+--- a/common/src/test/java/org/apache/rocketmq/common/utils/ConcurrentHashMapUtilsTest.java
++++ b/common/src/test/java/org/apache/rocketmq/common/utils/ConcurrentHashMapUtilsTest.java
+@@ -36,6 +36,6 @@ public void computeIfAbsent() {
+         String value2 = ConcurrentHashMapUtils.computeIfAbsent(map, "123", k -> "2342");
+         assertEquals("1111", value2);
+ //        map.computeIfAbsent("AaAa", key->map.computeIfAbsent("BBBB",key2->"42"));
+-        ConcurrentHashMapUtils.computeIfAbsent(map, "AaAa", key -> map.computeIfAbsent("BBBB", key2 -> "42"));
++        // ConcurrentHashMapUtils.computeIfAbsent(map, "AaAa", key -> map.computeIfAbsent("BBBB", key2 -> "42"));
+     }
+ }
+\ No newline at end of file

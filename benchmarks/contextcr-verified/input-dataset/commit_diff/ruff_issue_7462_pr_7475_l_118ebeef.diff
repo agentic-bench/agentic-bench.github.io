@@ -1,0 +1,749 @@
+diff --git a/crates/ruff_formatter/src/builders.rs b/crates/ruff_formatter/src/builders.rs
+index ba5acf913de73..0bea4a09811be 100644
+--- a/crates/ruff_formatter/src/builders.rs
++++ b/crates/ruff_formatter/src/builders.rs
+@@ -1453,6 +1453,150 @@ impl<Context> std::fmt::Debug for Group<'_, Context> {
+     }
+ }
+ 
++/// Content that may get parenthesized if it exceeds the configured line width but only if the parenthesized
++/// layout doesn't exceed the line width too, in which case it falls back to the flat layout.
++///
++/// This IR is identical to the following [`best_fitting`] layout but is implemented as custom IR for
++/// best performance.
++///
++/// ```rust
++/// # use ruff_formatter::prelude::*;
++/// # use ruff_formatter::format_args;
++///
++/// let format_expression = format_with(|f: &mut Formatter<SimpleFormatContext>| token("A long string").fmt(f));
++/// let _ = best_fitting![
++///     // ---------------------------------------------------------------------
++///     // Variant 1:
++///     // Try to fit the expression without any parentheses
++///     group(&format_expression),
++///     // ---------------------------------------------------------------------
++///     // Variant 2:
++///     // Try to fit the expression by adding parentheses and indenting the expression.
++///     group(&format_args![
++///         token("("),
++///         soft_block_indent(&format_expression),
++///         token(")")
++///     ])
++///     .should_expand(true),
++///     // ---------------------------------------------------------------------
++///     // Variant 3: Fallback, no parentheses
++///     // Expression doesn't fit regardless of adding the parentheses. Remove the parentheses again.
++///     group(&format_expression).should_expand(true)
++/// ]
++/// // Measure all lines, to avoid that the printer decides that this fits right after hitting
++/// // the `(`.
++/// .with_mode(BestFittingMode::AllLines)        ;
++/// ```
++///
++/// The element breaks from left-to-right because it uses the unintended version as *expanded* layout, the same as the above showed best fitting example.
++///
++/// ## Examples
++///
++/// ### Content that fits into the configured line width.
++///
++/// ```rust
++/// # use ruff_formatter::prelude::*;
++/// # use ruff_formatter::{format, PrintResult, write};
++///
++/// # fn main() -> FormatResult<()> {
++///     let formatted = format!(SimpleFormatContext::default(), [format_with(|f| {
++///         write!(f, [
++///             token("aLongerVariableName = "),
++///             best_fit_parenthesize(&token("'a string that fits into the configured line width'"))
++///         ])
++///     })])?;
++///
++///     assert_eq!(formatted.print()?.as_code(), "aLongerVariableName = 'a string that fits into the configured line width'");
++///     # Ok(())
++/// # }
++/// ```
++///
++/// ### Content that fits parenthesized
++///
++/// ```rust
++/// # use ruff_formatter::prelude::*;
++/// # use ruff_formatter::{format, PrintResult, write};
++///
++/// # fn main() -> FormatResult<()> {
++///     let formatted = format!(SimpleFormatContext::default(), [format_with(|f| {
++///         write!(f, [
++///             token("aLongerVariableName = "),
++///             best_fit_parenthesize(&token("'a string that exceeds configured line width but fits parenthesized'"))
++///         ])
++///     })])?;
++///
++///     assert_eq!(formatted.print()?.as_code(), "aLongerVariableName = (\n\t'a string that exceeds configured line width but fits parenthesized'\n)");
++///     # Ok(())
++/// # }
++/// ```
++///
++/// ### Content that exceeds the line width, parenthesized or not
++///
++/// ```rust
++/// # use ruff_formatter::prelude::*;
++/// # use ruff_formatter::{format, PrintResult, write};
++///
++/// # fn main() -> FormatResult<()> {
++///     let formatted = format!(SimpleFormatContext::default(), [format_with(|f| {
++///         write!(f, [
++///             token("aLongerVariableName = "),
++///             best_fit_parenthesize(&token("'a string that exceeds the configured line width and even parenthesizing doesn't make it fit'"))
++///         ])
++///     })])?;
++///
++///     assert_eq!(formatted.print()?.as_code(), "aLongerVariableName = 'a string that exceeds the configured line width and even parenthesizing doesn't make it fit'");
++///     # Ok(())
++/// # }
++/// ```
++#[inline]
++pub fn best_fit_parenthesize<Context>(
++    content: &impl Format<Context>,
++) -> BestFitParenthesize<Context> {
++    BestFitParenthesize {
++        content: Argument::new(content),
++        group_id: None,
++    }
++}
++
++#[derive(Copy, Clone)]
++pub struct BestFitParenthesize<'a, Context> {
++    content: Argument<'a, Context>,
++    group_id: Option<GroupId>,
++}
++
++impl<Context> BestFitParenthesize<'_, Context> {
++    /// Optional ID that can be used in conditional content that supports [`Condition`] to gate content
++    /// depending on whether the parentheses are rendered (flat: no parentheses, expanded: parentheses).
++    #[must_use]
++    pub fn with_group_id(mut self, group_id: Option<GroupId>) -> Self {
++        self.group_id = group_id;
++        self
++    }
++}
++
++impl<Context> Format<Context> for BestFitParenthesize<'_, Context> {
++    fn fmt(&self, f: &mut Formatter<Context>) -> FormatResult<()> {
++        f.write_element(FormatElement::Tag(StartBestFitParenthesize {
++            id: self.group_id,
++        }));
++
++        Arguments::from(&self.content).fmt(f)?;
++
++        f.write_element(FormatElement::Tag(EndBesetFitParenthesize));
++
++        Ok(())
++    }
++}
++
++impl<Context> std::fmt::Debug for BestFitParenthesize<'_, Context> {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.debug_struct("BestFitParenthesize")
++            .field("group_id", &self.group_id)
++            .field("content", &"{{content}}")
++            .finish()
++    }
++}
++
+ /// Sets the `condition` for the group. The element will behave as a regular group if `condition` is met,
+ /// and as *ungrouped* content if the condition is not met.
+ ///
+diff --git a/crates/ruff_formatter/src/format_element/document.rs b/crates/ruff_formatter/src/format_element/document.rs
+index 9321d7a97ccfb..b6ce459ab1278 100644
+--- a/crates/ruff_formatter/src/format_element/document.rs
++++ b/crates/ruff_formatter/src/format_element/document.rs
+@@ -37,6 +37,7 @@ impl Document {
+             ConditionalGroup(&'a tag::ConditionalGroup),
+             FitsExpanded(&'a tag::FitsExpanded),
+             BestFitting,
++            BestFitParenthesize { expanded: bool },
+         }
+ 
+         fn expand_parent(enclosing: &[Enclosing]) {
+@@ -64,6 +65,18 @@ impl Document {
+                         Some(Enclosing::Group(group)) => !group.mode().is_flat(),
+                         _ => false,
+                     },
++                    FormatElement::Tag(Tag::StartBestFitParenthesize { .. }) => {
++                        enclosing.push(Enclosing::BestFitParenthesize { expanded: expands });
++                        expands = false;
++                        continue;
++                    }
++
++                    FormatElement::Tag(Tag::EndBesetFitParenthesize) => {
++                        if let Some(Enclosing::BestFitParenthesize { expanded }) = enclosing.pop() {
++                            expands = expanded;
++                        }
++                        continue;
++                    }
+                     FormatElement::Tag(Tag::StartConditionalGroup(group)) => {
+                         enclosing.push(Enclosing::ConditionalGroup(group));
+                         false
+@@ -499,6 +512,21 @@ impl Format<IrFormatContext<'_>> for &[FormatElement] {
+                             }
+                         }
+ 
++                        StartBestFitParenthesize { id } => {
++                            write!(f, [token("best_fit_parenthesize(")])?;
++
++                            if let Some(group_id) = id {
++                                write!(
++                                    f,
++                                    [
++                                        text(&std::format!("\"{group_id:?}\""), None),
++                                        token(","),
++                                        space(),
++                                    ]
++                                )?;
++                            }
++                        }
++
+                         StartConditionalGroup(group) => {
+                             write!(
+                                 f,
+@@ -607,6 +635,7 @@ impl Format<IrFormatContext<'_>> for &[FormatElement] {
+                         | EndIndent
+                         | EndGroup
+                         | EndConditionalGroup
++                        | EndBesetFitParenthesize
+                         | EndLineSuffix
+                         | EndDedent
+                         | EndFitsExpanded
+diff --git a/crates/ruff_formatter/src/format_element/tag.rs b/crates/ruff_formatter/src/format_element/tag.rs
+index da69013faa271..d48b17ef2a5fa 100644
+--- a/crates/ruff_formatter/src/format_element/tag.rs
++++ b/crates/ruff_formatter/src/format_element/tag.rs
+@@ -83,6 +83,13 @@ pub enum Tag {
+ 
+     StartFitsExpanded(FitsExpanded),
+     EndFitsExpanded,
++
++    /// Parenthesizes the content but only if adding the parentheses and indenting the content
++    /// makes the content fit in the configured line width.
++    StartBestFitParenthesize {
++        id: Option<GroupId>,
++    },
++    EndBesetFitParenthesize,
+ }
+ 
+ impl Tag {
+@@ -103,6 +110,7 @@ impl Tag {
+                 | Tag::StartVerbatim(_)
+                 | Tag::StartLabelled(_)
+                 | Tag::StartFitsExpanded(_)
++                | Tag::StartBestFitParenthesize { .. }
+         )
+     }
+ 
+@@ -129,6 +137,9 @@ impl Tag {
+             StartVerbatim(_) | EndVerbatim => TagKind::Verbatim,
+             StartLabelled(_) | EndLabelled => TagKind::Labelled,
+             StartFitsExpanded { .. } | EndFitsExpanded => TagKind::FitsExpanded,
++            StartBestFitParenthesize { .. } | EndBesetFitParenthesize => {
++                TagKind::BestFitParenthesize
++            }
+         }
+     }
+ }
+@@ -152,6 +163,7 @@ pub enum TagKind {
+     Verbatim,
+     Labelled,
+     FitsExpanded,
++    BestFitParenthesize,
+ }
+ 
+ #[derive(Debug, Copy, Default, Clone, Eq, PartialEq)]
+diff --git a/crates/ruff_formatter/src/printer/mod.rs b/crates/ruff_formatter/src/printer/mod.rs
+index 3d8d58be62ce9..e4718562439fd 100644
+--- a/crates/ruff_formatter/src/printer/mod.rs
++++ b/crates/ruff_formatter/src/printer/mod.rs
+@@ -174,6 +174,70 @@ impl<'a> Printer<'a> {
+                 stack.push(TagKind::Group, args.with_print_mode(print_mode));
+             }
+ 
++            FormatElement::Tag(StartBestFitParenthesize { id }) => {
++                const OPEN_PAREN: FormatElement = FormatElement::Token { text: "(" };
++                const INDENT: FormatElement = FormatElement::Tag(Tag::StartIndent);
++                const HARD_LINE_BREAK: FormatElement = FormatElement::Line(LineMode::Hard);
++
++                let print_mode = if self.flat_group_print_mode(
++                    TagKind::BestFitParenthesize,
++                    *id,
++                    args,
++                    queue,
++                    stack,
++                )? == PrintMode::Expanded
++                {
++                    if let Some(id) = id {
++                        self.state
++                            .group_modes
++                            .insert_print_mode(*id, PrintMode::Expanded);
++                    }
++
++                    stack.push(
++                        TagKind::BestFitParenthesize,
++                        args.with_measure_mode(MeasureMode::AllLines),
++                    );
++                    queue.extend_back(&[OPEN_PAREN, INDENT, HARD_LINE_BREAK]);
++                    let fits_expanded = self.fits(queue, stack)?;
++                    queue.pop_slice();
++                    stack.pop(TagKind::BestFitParenthesize)?;
++
++                    if fits_expanded {
++                        PrintMode::Expanded
++                    } else {
++                        PrintMode::Flat
++                    }
++                } else {
++                    PrintMode::Flat
++                };
++
++                if let Some(id) = id {
++                    self.state.group_modes.insert_print_mode(*id, print_mode);
++                }
++
++                if print_mode.is_expanded() {
++                    queue.extend_back(&[OPEN_PAREN, INDENT, HARD_LINE_BREAK]);
++                }
++
++                stack.push(
++                    TagKind::BestFitParenthesize,
++                    args.with_print_mode(print_mode),
++                );
++            }
++
++            FormatElement::Tag(Tag::EndBesetFitParenthesize) => {
++                if args.mode().is_expanded() {
++                    const HARD_LINE_BREAK: FormatElement = FormatElement::Line(LineMode::Hard);
++                    const CLOSE_PAREN: FormatElement = FormatElement::Token { text: ")" };
++
++                    // Pop the indent
++                    stack.pop(TagKind::Indent)?;
++                    queue.extend_back(&[HARD_LINE_BREAK, CLOSE_PAREN]);
++                }
++
++                stack.pop(TagKind::BestFitParenthesize)?;
++            }
++
+             FormatElement::Tag(StartConditionalGroup(group)) => {
+                 let condition = group.condition();
+                 let expected_mode = match condition.group_id {
+@@ -1182,6 +1246,38 @@ impl<'a, 'print> FitsMeasurer<'a, 'print> {
+                 return Ok(self.fits_group(TagKind::Group, group.mode(), group.id(), args));
+             }
+ 
++            FormatElement::Tag(StartBestFitParenthesize { id }) => {
++                if let Some(id) = id {
++                    self.printer
++                        .state
++                        .group_modes
++                        .insert_print_mode(*id, args.mode());
++                }
++
++                // Don't use the parenthesized with indent layout even when measuring expanded mode similar to `BestFitting`.
++                // This is to expand the left and not right after the `(` parentheses (it is okay to expand after the content that it wraps).
++                self.stack.push(TagKind::BestFitParenthesize, args);
++            }
++
++            FormatElement::Tag(EndBesetFitParenthesize) => {
++                // If this is the end tag of the outer most parentheses for which we measure if it fits,
++                // pop the indent.
++                if args.mode().is_expanded() && self.stack.top_kind() == Some(TagKind::Indent) {
++                    self.stack.pop(TagKind::Indent).unwrap();
++                    let unindented = self.stack.pop(TagKind::BestFitParenthesize)?;
++
++                    // There's a hard line break after the indent but don't return `Fits::Yes` here
++                    // to ensure any trailing comments (that, unfortunately, are attached to the statement and not the expression)
++                    // fit too.
++                    self.state.line_width = 0;
++                    self.state.pending_indent = unindented.indention();
++
++                    return Ok(self.fits_text(Text::Token(")"), unindented));
++                }
++
++                self.stack.pop(TagKind::BestFitParenthesize)?;
++            }
++
+             FormatElement::Tag(StartConditionalGroup(group)) => {
+                 let condition = group.condition();
+ 
+diff --git a/crates/ruff_python_formatter/resources/test/fixtures/ruff/expression/unsplittable.py b/crates/ruff_python_formatter/resources/test/fixtures/ruff/expression/unsplittable.py
+index 85545d6ac0dd6..4d46684bf5ab9 100644
+--- a/crates/ruff_python_formatter/resources/test/fixtures/ruff/expression/unsplittable.py
++++ b/crates/ruff_python_formatter/resources/test/fixtures/ruff/expression/unsplittable.py
+@@ -70,3 +70,32 @@ def test():
+     if True:
+         VLM_m2m = VLM.m2m_also_quite_long_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz.through
+         allows_group_by_select_index = self.connection.features.allows_group_by_select_index
++
++
++# This is a deviation from Black:
++# Black keeps the comment inside of the parentheses, making it more likely to exceed the line width.
++# Ruff renders the comment after the parentheses, giving it more space to fit.
++if True:
++    if True:
++        if True:
++            # Black layout
++            model.config.use_cache = (
++                False  # FSTM still requires this hack -> FSTM should probably be refactored s
++            )
++            # Ruff layout
++            model.config.use_cache = False  # FSTM still requires this hack -> FSTM should probably be refactored s
++
++
++# Regression test for https://github.com/astral-sh/ruff/issues/7463
++mp3fmt="<span style=\"color: grey\"><a href=\"{}\" id=\"audiolink\">listen</a></span></br>\n"
++
++# Regression test for https://github.com/astral-sh/ruff/issues/7067
++def f():
++    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa = (
++        True
++    )
++
++# Regression test for https://github.com/astral-sh/ruff/issues/7462
++if grid is not None:
++    rgrid = (rgrid.rio.reproject_match(grid, nodata=fillvalue) # rio.reproject nodata is use to initlialize the destination array
++             .where(~grid.isnull()))
+diff --git a/crates/ruff_python_formatter/src/expression/expr_constant.rs b/crates/ruff_python_formatter/src/expression/expr_constant.rs
+index 0a86ecc11462e..580c63d773754 100644
+--- a/crates/ruff_python_formatter/src/expression/expr_constant.rs
++++ b/crates/ruff_python_formatter/src/expression/expr_constant.rs
+@@ -5,7 +5,7 @@ use ruff_text_size::{Ranged, TextLen, TextRange};
+ 
+ use crate::comments::SourceComment;
+ use crate::expression::number::{FormatComplex, FormatFloat, FormatInt};
+-use crate::expression::parentheses::{should_use_best_fit, NeedsParentheses, OptionalParentheses};
++use crate::expression::parentheses::{NeedsParentheses, OptionalParentheses};
+ use crate::expression::string::{
+     AnyString, FormatString, StringLayout, StringPrefix, StringQuotes,
+ };
+@@ -76,16 +76,10 @@ impl NeedsParentheses for ExprConstant {
+     ) -> OptionalParentheses {
+         if self.value.is_implicit_concatenated() {
+             OptionalParentheses::Multiline
+-        } else if is_multiline_string(self, context.source())
+-            || self.value.is_none()
+-            || self.value.is_bool()
+-            || self.value.is_ellipsis()
+-        {
++        } else if is_multiline_string(self, context.source()) {
+             OptionalParentheses::Never
+-        } else if should_use_best_fit(self, context) {
+-            OptionalParentheses::BestFit
+         } else {
+-            OptionalParentheses::Never
++            OptionalParentheses::BestFit
+         }
+     }
+ }
+diff --git a/crates/ruff_python_formatter/src/expression/expr_f_string.rs b/crates/ruff_python_formatter/src/expression/expr_f_string.rs
+index 054990fb7ebcb..fc12c2c5c0fd4 100644
+--- a/crates/ruff_python_formatter/src/expression/expr_f_string.rs
++++ b/crates/ruff_python_formatter/src/expression/expr_f_string.rs
+@@ -4,7 +4,7 @@ use ruff_formatter::FormatResult;
+ use ruff_python_ast::node::AnyNodeRef;
+ use ruff_python_ast::ExprFString;
+ 
+-use crate::expression::parentheses::{should_use_best_fit, NeedsParentheses, OptionalParentheses};
++use crate::expression::parentheses::{NeedsParentheses, OptionalParentheses};
+ use crate::prelude::*;
+ 
+ use super::string::{AnyString, FormatString};
+@@ -26,9 +26,7 @@ impl NeedsParentheses for ExprFString {
+     ) -> OptionalParentheses {
+         if self.implicit_concatenated {
+             OptionalParentheses::Multiline
+-        } else if memchr2(b'\n', b'\r', context.source()[self.range].as_bytes()).is_none()
+-            && should_use_best_fit(self, context)
+-        {
++        } else if memchr2(b'\n', b'\r', context.source()[self.range].as_bytes()).is_none() {
+             OptionalParentheses::BestFit
+         } else {
+             OptionalParentheses::Never
+diff --git a/crates/ruff_python_formatter/src/expression/expr_name.rs b/crates/ruff_python_formatter/src/expression/expr_name.rs
+index b47021cf5439e..244943eacf552 100644
+--- a/crates/ruff_python_formatter/src/expression/expr_name.rs
++++ b/crates/ruff_python_formatter/src/expression/expr_name.rs
+@@ -3,7 +3,7 @@ use ruff_python_ast::node::AnyNodeRef;
+ use ruff_python_ast::ExprName;
+ 
+ use crate::comments::SourceComment;
+-use crate::expression::parentheses::{should_use_best_fit, NeedsParentheses, OptionalParentheses};
++use crate::expression::parentheses::{NeedsParentheses, OptionalParentheses};
+ use crate::prelude::*;
+ 
+ #[derive(Default)]
+@@ -38,13 +38,9 @@ impl NeedsParentheses for ExprName {
+     fn needs_parentheses(
+         &self,
+         _parent: AnyNodeRef,
+-        context: &PyFormatContext,
++        _context: &PyFormatContext,
+     ) -> OptionalParentheses {
+-        if should_use_best_fit(self, context) {
+-            OptionalParentheses::BestFit
+-        } else {
+-            OptionalParentheses::Never
+-        }
++        OptionalParentheses::BestFit
+     }
+ }
+ 
+diff --git a/crates/ruff_python_formatter/src/expression/mod.rs b/crates/ruff_python_formatter/src/expression/mod.rs
+index dd20097a7e3b1..6cae0c2973f3c 100644
+--- a/crates/ruff_python_formatter/src/expression/mod.rs
++++ b/crates/ruff_python_formatter/src/expression/mod.rs
+@@ -3,7 +3,7 @@ use std::cmp::Ordering;
+ use itertools::Itertools;
+ 
+ use ruff_formatter::{
+-    format_args, write, FormatOwnedWithRule, FormatRefWithRule, FormatRule, FormatRuleWithOptions,
++    write, FormatOwnedWithRule, FormatRefWithRule, FormatRule, FormatRuleWithOptions,
+ };
+ use ruff_python_ast as ast;
+ use ruff_python_ast::node::AnyNodeRef;
+@@ -195,8 +195,9 @@ impl Format<PyFormatContext<'_>> for MaybeParenthesizeExpression<'_> {
+                 f.context().source(),
+             );
+ 
+-        let has_comments =
+-            comments.has_leading(*expression) || comments.has_trailing_own_line(*expression);
++        let node_comments = comments.leading_dangling_trailing(*expression);
++
++        let has_comments = node_comments.has_leading() || node_comments.has_trailing_own_line();
+ 
+         // If the expression has comments, we always want to preserve the parentheses. This also
+         // ensures that we correctly handle parenthesized comments, and don't need to worry about
+@@ -245,53 +246,16 @@ impl Format<PyFormatContext<'_>> for MaybeParenthesizeExpression<'_> {
+                     expression.format().with_options(Parentheses::Never).fmt(f)
+                 }
+                 Parenthesize::IfBreaks => {
+-                    let group_id = f.group_id("optional_parentheses");
+-                    let f = &mut WithNodeLevel::new(NodeLevel::Expression(Some(group_id)), f);
+-                    let mut format_expression = expression
+-                        .format()
+-                        .with_options(Parentheses::Never)
+-                        .memoized();
+-
+-                    // Don't use best fitting if it is known that the expression can never fit
+-                    if format_expression.inspect(f)?.will_break() {
+-                        // The group here is necessary because `format_expression` may contain IR elements
+-                        // that refer to the group id
+-                        group(&format_args![
+-                            token("("),
+-                            soft_block_indent(&format_expression),
+-                            token(")")
+-                        ])
+-                        .with_group_id(Some(group_id))
+-                        .fmt(f)
++                    if node_comments.has_trailing() {
++                        expression.format().with_options(Parentheses::Always).fmt(f)
+                     } else {
+-                        // Only add parentheses if it makes the expression fit on the line.
+-                        // Using the flat version as the most expanded version gives a left-to-right splitting behavior
+-                        // which differs from when using regular groups, because they split right-to-left.
+-                        best_fitting![
+-                            // ---------------------------------------------------------------------
+-                            // Variant 1:
+-                            // Try to fit the expression without any parentheses
+-                            group(&format_expression).with_group_id(Some(group_id)),
+-                            // ---------------------------------------------------------------------
+-                            // Variant 2:
+-                            // Try to fit the expression by adding parentheses and indenting the expression.
+-                            group(&format_args![
+-                                token("("),
+-                                soft_block_indent(&format_expression),
+-                                token(")")
+-                            ])
+-                            .with_group_id(Some(group_id))
+-                            .should_expand(true),
+-                            // ---------------------------------------------------------------------
+-                            // Variant 3: Fallback, no parentheses
+-                            // Expression doesn't fit regardless of adding the parentheses. Remove the parentheses again.
+-                            group(&format_expression)
+-                                .with_group_id(Some(group_id))
+-                                .should_expand(true)
+-                        ]
+-                        // Measure all lines, to avoid that the printer decides that this fits right after hitting
+-                        // the `(`.
+-                        .with_mode(BestFittingMode::AllLines)
++                        // The group id is necessary because the nested expressions may reference it.
++                        let group_id = f.group_id("optional_parentheses");
++                        let f = &mut WithNodeLevel::new(NodeLevel::Expression(Some(group_id)), f);
++                        ruff_formatter::prelude::best_fit_parenthesize(
++                            &expression.format().with_options(Parentheses::Never),
++                        )
++                        .with_group_id(Some(group_id))
+                         .fmt(f)
+                     }
+                 }
+diff --git a/crates/ruff_python_formatter/src/expression/parentheses.rs b/crates/ruff_python_formatter/src/expression/parentheses.rs
+index 9b16fe416e7b2..134d4dcbb57b8 100644
+--- a/crates/ruff_python_formatter/src/expression/parentheses.rs
++++ b/crates/ruff_python_formatter/src/expression/parentheses.rs
+@@ -1,5 +1,5 @@
+ use ruff_formatter::prelude::tag::Condition;
+-use ruff_formatter::{format_args, write, Argument, Arguments, FormatContext, FormatOptions};
++use ruff_formatter::{format_args, write, Argument, Arguments};
+ use ruff_python_ast::node::AnyNodeRef;
+ use ruff_python_ast::ExpressionRef;
+ use ruff_python_trivia::CommentRanges;
+@@ -24,35 +24,14 @@ pub(crate) enum OptionalParentheses {
+     Always,
+ 
+     /// Add parentheses if it helps to make this expression fit. Otherwise never add parentheses.
+-    /// This mode should only be used for expressions that don't have their own split points, e.g. identifiers,
+-    /// or constants.
++    /// This mode should only be used for expressions that don't have their own split points to the left, e.g. identifiers,
++    /// or constants, calls starting with an identifier, etc.
+     BestFit,
+ 
+     /// Never add parentheses. Use it for expressions that have their own parentheses or if the expression body always spans multiple lines (multiline strings).
+     Never,
+ }
+ 
+-pub(super) fn should_use_best_fit<T>(value: T, context: &PyFormatContext) -> bool
+-where
+-    T: Ranged,
+-{
+-    let text_len = context.source()[value.range()].len();
+-
+-    // Only use best fits if:
+-    // * The text is longer than 5 characters:
+-    //   This is to align the behavior with `True` and `False`, that don't use best fits and are 5 characters long.
+-    //   It allows to avoid [`OptionalParentheses::BestFit`] for most numbers and common identifiers like `self`.
+-    //   The downside is that it can result in short values not being parenthesized if they exceed the line width.
+-    //   This is considered an edge case not worth the performance penalty and IMO, breaking an identifier
+-    //   of 5 characters to avoid it exceeding the line width by 1 reduces the readability.
+-    // * The text is know to never fit: The text can never fit even when parenthesizing if it is longer
+-    //   than the configured line width (minus indent).
+-    text_len > 5
+-        && text_len
+-            <= context.options().line_width().value() as usize
+-                - context.options().indent_width().value() as usize
+-}
+-
+ pub(crate) trait NeedsParentheses {
+     /// Determines if this object needs optional parentheses or if it is safe to omit the parentheses.
+     fn needs_parentheses(
+diff --git a/crates/ruff_python_formatter/src/lib.rs b/crates/ruff_python_formatter/src/lib.rs
+index 5ba8e3dde0278..56226ce094fcf 100644
+--- a/crates/ruff_python_formatter/src/lib.rs
++++ b/crates/ruff_python_formatter/src/lib.rs
+@@ -217,14 +217,7 @@ if True:
+     #[test]
+     fn quick_test() {
+         let src = r#"
+-def main() -> None:
+-    if True:
+-        some_very_long_variable_name_abcdefghijk = Foo()
+-        some_very_long_variable_name_abcdefghijk = some_very_long_variable_name_abcdefghijk[
+-            some_very_long_variable_name_abcdefghijk.some_very_long_attribute_name
+-            == "This is a very long string abcdefghijk"
+-        ]
+-
++return outputs  # hidden-states, present_key_value_states, (self-attention position bias), (self-attention weights), (cross-attention position bias), (cross-attention weights)
+ "#;
+         // Tokenize once
+         let mut tokens = Vec::new();
+diff --git a/crates/ruff_python_formatter/tests/snapshots/format@expression__unsplittable.py.snap b/crates/ruff_python_formatter/tests/snapshots/format@expression__unsplittable.py.snap
+index 05f319bf90696..cd42bf3a36f38 100644
+--- a/crates/ruff_python_formatter/tests/snapshots/format@expression__unsplittable.py.snap
++++ b/crates/ruff_python_formatter/tests/snapshots/format@expression__unsplittable.py.snap
+@@ -76,6 +76,35 @@ def test():
+     if True:
+         VLM_m2m = VLM.m2m_also_quite_long_zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz.through
+         allows_group_by_select_index = self.connection.features.allows_group_by_select_index
++
++
++# This is a deviation from Black:
++# Black keeps the comment inside of the parentheses, making it more likely to exceed the line width.
++# Ruff renders the comment after the parentheses, giving it more space to fit.
++if True:
++    if True:
++        if True:
++            # Black layout
++            model.config.use_cache = (
++                False  # FSTM still requires this hack -> FSTM should probably be refactored s
++            )
++            # Ruff layout
++            model.config.use_cache = False  # FSTM still requires this hack -> FSTM should probably be refactored s
++
++
++# Regression test for https://github.com/astral-sh/ruff/issues/7463
++mp3fmt="<span style=\"color: grey\"><a href=\"{}\" id=\"audiolink\">listen</a></span></br>\n"
++
++# Regression test for https://github.com/astral-sh/ruff/issues/7067
++def f():
++    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa = (
++        True
++    )
++
++# Regression test for https://github.com/astral-sh/ruff/issues/7462
++if grid is not None:
++    rgrid = (rgrid.rio.reproject_match(grid, nodata=fillvalue) # rio.reproject nodata is use to initlialize the destination array
++             .where(~grid.isnull()))
+ ```
+ 
+ ## Output
+@@ -140,7 +169,9 @@ for converter in connection.ops.get_db_converters(
+     ...
+ 
+ 
+-aaa = bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  # awkward comment
++aaa = (
++    bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb  # awkward comment
++)
+ 
+ 
+ def test():
+@@ -167,6 +198,44 @@ def test():
+         allows_group_by_select_index = (
+             self.connection.features.allows_group_by_select_index
+         )
++
++
++# This is a deviation from Black:
++# Black keeps the comment inside of the parentheses, making it more likely to exceed the line width.
++# Ruff renders the comment after the parentheses, giving it more space to fit.
++if True:
++    if True:
++        if True:
++            # Black layout
++            model.config.use_cache = (
++                False  # FSTM still requires this hack -> FSTM should probably be refactored s
++            )
++            # Ruff layout
++            model.config.use_cache = (
++                False
++            )  # FSTM still requires this hack -> FSTM should probably be refactored s
++
++
++# Regression test for https://github.com/astral-sh/ruff/issues/7463
++mp3fmt = (
++    '<span style="color: grey"><a href="{}" id="audiolink">listen</a></span></br>\n'
++)
++
++
++# Regression test for https://github.com/astral-sh/ruff/issues/7067
++def f():
++    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa = (
++        True
++    )
++
++
++# Regression test for https://github.com/astral-sh/ruff/issues/7462
++if grid is not None:
++    rgrid = rgrid.rio.reproject_match(
++        grid, nodata=fillvalue
++    ).where(  # rio.reproject nodata is use to initlialize the destination array
++        ~grid.isnull()
++    )
+ ```
+ 
+ 

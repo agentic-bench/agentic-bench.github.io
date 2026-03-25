@@ -1,0 +1,16 @@
+diff --git a/src/Http/Http/src/Features/FormFeature.cs b/src/Http/Http/src/Features/FormFeature.cs
+index c5dca940a913..26f49a2573a6 100644
+--- a/src/Http/Http/src/Features/FormFeature.cs
++++ b/src/Http/Http/src/Features/FormFeature.cs
+@@ -326,7 +326,10 @@ private static bool HasMultipartFormContentType([NotNullWhen(true)] MediaTypeHea
+ 
+     private bool ResolveHasInvalidAntiforgeryValidationFeature()
+     {
+-        if (_request is null) return false;
++        if (_request is null)
++        {
++            return false;
++        }
+         var hasInvokedMiddleware = _request.HttpContext.Items.ContainsKey("__AntiforgeryMiddlewareWithEndpointInvoked");
+         var hasInvalidToken = _request.HttpContext.Features.Get<IAntiforgeryValidationFeature>() is { IsValid: false };
+         return hasInvokedMiddleware && hasInvalidToken;

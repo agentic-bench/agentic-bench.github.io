@@ -2,6 +2,10 @@
 /harbor_logs
 /contextcrbench_baseline
 
+uv.lock
+.DS_Store
+__pycache__/
+
 /src/test_contextcrbench_generation.py
 /src/test_provider.py
 /src/test_direct_gateway.py
@@ -11,5 +15,14 @@
 
 *.log
 
-benchmarks/contextcrbench/input-dataset/contextcrbench2
-__pycache__/
+# working files
+benchmarks/contextcr-verified/input-dataset/contextcrbench2
+tmp_rovodev_evaluator_no_trajectory_for_coderabbit.py
+benchmarks/contextcr-verified/eval-results-backup
+benchmarks/contextcr-verified/input-dataset/contextcrbench_tasks_verify.csv
+benchmarks/contextcr-verified/input-dataset-backup
+benchmarks/contextcr-verified/llm-comments-backup
+benchmarks/contextcr-verified/contextcrbench_tasks.csv
+benchmarks/contextcr-verified/eval-results/eval-results-excluded
+benchmarks/contextcr-verified/contextcrbench_tasks.csv
+src/extra

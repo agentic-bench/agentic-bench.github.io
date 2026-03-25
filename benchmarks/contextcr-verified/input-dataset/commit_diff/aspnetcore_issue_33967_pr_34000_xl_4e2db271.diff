@@ -1,0 +1,471 @@
+diff --git a/src/Components/Components.slnf b/src/Components/Components.slnf
+index b9b4e3eea2b2..13e1d697bcf1 100644
+--- a/src/Components/Components.slnf
++++ b/src/Components/Components.slnf
+@@ -46,13 +46,18 @@
+       "src\\Components\\test\\testassets\\BasicTestApp\\BasicTestApp.csproj",
+       "src\\Components\\test\\testassets\\ComponentsApp.Server\\ComponentsApp.Server.csproj",
+       "src\\Components\\test\\testassets\\GlobalizationWasmApp\\GlobalizationWasmApp.csproj",
++      "src\\Components\\test\\testassets\\LazyTestContentPackage\\LazyTestContentPackage.csproj",
+       "src\\Components\\test\\testassets\\TestContentPackage\\TestContentPackage.csproj",
+       "src\\Components\\test\\testassets\\TestServer\\Components.TestServer.csproj",
+       "src\\DataProtection\\Abstractions\\src\\Microsoft.AspNetCore.DataProtection.Abstractions.csproj",
+       "src\\DataProtection\\Cryptography.Internal\\src\\Microsoft.AspNetCore.Cryptography.Internal.csproj",
++      "src\\DataProtection\\Cryptography.KeyDerivation\\src\\Microsoft.AspNetCore.Cryptography.KeyDerivation.csproj",
+       "src\\DataProtection\\DataProtection\\src\\Microsoft.AspNetCore.DataProtection.csproj",
++      "src\\DataProtection\\Extensions\\src\\Microsoft.AspNetCore.DataProtection.Extensions.csproj",
+       "src\\DefaultBuilder\\src\\Microsoft.AspNetCore.csproj",
+       "src\\Features\\JsonPatch\\src\\Microsoft.AspNetCore.JsonPatch.csproj",
++      "src\\FileProviders\\Embedded\\src\\Microsoft.Extensions.FileProviders.Embedded.csproj",
++      "src\\FileProviders\\Manifest.MSBuildTask\\src\\Microsoft.Extensions.FileProviders.Embedded.Manifest.Task.csproj",
+       "src\\Hosting\\Abstractions\\src\\Microsoft.AspNetCore.Hosting.Abstractions.csproj",
+       "src\\Hosting\\Hosting\\src\\Microsoft.AspNetCore.Hosting.csproj",
+       "src\\Hosting\\Server.Abstractions\\src\\Microsoft.AspNetCore.Hosting.Server.Abstractions.csproj",
+@@ -69,7 +74,15 @@
+       "src\\Http\\Routing.Abstractions\\src\\Microsoft.AspNetCore.Routing.Abstractions.csproj",
+       "src\\Http\\Routing\\src\\Microsoft.AspNetCore.Routing.csproj",
+       "src\\Http\\WebUtilities\\src\\Microsoft.AspNetCore.WebUtilities.csproj",
++      "src\\Identity\\ApiAuthorization.IdentityServer\\src\\Microsoft.AspNetCore.ApiAuthorization.IdentityServer.csproj",
++      "src\\Identity\\Core\\src\\Microsoft.AspNetCore.Identity.csproj",
++      "src\\Identity\\EntityFrameworkCore\\src\\Microsoft.AspNetCore.Identity.EntityFrameworkCore.csproj",
++      "src\\Identity\\Extensions.Core\\src\\Microsoft.Extensions.Identity.Core.csproj",
++      "src\\Identity\\Extensions.Stores\\src\\Microsoft.Extensions.Identity.Stores.csproj",
++      "src\\Identity\\UI\\src\\Microsoft.AspNetCore.Identity.UI.csproj",
+       "src\\JSInterop\\Microsoft.JSInterop\\src\\Microsoft.JSInterop.csproj",
++      "src\\Localization\\Abstractions\\src\\Microsoft.Extensions.Localization.Abstractions.csproj",
++      "src\\Localization\\Localization\\src\\Microsoft.Extensions.Localization.csproj",
+       "src\\Middleware\\CORS\\src\\Microsoft.AspNetCore.Cors.csproj",
+       "src\\Middleware\\Diagnostics.Abstractions\\src\\Microsoft.AspNetCore.Diagnostics.Abstractions.csproj",
+       "src\\Middleware\\Diagnostics\\src\\Microsoft.AspNetCore.Diagnostics.csproj",
+@@ -87,6 +100,7 @@
+       "src\\Mvc\\Mvc.Core\\src\\Microsoft.AspNetCore.Mvc.Core.csproj",
+       "src\\Mvc\\Mvc.Cors\\src\\Microsoft.AspNetCore.Mvc.Cors.csproj",
+       "src\\Mvc\\Mvc.DataAnnotations\\src\\Microsoft.AspNetCore.Mvc.DataAnnotations.csproj",
++      "src\\Mvc\\Mvc.Formatters.Json\\src\\Microsoft.AspNetCore.Mvc.Formatters.Json.csproj",
+       "src\\Mvc\\Mvc.Localization\\src\\Microsoft.AspNetCore.Mvc.Localization.csproj",
+       "src\\Mvc\\Mvc.NewtonsoftJson\\src\\Microsoft.AspNetCore.Mvc.NewtonsoftJson.csproj",
+       "src\\Mvc\\Mvc.RazorPages\\src\\Microsoft.AspNetCore.Mvc.RazorPages.csproj",
+@@ -94,10 +108,15 @@
+       "src\\Mvc\\Mvc.TagHelpers\\src\\Microsoft.AspNetCore.Mvc.TagHelpers.csproj",
+       "src\\Mvc\\Mvc.ViewFeatures\\src\\Microsoft.AspNetCore.Mvc.ViewFeatures.csproj",
+       "src\\Mvc\\Mvc\\src\\Microsoft.AspNetCore.Mvc.csproj",
++      "src\\ObjectPool\\src\\Microsoft.Extensions.ObjectPool.csproj",
+       "src\\Razor\\Razor.Runtime\\src\\Microsoft.AspNetCore.Razor.Runtime.csproj",
+       "src\\Razor\\Razor\\src\\Microsoft.AspNetCore.Razor.csproj",
++      "src\\Security\\Authentication\\Cookies\\src\\Microsoft.AspNetCore.Authentication.Cookies.csproj",
++      "src\\Security\\Authentication\\Core\\src\\Microsoft.AspNetCore.Authentication.csproj",
++      "src\\Security\\Authentication\\JwtBearer\\src\\Microsoft.AspNetCore.Authentication.JwtBearer.csproj",
+       "src\\Security\\Authorization\\Core\\src\\Microsoft.AspNetCore.Authorization.csproj",
+       "src\\Security\\Authorization\\Policy\\src\\Microsoft.AspNetCore.Authorization.Policy.csproj",
++      "src\\Security\\CookiePolicy\\src\\Microsoft.AspNetCore.CookiePolicy.csproj",
+       "src\\Servers\\Connections.Abstractions\\src\\Microsoft.AspNetCore.Connections.Abstractions.csproj",
+       "src\\Servers\\IIS\\IISIntegration\\src\\Microsoft.AspNetCore.Server.IISIntegration.csproj",
+       "src\\Servers\\IIS\\IIS\\src\\Microsoft.AspNetCore.Server.IIS.csproj",
+@@ -116,7 +135,8 @@
+       "src\\SignalR\\common\\SignalR.Common\\src\\Microsoft.AspNetCore.SignalR.Common.csproj",
+       "src\\SignalR\\server\\Core\\src\\Microsoft.AspNetCore.SignalR.Core.csproj",
+       "src\\SignalR\\server\\SignalR\\src\\Microsoft.AspNetCore.SignalR.csproj",
+-      "src\\Testing\\src\\Microsoft.AspNetCore.Testing.csproj"
++      "src\\Testing\\src\\Microsoft.AspNetCore.Testing.csproj",
++      "src\\WebEncoders\\src\\Microsoft.Extensions.WebEncoders.csproj"
+     ]
+   }
+ }
+\ No newline at end of file
+diff --git a/src/Components/Ignitor/src/ElementNode.cs b/src/Components/Ignitor/src/ElementNode.cs
+index 4a43ddcc6e2d..c3ad3b41b04a 100644
+--- a/src/Components/Ignitor/src/ElementNode.cs
++++ b/src/Components/Ignitor/src/ElementNode.cs
+@@ -111,10 +111,10 @@ public Task ClickAsync(HubConnection connection)
+             return DispatchEventCore(connection, Serialize(webEventDescriptor), Serialize(mouseEventArgs));
+         }
+ 
+-        private static string Serialize<T>(T payload) =>
+-             JsonSerializer.Serialize(payload, new JsonSerializerOptions() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
++        private static byte[] Serialize<T>(T payload) =>
++             JsonSerializer.SerializeToUtf8Bytes(payload, new JsonSerializerOptions() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+ 
+-        private static Task DispatchEventCore(HubConnection connection, string descriptor, string eventArgs) =>
++        private static Task DispatchEventCore(HubConnection connection, byte[] descriptor, byte[] eventArgs) =>
+             connection.InvokeAsync("DispatchBrowserEvent", descriptor, eventArgs);
+ 
+         public class ElementEventDescriptor
+diff --git a/src/Components/Shared/src/WebEventData/ChangeEventArgsReader.cs b/src/Components/Shared/src/WebEventData/ChangeEventArgsReader.cs
+index 558856a6e14f..e94f0188dfbc 100644
+--- a/src/Components/Shared/src/WebEventData/ChangeEventArgsReader.cs
++++ b/src/Components/Shared/src/WebEventData/ChangeEventArgsReader.cs
+@@ -36,6 +36,10 @@ internal static ChangeEventArgs Read(JsonElement jsonElement)
+                     }
+                     return changeArgs;
+                 }
++                else
++                {
++                    throw new JsonException($"Unknown property {property.Name}");
++                }
+             }
+ 
+             return changeArgs;
+diff --git a/src/Components/Shared/src/WebEventData/ClipboardEventArgsReader.cs b/src/Components/Shared/src/WebEventData/ClipboardEventArgsReader.cs
+index 501b166ed3fb..36b1ace3a965 100644
+--- a/src/Components/Shared/src/WebEventData/ClipboardEventArgsReader.cs
++++ b/src/Components/Shared/src/WebEventData/ClipboardEventArgsReader.cs
+@@ -20,6 +20,10 @@ internal static ClipboardEventArgs Read(JsonElement jsonElement)
+                 {
+                     eventArgs.Type = property.Value.GetString()!;
+                 }
++                else
++                {
++                    throw new JsonException($"Unknown property {property.Name}");
++                }
+             }
+ 
+             return eventArgs;
+diff --git a/src/Components/Shared/src/WebEventData/DragEventArgsReader.cs b/src/Components/Shared/src/WebEventData/DragEventArgsReader.cs
+index 2c55202fd851..d60937ec6171 100644
+--- a/src/Components/Shared/src/WebEventData/DragEventArgsReader.cs
++++ b/src/Components/Shared/src/WebEventData/DragEventArgsReader.cs
+@@ -22,13 +22,16 @@ internal static class DragEventArgsReader
+         internal static DragEventArgs Read(JsonElement jsonElement)
+         {
+             var eventArgs = new DragEventArgs();
+-            MouseEventArgsReader.Read(jsonElement, eventArgs);
+             foreach (var property in jsonElement.EnumerateObject())
+             {
+                 if (property.NameEquals(DataTransfer.EncodedUtf8Bytes))
+                 {
+                     eventArgs.DataTransfer = ReadDataTransfer(property.Value);
+                 }
++                else
++                {
++                    MouseEventArgsReader.ReadProperty(eventArgs, property);
++                }
+             }
+ 
+             return eventArgs;
+@@ -66,6 +69,10 @@ private static DataTransfer ReadDataTransfer(JsonElement jsonElement)
+                 {
+                     dataTransfer.Types = ReadStringArray(property.Value);
+                 }
++                else
++                {
++                    throw new JsonException($"Unknown property {property.Name}");
++                }
+             }
+ 
+             return dataTransfer;
+@@ -84,6 +91,10 @@ private static DataTransferItem ReadDataTransferItem(JsonElement jsonElement)
+                 {
+                     item.Type = property.Value.GetString()!;
+                 }
++                else
++                {
++                    throw new JsonException($"Unknown property {property.Name}");
++                }
+             }
+ 
+             return item;
+diff --git a/src/Components/Shared/src/WebEventData/ErrorEventArgsReader.cs b/src/Components/Shared/src/WebEventData/ErrorEventArgsReader.cs
+index 1fe6fdc92fd4..8f14f73cfd31 100644
+--- a/src/Components/Shared/src/WebEventData/ErrorEventArgsReader.cs
++++ b/src/Components/Shared/src/WebEventData/ErrorEventArgsReader.cs
+@@ -40,6 +40,10 @@ internal static ErrorEventArgs Read(JsonElement jsonElement)
+                 {
+                     eventArgs.Type = property.Value.GetString()!;
+                 }
++                else
++                {
++                    throw new JsonException($"Unknown property {property.Name}");
++                }
+             }
+             return eventArgs;
+         }
+diff --git a/src/Components/Shared/src/WebEventData/FocusEventArgsReader.cs b/src/Components/Shared/src/WebEventData/FocusEventArgsReader.cs
+index bee3ba64de72..512629b0797b 100644
+--- a/src/Components/Shared/src/WebEventData/FocusEventArgsReader.cs
++++ b/src/Components/Shared/src/WebEventData/FocusEventArgsReader.cs
+@@ -20,6 +20,10 @@ internal static FocusEventArgs Read(JsonElement jsonElement)
+                 {
+                     eventArgs.Type = property.Value.GetString()!;
+                 }
++                else
++                {
++                    throw new JsonException($"Unknown property {property.Name}");
++                }
+             }
+             return eventArgs;
+         }
+diff --git a/src/Components/Shared/src/WebEventData/KeyboardEventArgsReader.cs b/src/Components/Shared/src/WebEventData/KeyboardEventArgsReader.cs
+index 984dcee35cc7..0d031498ebdb 100644
+--- a/src/Components/Shared/src/WebEventData/KeyboardEventArgsReader.cs
++++ b/src/Components/Shared/src/WebEventData/KeyboardEventArgsReader.cs
+@@ -60,6 +60,10 @@ internal static KeyboardEventArgs Read(JsonElement jsonElement)
+                 {
+                     eventArgs.Type = property.Value.GetString()!;
+                 }
++                else
++                {
++                    throw new JsonException($"Unknown property {property.Name}");
++                }
+             }
+             return eventArgs;
+         }
+diff --git a/src/Components/Shared/src/WebEventData/MouseEventArgsReader.cs b/src/Components/Shared/src/WebEventData/MouseEventArgsReader.cs
+index c75a7a077e0c..0c86fd44fbc2 100644
+--- a/src/Components/Shared/src/WebEventData/MouseEventArgsReader.cs
++++ b/src/Components/Shared/src/WebEventData/MouseEventArgsReader.cs
+@@ -27,70 +27,74 @@ internal static class MouseEventArgsReader
+         internal static MouseEventArgs Read(JsonElement jsonElement)
+         {
+             var eventArgs = new MouseEventArgs();
+-            Read(jsonElement, eventArgs);
++            foreach (var property in jsonElement.EnumerateObject())
++            {
++                ReadProperty(eventArgs, property);
++            }
+             return eventArgs;
+         }
+ 
+-        internal static void Read(JsonElement jsonElement, MouseEventArgs eventArgs)
++        internal static void ReadProperty(MouseEventArgs eventArgs, JsonProperty property)
+         {
+-            foreach (var property in jsonElement.EnumerateObject())
++            if (property.NameEquals(Detail.EncodedUtf8Bytes))
++            {
++                eventArgs.Detail = property.Value.GetInt64();
++            }
++            else if (property.NameEquals(ScreenX.EncodedUtf8Bytes))
++            {
++                eventArgs.ScreenX = property.Value.GetDouble();
++            }
++            else if (property.NameEquals(ScreenY.EncodedUtf8Bytes))
++            {
++                eventArgs.ScreenY = property.Value.GetDouble();
++            }
++            else if (property.NameEquals(ClientX.EncodedUtf8Bytes))
++            {
++                eventArgs.ClientX = property.Value.GetDouble();
++            }
++            else if (property.NameEquals(ClientY.EncodedUtf8Bytes))
++            {
++                eventArgs.ClientY = property.Value.GetDouble();
++            }
++            else if (property.NameEquals(OffsetX.EncodedUtf8Bytes))
++            {
++                eventArgs.OffsetX = property.Value.GetDouble();
++            }
++            else if (property.NameEquals(OffsetY.EncodedUtf8Bytes))
++            {
++                eventArgs.OffsetY = property.Value.GetDouble();
++            }
++            else if (property.NameEquals(Button.EncodedUtf8Bytes))
++            {
++                eventArgs.Button = property.Value.GetInt64();
++            }
++            else if (property.NameEquals(Buttons.EncodedUtf8Bytes))
++            {
++                eventArgs.Buttons = property.Value.GetInt64();
++            }
++            else if (property.NameEquals(CtrlKey.EncodedUtf8Bytes))
++            {
++                eventArgs.CtrlKey = property.Value.GetBoolean();
++            }
++            else if (property.NameEquals(ShiftKey.EncodedUtf8Bytes))
++            {
++                eventArgs.ShiftKey = property.Value.GetBoolean();
++            }
++            else if (property.NameEquals(AltKey.EncodedUtf8Bytes))
++            {
++                eventArgs.AltKey = property.Value.GetBoolean();
++            }
++            else if (property.NameEquals(MetaKey.EncodedUtf8Bytes))
++            {
++                eventArgs.MetaKey = property.Value.GetBoolean();
++            }
++            else if (property.NameEquals(Type.EncodedUtf8Bytes))
++            {
++                eventArgs.Type = property.Value.GetString()!;
++            }
++            else
+             {
+-                if (property.NameEquals(Detail.EncodedUtf8Bytes))
+-                {
+-                    eventArgs.Detail = property.Value.GetInt64();
+-                }
+-                else if (property.NameEquals(ScreenX.EncodedUtf8Bytes))
+-                {
+-                    eventArgs.ScreenX = property.Value.GetDouble();
+-                }
+-                else if (property.NameEquals(ScreenY.EncodedUtf8Bytes))
+-                {
+-                    eventArgs.ScreenY = property.Value.GetDouble();
+-                }
+-                else if (property.NameEquals(ClientX.EncodedUtf8Bytes))
+-                {
+-                    eventArgs.ClientX = property.Value.GetDouble();
+-                }
+-                else if (property.NameEquals(ClientY.EncodedUtf8Bytes))
+-                {
+-                    eventArgs.ClientY = property.Value.GetDouble();
+-                }
+-                else if (property.NameEquals(OffsetX.EncodedUtf8Bytes))
+-                {
+-                    eventArgs.OffsetX = property.Value.GetDouble();
+-                }
+-                else if (property.NameEquals(OffsetY.EncodedUtf8Bytes))
+-                {
+-                    eventArgs.OffsetY = property.Value.GetDouble();
+-                }
+-                else if (property.NameEquals(Button.EncodedUtf8Bytes))
+-                {
+-                    eventArgs.Button = property.Value.GetInt64();
+-                }
+-                else if (property.NameEquals(Buttons.EncodedUtf8Bytes))
+-                {
+-                    eventArgs.Buttons = property.Value.GetInt64();
+-                }
+-                else if (property.NameEquals(CtrlKey.EncodedUtf8Bytes))
+-                {
+-                    eventArgs.CtrlKey = property.Value.GetBoolean();
+-                }
+-                else if (property.NameEquals(ShiftKey.EncodedUtf8Bytes))
+-                {
+-                    eventArgs.ShiftKey = property.Value.GetBoolean();
+-                }
+-                else if (property.NameEquals(AltKey.EncodedUtf8Bytes))
+-                {
+-                    eventArgs.AltKey = property.Value.GetBoolean();
+-                }
+-                else if (property.NameEquals(MetaKey.EncodedUtf8Bytes))
+-                {
+-                    eventArgs.MetaKey = property.Value.GetBoolean();
+-                }
+-                else if (property.NameEquals(Type.EncodedUtf8Bytes))
+-                {
+-                    eventArgs.Type = property.Value.GetString()!;
+-                }
++                throw new JsonException($"Unknown property {property.Name}");
+             }
+         }
+     }
+diff --git a/src/Components/Shared/src/WebEventData/PointerEventArgsReader.cs b/src/Components/Shared/src/WebEventData/PointerEventArgsReader.cs
+index f9ba770d1f93..8f5d44e78ff5 100644
+--- a/src/Components/Shared/src/WebEventData/PointerEventArgsReader.cs
++++ b/src/Components/Shared/src/WebEventData/PointerEventArgsReader.cs
+@@ -21,7 +21,6 @@ internal static class PointerEventArgsReader
+         internal static PointerEventArgs Read(JsonElement jsonElement)
+         {
+             var eventArgs = new PointerEventArgs();
+-            MouseEventArgsReader.Read(jsonElement, eventArgs);
+ 
+             foreach (var property in jsonElement.EnumerateObject())
+             {
+@@ -57,6 +56,10 @@ internal static PointerEventArgs Read(JsonElement jsonElement)
+                 {
+                     eventArgs.IsPrimary = property.Value.GetBoolean();
+                 }
++                else
++                {
++                    MouseEventArgsReader.ReadProperty(eventArgs, property);
++                }
+             }
+ 
+             return eventArgs;
+diff --git a/src/Components/Shared/src/WebEventData/ProgressEventArgReader.cs b/src/Components/Shared/src/WebEventData/ProgressEventArgReader.cs
+index 3150a250ea26..d61ff1ae4f8e 100644
+--- a/src/Components/Shared/src/WebEventData/ProgressEventArgReader.cs
++++ b/src/Components/Shared/src/WebEventData/ProgressEventArgReader.cs
+@@ -35,6 +35,10 @@ internal static ProgressEventArgs Read(JsonElement jsonElement)
+                 {
+                     eventArgs.Type = property.Value.GetString()!;
+                 }
++                else
++                {
++                    throw new JsonException($"Unknown property {property.Name}");
++                }
+             }
+             return eventArgs;
+         }
+diff --git a/src/Components/Shared/src/WebEventData/TouchEventArgsReader.cs b/src/Components/Shared/src/WebEventData/TouchEventArgsReader.cs
+index 11131ef98d7b..5b893c8cc9cc 100644
+--- a/src/Components/Shared/src/WebEventData/TouchEventArgsReader.cs
++++ b/src/Components/Shared/src/WebEventData/TouchEventArgsReader.cs
+@@ -67,6 +67,10 @@ internal static TouchEventArgs Read(JsonElement jsonElement)
+                 {
+                     eventArgs.Type = property.Value.GetString()!;
+                 }
++                else
++                {
++                    throw new JsonException($"Unknown property {property.Name}");
++                }
+             }
+ 
+             return eventArgs;
+@@ -117,6 +121,10 @@ private static TouchPoint ReadTouchPoint(JsonElement jsonElement)
+                 {
+                     touchPoint.ScreenY = property.Value.GetDouble();
+                 }
++                else
++                {
++                    throw new JsonException($"Unknown property {property.Name}");
++                }
+             }
+ 
+             return touchPoint;
+diff --git a/src/Components/Shared/src/WebEventData/WebEventDescriptorReader.cs b/src/Components/Shared/src/WebEventData/WebEventDescriptorReader.cs
+index d96d008184fd..ba3d0aa79014 100644
+--- a/src/Components/Shared/src/WebEventData/WebEventDescriptorReader.cs
++++ b/src/Components/Shared/src/WebEventData/WebEventDescriptorReader.cs
+@@ -38,6 +38,10 @@ internal static WebEventDescriptor Read(JsonElement jsonElement)
+                 {
+                     descriptor.EventFieldInfo = ReadEventFieldInfo(property.Value);
+                 }
++                else
++                {
++                    throw new JsonException($"Unknown property {property.Name}");
++                }
+             }
+ 
+             return descriptor;
+@@ -57,7 +61,7 @@ internal static WebEventDescriptor Read(JsonElement jsonElement)
+                 {
+                     eventFieldInfo.ComponentId = property.Value.GetInt32();
+                 }
+-                if (property.NameEquals(FieldValueKey.EncodedUtf8Bytes))
++                else if (property.NameEquals(FieldValueKey.EncodedUtf8Bytes))
+                 {
+                     if (property.Value.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                     {
+@@ -68,6 +72,10 @@ internal static WebEventDescriptor Read(JsonElement jsonElement)
+                         eventFieldInfo.FieldValue = property.Value.GetString()!;
+                     }
+                 }
++                else
++                {
++                    throw new JsonException($"Unknown property {property.Name}");
++                }
+             }
+ 
+             return eventFieldInfo;
+diff --git a/src/Components/Shared/src/WebEventData/WheelEventArgsReader.cs b/src/Components/Shared/src/WebEventData/WheelEventArgsReader.cs
+index bc64c0e29bfb..4e7747884b00 100644
+--- a/src/Components/Shared/src/WebEventData/WheelEventArgsReader.cs
++++ b/src/Components/Shared/src/WebEventData/WheelEventArgsReader.cs
+@@ -18,7 +18,6 @@ internal static class WheelEventArgsReader
+         internal static WheelEventArgs Read(JsonElement jsonElement)
+         {
+             var eventArgs = new WheelEventArgs();
+-            MouseEventArgsReader.Read(jsonElement, eventArgs);
+ 
+             foreach (var property in jsonElement.EnumerateObject())
+             {
+@@ -38,6 +37,10 @@ internal static WheelEventArgs Read(JsonElement jsonElement)
+                 {
+                     eventArgs.DeltaMode = property.Value.GetInt64();
+                 }
++                else
++                {
++                    MouseEventArgsReader.ReadProperty(eventArgs, property);
++                }
+             }
+ 
+             return eventArgs;

@@ -1,0 +1,119 @@
+diff --git a/config/config.go b/config/config.go
+index 018f4427d5699..a22a7614ffc4a 100644
+--- a/config/config.go
++++ b/config/config.go
+@@ -488,8 +488,9 @@ type Instance struct {
+ 	PluginDir                  string `toml:"plugin_dir" json:"plugin_dir"`
+ 	PluginLoad                 string `toml:"plugin_load" json:"plugin_load"`
+ 	// MaxConnections is the maximum permitted number of simultaneous client connections.
+-	MaxConnections uint32     `toml:"max_connections" json:"max_connections"`
+-	TiDBEnableDDL  AtomicBool `toml:"tidb_enable_ddl" json:"tidb_enable_ddl"`
++	MaxConnections    uint32     `toml:"max_connections" json:"max_connections"`
++	TiDBEnableDDL     AtomicBool `toml:"tidb_enable_ddl" json:"tidb_enable_ddl"`
++	TiDBRCReadCheckTS bool       `toml:"tidb_rc_read_check_ts" json:"tidb_rc_read_check_ts"`
+ }
+ 
+ func (l *Log) getDisableTimestamp() bool {
+@@ -867,6 +868,7 @@ var defaultConf = Config{
+ 		PluginLoad:                  "",
+ 		MaxConnections:              0,
+ 		TiDBEnableDDL:               *NewAtomicBool(true),
++		TiDBRCReadCheckTS:           false,
+ 	},
+ 	Status: Status{
+ 		ReportStatus:          true,
+diff --git a/sessionctx/variable/session.go b/sessionctx/variable/session.go
+index ecb4b5b93c638..cf93414d61df0 100644
+--- a/sessionctx/variable/session.go
++++ b/sessionctx/variable/session.go
+@@ -1202,8 +1202,6 @@ type SessionVars struct {
+ 	CostModelVersion int
+ 	// BatchPendingTiFlashCount shows the threshold of pending TiFlash tables when batch adding.
+ 	BatchPendingTiFlashCount int
+-	// RcReadCheckTS indicates if ts check optimization is enabled for current session.
+-	RcReadCheckTS bool
+ 	// RcWriteCheckTS indicates whether some special write statements don't get latest tso from PD at RC
+ 	RcWriteCheckTS bool
+ 	// RemoveOrderbyInSubquery indicates whether to remove ORDER BY in subquery.
+diff --git a/sessionctx/variable/sysvar.go b/sessionctx/variable/sysvar.go
+index 680feb4460a55..0889a708140e7 100644
+--- a/sessionctx/variable/sysvar.go
++++ b/sessionctx/variable/sysvar.go
+@@ -456,6 +456,12 @@ var defaultSysVars = []*SysVar{
+ 			return BoolToOnOff(config.GetGlobalConfig().Instance.TiDBEnableDDL.Load()), nil
+ 		},
+ 	},
++	{Scope: ScopeInstance, Name: TiDBRCReadCheckTS, Value: BoolToOnOff(DefRCReadCheckTS), Type: TypeBool, SetGlobal: func(s *SessionVars, val string) error {
++		EnableRCReadCheckTS.Store(TiDBOptOn(val))
++		return nil
++	}, GetGlobal: func(s *SessionVars) (string, error) {
++		return BoolToOnOff(EnableRCReadCheckTS.Load()), nil
++	}},
+ 
+ 	/* The system variables below have GLOBAL scope  */
+ 	{Scope: ScopeGlobal, Name: MaxPreparedStmtCount, Value: strconv.FormatInt(DefMaxPreparedStmtCount, 10), Type: TypeInt, MinValue: -1, MaxValue: 1048576},
+@@ -1710,10 +1716,6 @@ var defaultSysVars = []*SysVar{
+ 			return nil
+ 		},
+ 	},
+-	{Scope: ScopeGlobal | ScopeSession, Name: TiDBRCReadCheckTS, Type: TypeBool, Value: BoolToOnOff(DefRCReadCheckTS), SetSession: func(s *SessionVars, val string) error {
+-		s.RcReadCheckTS = TiDBOptOn(val)
+-		return nil
+-	}},
+ 	{Scope: ScopeGlobal | ScopeSession, Name: TiDBRCWriteCheckTs, Type: TypeBool, Value: BoolToOnOff(DefTiDBRcWriteCheckTs), SetSession: func(s *SessionVars, val string) error {
+ 		s.RcWriteCheckTS = TiDBOptOn(val)
+ 		return nil
+diff --git a/sessionctx/variable/sysvar_test.go b/sessionctx/variable/sysvar_test.go
+index 1ca4eca74e029..ac4a294b0ba16 100644
+--- a/sessionctx/variable/sysvar_test.go
++++ b/sessionctx/variable/sysvar_test.go
+@@ -349,6 +349,10 @@ func TestInstanceScopedVars(t *testing.T) {
+ 	val, err = vars.GetSessionOrGlobalSystemVar(TiDBLogFileMaxDays)
+ 	require.NoError(t, err)
+ 	require.Equal(t, fmt.Sprint(GlobalLogMaxDays.Load()), val)
++
++	val, err = vars.GetSessionOrGlobalSystemVar(TiDBRCReadCheckTS)
++	require.NoError(t, err)
++	require.Equal(t, BoolToOnOff(EnableRCReadCheckTS.Load()), val)
+ }
+ 
+ func TestSecureAuth(t *testing.T) {
+diff --git a/sessionctx/variable/tidb_vars.go b/sessionctx/variable/tidb_vars.go
+index ffffc0e5f0b33..fe9ead0646434 100644
+--- a/sessionctx/variable/tidb_vars.go
++++ b/sessionctx/variable/tidb_vars.go
+@@ -1101,7 +1101,8 @@ var (
+ 	// DDLDiskQuota is the temporary variable for set disk quota for lightning
+ 	DDLDiskQuota = atomic.NewUint64(DefTiDBDDLDiskQuota)
+ 	// EnableForeignKey indicates whether to enable foreign key feature.
+-	EnableForeignKey = atomic.NewBool(false)
++	EnableForeignKey    = atomic.NewBool(false)
++	EnableRCReadCheckTS = atomic.NewBool(false)
+ )
+ 
+ var (
+diff --git a/sessiontxn/isolation/readcommitted.go b/sessiontxn/isolation/readcommitted.go
+index b3f27f4edefcd..851f7dccda89b 100644
+--- a/sessiontxn/isolation/readcommitted.go
++++ b/sessiontxn/isolation/readcommitted.go
+@@ -101,7 +101,7 @@ func (p *PessimisticRCTxnContextProvider) OnStmtStart(ctx context.Context, node
+ // NeedSetRCCheckTSFlag checks whether it's needed to set `RCCheckTS` flag in current stmtctx.
+ func NeedSetRCCheckTSFlag(ctx sessionctx.Context, node ast.Node) bool {
+ 	sessionVars := ctx.GetSessionVars()
+-	if sessionVars.ConnectionID > 0 && sessionVars.RcReadCheckTS && sessionVars.InTxn() &&
++	if sessionVars.ConnectionID > 0 && variable.EnableRCReadCheckTS.Load() && sessionVars.InTxn() &&
+ 		!sessionVars.RetryInfo.Retrying && plannercore.IsReadOnly(node, sessionVars) {
+ 		return true
+ 	}
+diff --git a/tidb-server/main.go b/tidb-server/main.go
+index 36b9e90290f78..e9cbc326ab8ef 100644
+--- a/tidb-server/main.go
++++ b/tidb-server/main.go
+@@ -638,6 +638,7 @@ func setGlobalVars() {
+ 
+ 	variable.ProcessGeneralLog.Store(cfg.Instance.TiDBGeneralLog)
+ 	variable.EnablePProfSQLCPU.Store(cfg.Instance.EnablePProfSQLCPU)
++	variable.EnableRCReadCheckTS.Store(cfg.Instance.TiDBRCReadCheckTS)
+ 	atomic.StoreUint32(&variable.DDLSlowOprThreshold, cfg.Instance.DDLSlowOprThreshold)
+ 	atomic.StoreUint64(&variable.ExpensiveQueryTimeThreshold, cfg.Instance.ExpensiveQueryTimeThreshold)
+ 

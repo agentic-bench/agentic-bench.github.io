@@ -1,0 +1,79 @@
+diff --git a/src/app/commands/cmd_change_pixel_format.cpp b/src/app/commands/cmd_change_pixel_format.cpp
+index 081155c896..35784b0d56 100644
+--- a/src/app/commands/cmd_change_pixel_format.cpp
++++ b/src/app/commands/cmd_change_pixel_format.cpp
+@@ -667,8 +667,7 @@ render::DitheringMatrix ChangePixelFormatCommand::getDitheringMatrix(
+   }
+ 
+   // Default dithering matrix is BayerMatrix(8)
+-  // TODO object slicing here (from BayerMatrix -> DitheringMatrix)
+-  return render::BayerMatrix(8);
++  return render::BayerMatrix::make(8);
+ }
+ 
+ Command* CommandFactory::createChangePixelFormatCommand()
+diff --git a/src/render/dithering_matrix.h b/src/render/dithering_matrix.h
+index 159ba10942..4e1e003761 100644
+--- a/src/render/dithering_matrix.h
++++ b/src/render/dithering_matrix.h
+@@ -47,21 +47,24 @@ class DitheringMatrix {
+ };
+ 
+ // Creates a Bayer dither matrix.
+-class BayerMatrix : public DitheringMatrix {
++struct BayerMatrix {
+   static int D2[4];
+ 
+ public:
+-  BayerMatrix(int n) : DitheringMatrix(n, n)
++  static DitheringMatrix make(int n)
+   {
++    DitheringMatrix matrix(n, n);
++
+     for (int i = 0; i < n; ++i)
+       for (int j = 0; j < n; ++j)
+-        operator()(i, j) = Dn(i, j, n);
++        matrix(i, j) = Dn(i, j, n);
+ 
+-    calcMaxValue();
++    matrix.calcMaxValue();
++    return matrix;
+   }
+ 
+ private:
+-  int Dn(int i, int j, int n) const
++  static int Dn(int i, int j, int n)
+   {
+     ASSERT(i >= 0 && i < n);
+     ASSERT(j >= 0 && j < n);
+diff --git a/src/render/ordered_dither_tests.cpp b/src/render/ordered_dither_tests.cpp
+index 617227d67f..c24fd0370c 100644
+--- a/src/render/ordered_dither_tests.cpp
++++ b/src/render/ordered_dither_tests.cpp
+@@ -19,7 +19,7 @@ using namespace render;
+ 
+ TEST(BayerMatrix, CheckD2)
+ {
+-  BayerMatrix matrix(2);
++  DitheringMatrix matrix = BayerMatrix::make(2);
+   int expected[2 * 2] = { 0, 2, 3, 1 };
+   int c = 0;
+   for (int i = 0; i < 2; ++i)
+@@ -29,7 +29,7 @@ TEST(BayerMatrix, CheckD2)
+ 
+ TEST(BayerMatrix, CheckD4)
+ {
+-  BayerMatrix matrix(4);
++  DitheringMatrix matrix = BayerMatrix::make(4);
+   int expected[4 * 4] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
+   int c = 0;
+   for (int i = 0; i < 4; ++i)
+@@ -39,7 +39,7 @@ TEST(BayerMatrix, CheckD4)
+ 
+ TEST(BayerMatrix, CheckD8)
+ {
+-  BayerMatrix matrix(8);
++  DitheringMatrix matrix = BayerMatrix::make(8);
+   int expected[8 * 8] = { 0,  32, 8,  40, 2,  34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 26,
+                           12, 44, 4,  36, 14, 46, 6,  38, 60, 28, 52, 20, 62, 30, 54, 22,
+ 

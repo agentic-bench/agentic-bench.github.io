@@ -1,0 +1,109 @@
+diff --git a/homeassistant/components/upnp/__init__.py b/homeassistant/components/upnp/__init__.py
+index 6db8b087378057..d2d59d78c0e58e 100644
+--- a/homeassistant/components/upnp/__init__.py
++++ b/homeassistant/components/upnp/__init__.py
+@@ -198,6 +198,7 @@ class UpnpBinarySensorEntityDescription(BinarySensorEntityDescription):
+     """A class that describes UPnP entities."""
+ 
+     format: str = "s"
++    unique_id: str | None = None
+ 
+ 
+ @dataclass
+@@ -205,6 +206,7 @@ class UpnpSensorEntityDescription(SensorEntityDescription):
+     """A class that describes a sensor UPnP entities."""
+ 
+     format: str = "s"
++    unique_id: str | None = None
+ 
+ 
+ class UpnpDataUpdateCoordinator(DataUpdateCoordinator):
+@@ -250,7 +252,7 @@ def __init__(
+         self._device = coordinator.device
+         self.entity_description = entity_description
+         self._attr_name = f"{coordinator.device.name} {entity_description.name}"
+-        self._attr_unique_id = f"{coordinator.device.udn}_{entity_description.key}"
++        self._attr_unique_id = f"{coordinator.device.udn}_{entity_description.unique_id or entity_description.key}"
+         self._attr_device_info = {
+             "connections": {(dr.CONNECTION_UPNP, coordinator.device.udn)},
+             "name": coordinator.device.name,
+diff --git a/homeassistant/components/upnp/binary_sensor.py b/homeassistant/components/upnp/binary_sensor.py
+index 3bf9635c78b5d5..c4e7264c34b40e 100644
+--- a/homeassistant/components/upnp/binary_sensor.py
++++ b/homeassistant/components/upnp/binary_sensor.py
+@@ -30,14 +30,16 @@ async def async_setup_entry(
+ 
+     LOGGER.debug("Adding binary sensor")
+ 
+-    async_add_entities(
++    entities = [
+         UpnpStatusBinarySensor(
+             coordinator=coordinator,
+             entity_description=entity_description,
+         )
+         for entity_description in BINARYSENSOR_ENTITY_DESCRIPTIONS
+         if coordinator.data.get(entity_description.key) is not None
+-    )
++    ]
++    LOGGER.debug("Adding entities: %s", entities)
++    async_add_entities(entities)
+ 
+ 
+ class UpnpStatusBinarySensor(UpnpEntity, BinarySensorEntity):
+diff --git a/homeassistant/components/upnp/sensor.py b/homeassistant/components/upnp/sensor.py
+index 8ad8677b6474eb..334dc9e8c2266f 100644
+--- a/homeassistant/components/upnp/sensor.py
++++ b/homeassistant/components/upnp/sensor.py
+@@ -15,6 +15,7 @@
+     DATA_RATE_PACKETS_PER_SECOND,
+     DOMAIN,
+     KIBIBYTE,
++    LOGGER,
+     PACKETS_RECEIVED,
+     PACKETS_SENT,
+     ROUTER_IP,
+@@ -74,28 +75,32 @@
+ 
+ DERIVED_SENSORS: tuple[UpnpSensorEntityDescription, ...] = (
+     UpnpSensorEntityDescription(
+-        key="KiB/sec_received",
++        key=BYTES_RECEIVED,
++        unique_id="KiB/sec_received",
+         name=f"{DATA_RATE_KIBIBYTES_PER_SECOND} received",
+         icon="mdi:server-network",
+         native_unit_of_measurement=DATA_RATE_KIBIBYTES_PER_SECOND,
+         format=".1f",
+     ),
+     UpnpSensorEntityDescription(
+-        key="KiB/sent",
++        key=BYTES_SENT,
++        unique_id="KiB/sent",
+         name=f"{DATA_RATE_KIBIBYTES_PER_SECOND} sent",
+         icon="mdi:server-network",
+         native_unit_of_measurement=DATA_RATE_KIBIBYTES_PER_SECOND,
+         format=".1f",
+     ),
+     UpnpSensorEntityDescription(
+-        key="packets/sec_received",
++        key=PACKETS_RECEIVED,
++        unique_id="packets/sec_received",
+         name=f"{DATA_RATE_PACKETS_PER_SECOND} received",
+         icon="mdi:server-network",
+         native_unit_of_measurement=DATA_RATE_PACKETS_PER_SECOND,
+         format=".1f",
+     ),
+     UpnpSensorEntityDescription(
+-        key="packets/sent",
++        key=PACKETS_SENT,
++        unique_id="packets/sent",
+         name=f"{DATA_RATE_PACKETS_PER_SECOND} sent",
+         icon="mdi:server-network",
+         native_unit_of_measurement=DATA_RATE_PACKETS_PER_SECOND,
+@@ -131,6 +136,7 @@ async def async_setup_entry(
+         ]
+     )
+ 
++    LOGGER.debug("Adding entities: %s", entities)
+     async_add_entities(entities)
+ 
+ 

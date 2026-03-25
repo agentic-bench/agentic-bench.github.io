@@ -1,0 +1,46 @@
+diff --git a/subsys/bluetooth/controller/Kconfig.ll_sw_split b/subsys/bluetooth/controller/Kconfig.ll_sw_split
+index 0a1aad05d8222..27f26ac64de1c 100644
+--- a/subsys/bluetooth/controller/Kconfig.ll_sw_split
++++ b/subsys/bluetooth/controller/Kconfig.ll_sw_split
+@@ -201,6 +201,13 @@ config BT_CTLR_SCAN_SYNC_ISO_SET
+ 	help
+ 	  Maximum supported broadcast isochronous groups (BIGs) sync sets.
+ 
++config BT_CTLR_SCAN_ENABLE_STRICT
++	bool "Enforce Strict Scan Enable/Disable"
++	depends on BT_OBSERVER
++	help
++	  Enforce returning HCI Error Command Disallowed on enabling/disabling
++	  already enabled/disabled scanning.
++
+ config BT_CTLR_ZLI
+ 	bool "Use Zero Latency IRQs"
+ 	depends on ZERO_LATENCY_IRQS
+diff --git a/subsys/bluetooth/controller/hci/hci.c b/subsys/bluetooth/controller/hci/hci.c
+index 531f620ca43d4..d35e8c9a746c4 100644
+--- a/subsys/bluetooth/controller/hci/hci.c
++++ b/subsys/bluetooth/controller/hci/hci.c
+@@ -1502,6 +1502,11 @@ static void le_set_scan_enable(struct net_buf *buf, struct net_buf **evt)
+ 	status = ll_scan_enable(cmd->enable);
+ #endif /* !CONFIG_BT_CTLR_ADV_EXT */
+ 
++	if (!IS_ENABLED(CONFIG_BT_CTLR_SCAN_ENABLE_STRICT) &&
++	    (status == BT_HCI_ERR_CMD_DISALLOWED)) {
++		status = BT_HCI_ERR_SUCCESS;
++	}
++
+ 	*evt = cmd_complete_status(status);
+ }
+ 
+@@ -2972,6 +2977,11 @@ static void le_set_ext_scan_enable(struct net_buf *buf, struct net_buf **evt)
+ 
+ 	status = ll_scan_enable(cmd->enable, cmd->duration, cmd->period);
+ 
++	if (!IS_ENABLED(CONFIG_BT_CTLR_SCAN_ENABLE_STRICT) &&
++	    (status == BT_HCI_ERR_CMD_DISALLOWED)) {
++		status = BT_HCI_ERR_SUCCESS;
++	}
++
+ 	*evt = cmd_complete_status(status);
+ }
+ 

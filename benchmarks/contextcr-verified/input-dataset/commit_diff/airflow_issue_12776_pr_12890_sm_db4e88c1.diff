@@ -1,0 +1,114 @@
+diff --git a/airflow/migrations/versions/4addfa1236f1_add_fractional_seconds_to_mysql_tables.py b/airflow/migrations/versions/4addfa1236f1_add_fractional_seconds_to_mysql_tables.py
+index 0451b42ccb8a4..1f32448d7848e 100644
+--- a/airflow/migrations/versions/4addfa1236f1_add_fractional_seconds_to_mysql_tables.py
++++ b/airflow/migrations/versions/4addfa1236f1_add_fractional_seconds_to_mysql_tables.py
+@@ -35,7 +35,7 @@
+ 
+ 
+ def upgrade():  # noqa: D103
+-    conn = op.get_bind()
++    conn = op.get_bind()  # pylint: disable=no-member
+     if conn.dialect.name == "mysql":
+         op.alter_column(table_name='dag', column_name='last_scheduler_run', type_=mysql.DATETIME(fsp=6))
+         op.alter_column(table_name='dag', column_name='last_pickled', type_=mysql.DATETIME(fsp=6))
+@@ -80,7 +80,7 @@ def upgrade():  # noqa: D103
+ 
+ 
+ def downgrade():  # noqa: D103
+-    conn = op.get_bind()
++    conn = op.get_bind()  # pylint: disable=no-member
+     if conn.dialect.name == "mysql":
+         op.alter_column(table_name='dag', column_name='last_scheduler_run', type_=mysql.DATETIME())
+         op.alter_column(table_name='dag', column_name='last_pickled', type_=mysql.DATETIME())
+diff --git a/airflow/migrations/versions/d2ae31099d61_increase_text_size_for_mysql.py b/airflow/migrations/versions/d2ae31099d61_increase_text_size_for_mysql.py
+index 4c57a301b08bc..e8d445d7cc5a5 100644
+--- a/airflow/migrations/versions/d2ae31099d61_increase_text_size_for_mysql.py
++++ b/airflow/migrations/versions/d2ae31099d61_increase_text_size_for_mysql.py
+@@ -34,12 +34,12 @@
+ 
+ 
+ def upgrade():  # noqa: D103
+-    conn = op.get_bind()
++    conn = op.get_bind()  # pylint: disable=no-member
+     if conn.dialect.name == "mysql":
+         op.alter_column(table_name='variable', column_name='val', type_=mysql.MEDIUMTEXT)
+ 
+ 
+ def downgrade():  # noqa: D103
+-    conn = op.get_bind()
++    conn = op.get_bind()  # pylint: disable=no-member
+     if conn.dialect.name == "mysql":
+         op.alter_column(table_name='variable', column_name='val', type_=mysql.TEXT)
+diff --git a/airflow/migrations/versions/e959f08ac86c_change_field_in_dagcode_to_mediumtext_.py b/airflow/migrations/versions/e959f08ac86c_change_field_in_dagcode_to_mediumtext_.py
+new file mode 100644
+index 0000000000000..c34e240e8958e
+--- /dev/null
++++ b/airflow/migrations/versions/e959f08ac86c_change_field_in_dagcode_to_mediumtext_.py
+@@ -0,0 +1,45 @@
++#
++# Licensed to the Apache Software Foundation (ASF) under one
++# or more contributor license agreements.  See the NOTICE file
++# distributed with this work for additional information
++# regarding copyright ownership.  The ASF licenses this file
++# to you under the Apache License, Version 2.0 (the
++# "License"); you may not use this file except in compliance
++# with the License.  You may obtain a copy of the License at
++#
++#   http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing,
++# software distributed under the License is distributed on an
++# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
++# KIND, either express or implied.  See the License for the
++# specific language governing permissions and limitations
++# under the License.
++
++"""Change field in DagCode to MEDIUMTEXT for MySql
++
++Revision ID: e959f08ac86c
++Revises: 64a7d6477aae
++Create Date: 2020-12-07 16:31:43.982353
++
++"""
++from alembic import op
++from sqlalchemy.dialects import mysql
++
++# revision identifiers, used by Alembic.
++revision = 'e959f08ac86c'
++down_revision = '64a7d6477aae'
++branch_labels = None
++depends_on = None
++
++
++def upgrade():  # noqa: D103
++    conn = op.get_bind()  # pylint: disable=no-member
++    if conn.dialect.name == "mysql":
++        op.alter_column(table_name='dag_code', column_name='source_code', type_=mysql.MEDIUMTEXT)
++
++
++def downgrade():  # noqa: D103
++    conn = op.get_bind()  # pylint: disable=no-member
++    if conn.dialect.name == "mysql":
++        op.alter_column(table_name='dag_code', column_name='source_code', type_=mysql.TEXT)
+diff --git a/airflow/models/dagcode.py b/airflow/models/dagcode.py
+index 67e12b7e2a196..ce65fc2f159ec 100644
+--- a/airflow/models/dagcode.py
++++ b/airflow/models/dagcode.py
+@@ -20,7 +20,7 @@
+ from datetime import datetime
+ from typing import Iterable, List, Optional
+ 
+-from sqlalchemy import BigInteger, Column, String, UnicodeText, exists
++from sqlalchemy import BigInteger, Column, String, Text, exists
+ 
+ from airflow.exceptions import AirflowException, DagCodeNotFound
+ from airflow.models.base import Base
+@@ -50,7 +50,7 @@ class DagCode(Base):
+     fileloc = Column(String(2000), nullable=False)
+     # The max length of fileloc exceeds the limit of indexing.
+     last_updated = Column(UtcDateTime, nullable=False)
+-    source_code = Column(UnicodeText, nullable=False)
++    source_code = Column(Text, nullable=False)
+ 
+     def __init__(self, full_filepath: str, source_code: Optional[str] = None):
+         self.fileloc = full_filepath

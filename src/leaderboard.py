@@ -352,6 +352,234 @@ def _evaluate_expression_on_df(expr: str, df: pd.DataFrame) -> pd.Series:
     return pd.Series([False] * len(df), index=df.index)
 
 
+def _compute_gt_coverage_data(
+    benchmark: BenchmarkRegistry,
+    agents_perf: list[dict],
+    eval_results_dir: Path,
+    benchmarks_root: str,
+    gt_df: pd.DataFrame | None,
+) -> dict | None:
+    """
+    Compute Ground Truth Coverage data: for each GT comment, check if any LLM comment
+    satisfies the primary metric for that GT.
+    
+    For ContextCRBench with primary_metric = and(location_matched, human_aligned):
+    - A GT is "covered" if there exists an LLM comment that is BOTH:
+      1. Localized to that GT (same file, ±5 lines)
+      2. Human-aligned with that GT
+    
+    Returns:
+    {
+        "agents": ["agent1", "agent2", "agent3"],
+        "sets": {
+            "agent1": [gt_id_1, gt_id_3, ...],  # GT IDs covered by this agent
+            "agent2": [gt_id_2, gt_id_3, ...],
+            "agent3": [...],
+            "Others": [...]
+        },
+        "intersections": {
+            "all_4": 42,
+            ...
+        },
+        "coverage_pct": {
+            "agent1": 0.45,  # % of total GT covered
+            "agent2": 0.38,
+            ...
+        }
+    }
+    or None if disabled or not enough data.
+    """
+    if gt_df is None or gt_df.empty:
+        return None
+    
+    if not benchmark.venn_diagram or not benchmark.venn_diagram.get("enabled", False):
+        return None
+    
+    primary_metric = benchmark.primary_metric
+    if not primary_metric:
+        return None
+    
+    top_n = benchmark.venn_diagram.get("top_n_agents", 3)
+    
+    # Determine if primary_metric is an expression
+    is_expression = any(op in primary_metric for op in ['and(', 'or(', 'not('])
+    
+    # Sort agents by overall_weighted_score (which is computed from primary_metric)
+    sorted_agents = sorted(
+        agents_perf,
+        key=lambda x: x.get("overall_weighted_score", 0) or 0,
+        reverse=True,
+    )
+    
+    top_agents = sorted_agents[:top_n]
+    if len(top_agents) < 2:
+        return None
+    
+    agent_ids = [ap["agent"] for ap in top_agents]
+    total_gt = len(gt_df)
+    agent_sets = {}
+    coverage_pct = {}
+    
+    # For each top agent, find which GT comments they cover
+    for agent in top_agents:
+        agent_id = agent["agent"]
+        comments_files = list(eval_results_dir.glob(f"*{agent_id}*_comments.jsonl"))
+        if not comments_files:
+            agent_sets[agent_id] = []
+            coverage_pct[agent_id] = 0.0
+            continue
+        
+        comments_file = sorted(comments_files)[-1]
+        
+        try:
+            eval_df = load_eval_comments(str(comments_file))
+            if eval_df.empty:
+                agent_sets[agent_id] = []
+                coverage_pct[agent_id] = 0.0
+                continue
+            
+            # Find GT comments covered by this agent
+            covered_gt_ids = set()
+            
+            # For each GT comment, check if any LLM comment covers it
+            for gt_idx, gt_row in gt_df.iterrows():
+                gt_id = str(gt_row["diff_id"])
+                gt_file = str(gt_row.get("comment_file", ""))
+                gt_line = int(gt_row.get("comment_line", 0))
+                
+                # Find LLM comments for this diff that could cover this GT
+                diff_comments = eval_df[eval_df["diff_id"] == gt_id]
+                
+                for _, llm_comment in diff_comments.iterrows():
+                    llm_file = str(llm_comment.get("comment_file", ""))
+                    llm_line = llm_comment.get("comment_line")
+                    
+                    if llm_file != gt_file or llm_line is None:
+                        continue
+                    
+                    llm_line = int(llm_line)
+                    
+                    # Check if within ±5 lines
+                    if abs(llm_line - gt_line) <= 5:
+                        # Check if LLM comment satisfies the primary metric
+                        if is_expression:
+                            try:
+                                llm_row_df = pd.DataFrame([llm_comment])
+                                evaluated = _evaluate_expression_on_df(primary_metric, llm_row_df)
+                                if evaluated.iloc[0]:
+                                    covered_gt_ids.add(gt_idx)
+                                    break
+                            except Exception:
+                                pass
+                        else:
+                            # Simple column check
+                            if primary_metric in llm_comment and llm_comment[primary_metric]:
+                                covered_gt_ids.add(gt_idx)
+                                break
+            
+            agent_sets[agent_id] = sorted(list(covered_gt_ids))
+            coverage_pct[agent_id] = len(covered_gt_ids) / total_gt if total_gt > 0 else 0.0
+        
+        except Exception as e:
+            print(f"    [WARN] Error computing GT coverage for {agent_id}: {e}")
+            agent_sets[agent_id] = []
+            coverage_pct[agent_id] = 0.0
+    
+    # Add "Others": GT covered by any non-top agent
+    others_covered = set()
+    try:
+        for comments_file in eval_results_dir.glob("*_comments.jsonl"):
+            file_name = comments_file.name
+            # Check if this is a top agent
+            is_top_agent = any(agent_id in file_name for agent_id in agent_ids)
+            
+            if not is_top_agent:
+                try:
+                    eval_df = load_eval_comments(str(comments_file))
+                    if not eval_df.empty:
+                        for gt_idx, gt_row in gt_df.iterrows():
+                            gt_id = str(gt_row["diff_id"])
+                            gt_file = str(gt_row.get("comment_file", ""))
+                            gt_line = int(gt_row.get("comment_line", 0))
+                            
+                            diff_comments = eval_df[eval_df["diff_id"] == gt_id]
+                            
+                            for _, llm_comment in diff_comments.iterrows():
+                                llm_file = str(llm_comment.get("comment_file", ""))
+                                llm_line = llm_comment.get("comment_line")
+                                
+                                if llm_file != gt_file or llm_line is None:
+                                    continue
+                                
+                                llm_line = int(llm_line)
+                                if abs(llm_line - gt_line) <= 5:
+                                    if is_expression:
+                                        try:
+                                            llm_row_df = pd.DataFrame([llm_comment])
+                                            evaluated = _evaluate_expression_on_df(primary_metric, llm_row_df)
+                                            if evaluated.iloc[0]:
+                                                others_covered.add(gt_idx)
+                                                break
+                                        except Exception:
+                                            pass
+                                    else:
+                                        if primary_metric in llm_comment and llm_comment[primary_metric]:
+                                            others_covered.add(gt_idx)
+                                            break
+                except Exception:
+                    pass
+    except Exception as e:
+        print(f"    [WARN] Error loading 'Others' agents for GT coverage: {e}")
+    
+    agent_sets["Others"] = sorted(list(others_covered))
+    coverage_pct["Others"] = len(others_covered) / total_gt if total_gt > 0 else 0.0
+    
+    # Compute intersections
+    agent_list = list(agent_sets.keys())
+    set_list = [set(agent_sets[a]) for a in agent_list]
+    
+    intersections = {}
+    
+    # All agents together
+    if len(agent_list) >= 3:
+        intersections[f"all_{len(agent_list)}"] = len(set.intersection(*set_list))
+    
+    # Pairwise intersections
+    for i in range(len(agent_list)):
+        for j in range(i + 1, len(agent_list)):
+            key = f"{agent_list[i]}_{agent_list[j]}"
+            intersections[key] = len(set_list[i] & set_list[j])
+    
+    # Only in each set
+    for i, agent in enumerate(agent_list):
+        other_sets = set.union(*[set_list[j] for j in range(len(agent_list)) if j != i])
+        only = len(set_list[i] - other_sets)
+        intersections[f"{agent}_only"] = only
+    
+    # Total unique GT covered
+    all_gt = set.union(*set_list)
+    total_unique_gt = len(all_gt)
+    
+    # Debug output
+    print(f"\n  === Ground Truth Coverage Calculation ({benchmark.name}) ===")
+    print(f"  Primary metric: {primary_metric}")
+    for agent in agent_list:
+        gt_covered = len(agent_sets[agent])
+        pct = coverage_pct[agent] * 100
+        print(f"    {agent:25} {gt_covered:3d} GT covered ({pct:.1f}%)")
+    print(f"  Total GT in dataset: {total_gt}")
+    print(f"  Unique GT covered (union): {total_unique_gt} ({total_unique_gt/total_gt*100:.1f}%)")
+    
+    return {
+        "agents": agent_list,
+        "sets": agent_sets,
+        "intersections": intersections,
+        "coverage_pct": coverage_pct,
+        "total_gt": total_gt,
+        "total_unique_gt": total_unique_gt,
+    }
+
+
 def _compute_venn_diagram_data(
     benchmark: BenchmarkRegistry,
     agents_perf: list[dict],
@@ -390,16 +618,32 @@ def _compute_venn_diagram_data(
     if not benchmark.venn_diagram or not benchmark.venn_diagram.get("enabled", False):
         return None
 
-    # Always use benchmark.primary_metric (no separate config)
-    primary_metric = benchmark.primary_metric
+    # For Venn diagram, use the actual metric expression if primary_metric is a group_score
+    # Otherwise use primary_metric directly
+    venn_metric = benchmark.primary_metric
+    
+    # If primary_metric is a group_score (collapsed column), use the original and() expression
+    # This is needed because group_score/* doesn't exist in the comments file
+    if venn_metric and venn_metric.startswith('group_score/'):
+        # Fall back to using the original composite metric from the benchmark goal
+        # For contextcrbench, this should be and(location_matched, human_aligned)
+        # We'll reconstruct it from the group_summary config
+        group_name = venn_metric.replace('group_score/', '')
+        group_cfg = benchmark.group_summary.get(group_name, {})
+        if group_cfg.get('method') == 'harmonic_mean':
+            # Reconstruct the and() expression from the columns
+            cols = group_cfg.get('columns', [])
+            if len(cols) >= 2:
+                venn_metric = f"and({cols[0]}, {cols[1]})"
+    
     top_n = benchmark.venn_diagram.get("top_n_agents", 3)
     min_threshold = benchmark.venn_diagram.get("min_score_threshold", 0.0)
 
-    if not primary_metric:
+    if not venn_metric:
         return None
 
     # Determine if primary_metric is an expression
-    is_expression = any(op in primary_metric for op in ['and(', 'or(', 'not('])
+    is_expression = any(op in venn_metric for op in ['and(', 'or(', 'not('])
 
     # Sort agents by overall_weighted_score (which is computed from primary_metric)
     sorted_agents = sorted(
@@ -437,7 +681,7 @@ def _compute_venn_diagram_data(
                 agent_sets[agent_id] = []
                 continue
 
-            # Find diff_ids where primary_metric evaluates to True
+            # Find diff_ids where venn_metric evaluates to True
             diff_ids_with_true = set()
             
             if is_expression:
@@ -446,7 +690,7 @@ def _compute_venn_diagram_data(
                     diff_rows = df[df["diff_id"] == diff_id]
                     try:
                         # Evaluate expression for each comment in this diff
-                        evaluated = _evaluate_expression_on_df(primary_metric, diff_rows)
+                        evaluated = _evaluate_expression_on_df(venn_metric, diff_rows)
                         # If ANY comment in this diff evaluates to True → include diff_id
                         if evaluated.any():
                             diff_ids_with_true.add(str(diff_id))
@@ -454,7 +698,7 @@ def _compute_venn_diagram_data(
                         pass
             else:
                 # Simple column name (existing logic)
-                if primary_metric not in df.columns:
+                if venn_metric not in df.columns:
                     agent_sets[agent_id] = []
                     continue
                 
@@ -462,7 +706,7 @@ def _compute_venn_diagram_data(
                     diff_rows = df[df["diff_id"] == diff_id]
                     try:
                         has_true = bool(
-                            diff_rows[primary_metric].astype("boolean").any(skipna=True)
+                            diff_rows[venn_metric].astype("boolean").any(skipna=True)
                         )
                         if has_true:
                             diff_ids_with_true.add(str(diff_id))
@@ -495,15 +739,15 @@ def _compute_venn_diagram_data(
                         if is_expression:
                             for diff_id in df["diff_id"].unique():
                                 diff_rows = df[df["diff_id"] == diff_id]
-                                evaluated = _evaluate_expression_on_df(primary_metric, diff_rows)
+                                evaluated = _evaluate_expression_on_df(venn_metric, diff_rows)
                                 if evaluated.any():
                                     others_diffs.add(str(diff_id))
                         else:
-                            if primary_metric in df.columns:
+                            if venn_metric in df.columns:
                                 for diff_id in df["diff_id"].unique():
                                     diff_rows = df[df["diff_id"] == diff_id]
                                     has_true = bool(
-                                        diff_rows[primary_metric].astype("boolean").any(skipna=True)
+                                        diff_rows[venn_metric].astype("boolean").any(skipna=True)
                                     )
                                     if has_true:
                                         others_diffs.add(str(diff_id))
@@ -546,7 +790,7 @@ def _compute_venn_diagram_data(
 
     # Debug output: Print venn diagram calculation details
     print(f"\n  === Venn Diagram Calculation ({benchmark.name}) ===")
-    print(f"  Primary metric: {primary_metric}")
+    print(f"  Primary metric: {venn_metric}")
     for agent in agent_list:
         diffs = agent_sets[agent]
         print(f"    {agent:25} {len(diffs):3d} diffs detected")
@@ -665,18 +909,60 @@ def _aggregate_benchmark(
         # Aggregate trajectory fields from the trajectory file
         traj_results = _aggregate_trajectory(traj_df)
 
-        # Compute overall score
+        # Compute overall score using SNR (Signal-to-Noise Ratio)
+        # SNR = A / (T - A) where:
+        #   A = aligned comments (signal) = p * N
+        #   T = total generated comments
+        #   T - A = total noise
         primary_metric = benchmark.primary_metric
         is_expression = any(op in primary_metric for op in ['and(', 'or(', 'not(']) if primary_metric else False
         
+        # Also compute conditional alignment for contextcrbench (for reference column)
+        conditional_alignment = None
+        
         if is_expression:
-            # Evaluate expression across all comments and compute mean
-            try:
-                evaluated = _evaluate_expression_on_df(primary_metric, eval_df)
-                overall_score = float(evaluated.mean()) if len(evaluated) > 0 else None
-            except Exception as e:
-                print(f"    [WARN] Error evaluating primary metric expression for {agent_id}: {e}")
-                overall_score = None
+            # Special handling for and(A, B): compute SNR metric AND conditional alignment
+            import re
+            match_and = re.match(r'^and\((.*?),\s*(.*?)\)$', primary_metric.strip())
+            
+            if match_and:
+                # Extract the two metrics
+                first_metric = match_and.group(1).strip()
+                second_metric = match_and.group(2).strip()
+                
+                try:
+                    # Compute A: aligned comments (both first and second metric true)
+                    first_eval = _evaluate_expression_on_df(first_metric, eval_df)
+                    second_eval = _evaluate_expression_on_df(second_metric, eval_df)
+                    both_true = (first_eval & second_eval)
+                    A = int(both_true.sum())
+                    
+                    # T: total generated comments
+                    T = len(eval_df)
+                    
+                    # Conditional alignment: A / N where N = localized comments
+                    N = int(first_eval.sum())
+                    if N > 0:
+                        conditional_alignment = float(A) / float(N)
+                    
+                    # SNR = A / (T - A)
+                    if T > A and A > 0:
+                        overall_score = float(A) / float(T - A)
+                    elif A == T:
+                        overall_score = float('inf')  # Perfect score
+                    else:
+                        overall_score = 0.0
+                except Exception as e:
+                    print(f"    [WARN] Error computing SNR for {agent_id}: {e}")
+                    overall_score = None
+            else:
+                # For non-and expressions, use standard evaluation (fallback)
+                try:
+                    evaluated = _evaluate_expression_on_df(primary_metric, eval_df)
+                    overall_score = float(evaluated.mean()) if len(evaluated) > 0 else None
+                except Exception as e:
+                    print(f"    [WARN] Error evaluating primary metric expression for {agent_id}: {e}")
+                    overall_score = None
         elif primary_metric and primary_metric in metric_results:
             overall_score = metric_results[primary_metric]
         else:
@@ -722,6 +1008,21 @@ def _aggregate_benchmark(
                     if c in all_values and all_values[c] is not None
                 ]
                 group_scores[key] = float(sum(vals) / len(vals)) if vals else None
+            elif method == "harmonic_mean":
+                # Compute harmonic mean: n / sum(1/x_i)
+                # Harmonic mean is better for rate-like metrics where achieving
+                # balance across all metrics is important (penalizes low outliers more)
+                # Use for Code Review Capability: both location and alignment must be good
+                cols = cfg.get("columns", [])
+                vals = [
+                    all_values[c]
+                    for c in cols
+                    if c in all_values and all_values[c] is not None and all_values[c] > 0
+                ]
+                if vals:
+                    group_scores[key] = float(len(vals) / sum(1.0 / v for v in vals))
+                else:
+                    group_scores[key] = None
             elif method == "pick":
                 # Pick a single column value (used for trajectory costs)
                 col = cfg.get("column", "")
@@ -741,6 +1042,7 @@ def _aggregate_benchmark(
                 "total_diffs": total_diffs,
                 "total_comments": total_comments,
                 "overall_weighted_score": overall_score,
+                "conditional_alignment": conditional_alignment,
                 **group_scores,
                 **metric_results,
                 **traj_results,
@@ -830,6 +1132,7 @@ _BUILTIN_DISPLAY_NAMES = {
     "total_diffs": "Submitted PRs",
     "total_comments": "Total Comments",
     "overall_weighted_score": "Overall Score",
+    "conditional_alignment": "Conditional Alignment",
     # Human-alignment metrics
     "metric/human/is_human_llm_location_matched": "LLM Localization (Precision)",
     "metric/human/is_human_comment_location_matched_recall": "Human Comment Coverage (Recall)",
@@ -927,6 +1230,7 @@ def update_leaderboard(
 
         # Compute Venn diagram data if enabled
         venn_diagram_data = None
+        gt_coverage_data = None
         eval_results_dir = Path(benchmarks_root) / bname / "eval-results"
         if eval_results_dir.exists():
             venn_diagram_data = _compute_venn_diagram_data(
@@ -934,6 +1238,13 @@ def update_leaderboard(
             )
             if venn_diagram_data:
                 print(f"  Venn diagram: {len(venn_diagram_data['agents'])} agents")
+            
+            # Compute GT Coverage data if enabled
+            gt_coverage_data = _compute_gt_coverage_data(
+                benchmark, agents_perf, eval_results_dir, benchmarks_root, gt_df
+            )
+            if gt_coverage_data:
+                print(f"  GT coverage: {len(gt_coverage_data['agents'])} agents")
 
         # Collect evaluation versions used
         eval_versions = set()
@@ -948,10 +1259,14 @@ def update_leaderboard(
         out_filename = f"data_{benchmark.name}.json"
         out_file = output_path / out_filename
 
-        # Add venn diagram data to output if available
+        # Add venn diagram and GT coverage data to output if available
         output_data = agents_perf.copy()
-        if venn_diagram_data:
-            output_data = {"agents": agents_perf, "venn_diagram": venn_diagram_data}
+        if venn_diagram_data or gt_coverage_data:
+            output_data = {"agents": agents_perf}
+            if venn_diagram_data:
+                output_data["venn_diagram"] = venn_diagram_data
+            if gt_coverage_data:
+                output_data["gt_coverage_diagram"] = gt_coverage_data
 
         with open(out_file, "w") as f:
             json.dump(output_data, f, indent=2)

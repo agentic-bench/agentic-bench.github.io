@@ -1,0 +1,26 @@
+diff --git a/app/src/main/java/org/schabi/newpipe/player/Player.java b/app/src/main/java/org/schabi/newpipe/player/Player.java
+index 22e66e793dd..4e2a9d06518 100644
+--- a/app/src/main/java/org/schabi/newpipe/player/Player.java
++++ b/app/src/main/java/org/schabi/newpipe/player/Player.java
+@@ -3754,6 +3754,9 @@ public boolean onKeyDown(final int keyCode) {
+             case KeyEvent.KEYCODE_SPACE:
+                 if (isFullscreen) {
+                     playPause();
++                    if (isPlaying()) {
++                        hideControls(0, 0);
++                    }
+                 }
+                 break;
+             case KeyEvent.KEYCODE_BACK:
+diff --git a/app/src/main/java/org/schabi/newpipe/player/playback/PlayerMediaSession.java b/app/src/main/java/org/schabi/newpipe/player/playback/PlayerMediaSession.java
+index 9dcb12344f6..fbe12efb1ac 100644
+--- a/app/src/main/java/org/schabi/newpipe/player/playback/PlayerMediaSession.java
++++ b/app/src/main/java/org/schabi/newpipe/player/playback/PlayerMediaSession.java
+@@ -88,6 +88,7 @@ public MediaDescriptionCompat getQueueMetadata(final int index) {
+     @Override
+     public void play() {
+         player.play();
++        player.hideControls(0, 0);
+     }
+ 
+     @Override

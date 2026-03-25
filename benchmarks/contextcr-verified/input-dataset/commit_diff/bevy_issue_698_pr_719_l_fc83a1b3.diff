@@ -1,0 +1,138 @@
+diff --git a/crates/bevy_ecs/hecs/src/world.rs b/crates/bevy_ecs/hecs/src/world.rs
+index a684d854605fa..d70c23a167b6a 100644
+--- a/crates/bevy_ecs/hecs/src/world.rs
++++ b/crates/bevy_ecs/hecs/src/world.rs
+@@ -694,53 +694,50 @@ impl World {
+         use std::collections::hash_map::Entry;
+ 
+         let loc = self.entities.get_mut(entity)?;
+-        unsafe {
+-            let info = self.archetypes[loc.archetype as usize]
+-                .types()
+-                .iter()
+-                .cloned()
+-                .filter(|x| !to_remove.contains(&x.id()))
+-                .collect::<Vec<_>>();
+-            let elements = info.iter().map(|x| x.id()).collect::<Vec<_>>();
+-            let target = match self.index.entry(elements) {
+-                Entry::Occupied(x) => *x.get(),
+-                Entry::Vacant(x) => {
+-                    self.archetypes.push(Archetype::new(info));
+-                    let index = (self.archetypes.len() - 1) as u32;
+-                    x.insert(index);
+-                    self.archetype_generation += 1;
+-                    index
+-                }
+-            };
+-            let old_index = loc.index;
+-            let (source_arch, target_arch) = index2(
+-                &mut self.archetypes,
+-                loc.archetype as usize,
+-                target as usize,
+-            );
+-            let target_index = target_arch.allocate(entity);
+-            loc.archetype = target;
+-            loc.index = target_index;
+-            let removed_components = &mut self.removed_components;
+-            if let Some(moved) =
+-                source_arch.move_to(old_index, |src, ty, size, is_added, is_mutated| {
+-                    // Only move the components present in the target archetype, i.e. the non-removed ones.
+-                    if let Some(dst) = target_arch.get_dynamic(ty, size, target_index) {
+-                        ptr::copy_nonoverlapping(src, dst.as_ptr(), size);
+-                        let state = target_arch.get_type_state_mut(ty).unwrap();
+-                        *state.added().as_ptr().add(target_index) = is_added;
+-                        *state.mutated().as_ptr().add(target_index) = is_mutated;
+-                    } else {
+-                        let removed_entities =
+-                            removed_components.entry(ty).or_insert_with(Vec::new);
+-                        removed_entities.push(entity);
+-                    }
+-                })
+-            {
+-                self.entities.get_mut(moved).unwrap().index = old_index;
++        let info = self.archetypes[loc.archetype as usize]
++            .types()
++            .iter()
++            .cloned()
++            .filter(|x| !to_remove.contains(&x.id()))
++            .collect::<Vec<_>>();
++        let elements = info.iter().map(|x| x.id()).collect::<Vec<_>>();
++        let target = match self.index.entry(elements) {
++            Entry::Occupied(x) => *x.get(),
++            Entry::Vacant(x) => {
++                self.archetypes.push(Archetype::new(info));
++                let index = (self.archetypes.len() - 1) as u32;
++                x.insert(index);
++                self.archetype_generation += 1;
++                index
+             }
+-            Ok(())
++        };
++        let old_index = loc.index;
++        let (source_arch, target_arch) = index2(
++            &mut self.archetypes,
++            loc.archetype as usize,
++            target as usize,
++        );
++        let target_index = unsafe { target_arch.allocate(entity) };
++        loc.archetype = target;
++        loc.index = target_index;
++        let removed_components = &mut self.removed_components;
++        if let Some(moved) = unsafe {
++            source_arch.move_to(old_index, |src, ty, size, is_added, is_mutated| {
++                // Only move the components present in the target archetype, i.e. the non-removed ones.
++                if let Some(dst) = target_arch.get_dynamic(ty, size, target_index) {
++                    ptr::copy_nonoverlapping(src, dst.as_ptr(), size);
++                    let state = target_arch.get_type_state_mut(ty).unwrap();
++                    *state.added().as_ptr().add(target_index) = is_added;
++                    *state.mutated().as_ptr().add(target_index) = is_mutated;
++                } else {
++                    let removed_entities = removed_components.entry(ty).or_insert_with(Vec::new);
++                    removed_entities.push(entity);
++                }
++            })
++        } {
++            self.entities.get_mut(moved).unwrap().index = old_index;
+         }
++        Ok(())
+     }
+ 
+     /// Remove components from `entity`
+diff --git a/crates/bevy_ecs/src/system/commands.rs b/crates/bevy_ecs/src/system/commands.rs
+index ab07559cb6dc8..93fcbbed2d80e 100644
+--- a/crates/bevy_ecs/src/system/commands.rs
++++ b/crates/bevy_ecs/src/system/commands.rs
+@@ -1,7 +1,7 @@
+ use super::SystemId;
+ use crate::resource::{Resource, Resources};
+ use bevy_hecs::{Bundle, Component, DynamicBundle, Entity, EntityReserver, World};
+-use bevy_utils::tracing::debug;
++use bevy_utils::tracing::{debug, warn};
+ use std::marker::PhantomData;
+ 
+ /// A [World] mutation
+@@ -129,13 +129,13 @@ where
+         match world.remove::<T>(self.entity) {
+             Ok(_) => (),
+             Err(bevy_hecs::ComponentError::MissingComponent(e)) => {
+-                log::warn!(
++                warn!(
+                     "Failed to remove components {:?} with error: {}. Falling back to inefficient one-by-one component removing.",
+                     std::any::type_name::<T>(),
+                     e
+                 );
+                 if let Err(e) = world.remove_one_by_one::<T>(self.entity) {
+-                    log::debug!(
++                    debug!(
+                         "Failed to remove components {:?} with error: {}",
+                         std::any::type_name::<T>(),
+                         e
+@@ -143,7 +143,7 @@ where
+                 }
+             }
+             Err(e) => {
+-                log::debug!(
++                debug!(
+                     "Failed to remove components {:?} with error: {}",
+                     std::any::type_name::<T>(),
+                     e

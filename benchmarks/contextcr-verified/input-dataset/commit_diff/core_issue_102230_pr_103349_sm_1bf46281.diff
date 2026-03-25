@@ -1,0 +1,14 @@
+diff --git a/homeassistant/components/weatherflow/sensor.py b/homeassistant/components/weatherflow/sensor.py
+index bc5d38e99e52d4..d3b50c10a8107e 100644
+--- a/homeassistant/components/weatherflow/sensor.py
++++ b/homeassistant/components/weatherflow/sensor.py
+@@ -71,7 +71,8 @@ class WeatherFlowSensorEntityDescription(
+ 
+     def get_native_value(self, device: WeatherFlowDevice) -> datetime | StateType:
+         """Return the parsed sensor value."""
+-        raw_sensor_data = getattr(device, self.key)
++        if (raw_sensor_data := getattr(device, self.key)) is None:
++            return None
+         return self.raw_data_conv_fn(raw_sensor_data)
+ 
+ 

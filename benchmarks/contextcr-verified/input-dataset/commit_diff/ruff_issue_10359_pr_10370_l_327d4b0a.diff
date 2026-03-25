@@ -1,0 +1,640 @@
+diff --git a/crates/ruff/tests/snapshots/show_settings__display_default_settings.snap b/crates/ruff/tests/snapshots/show_settings__display_default_settings.snap
+index 6b7d064333d18..d8cc61b92667b 100644
+--- a/crates/ruff/tests/snapshots/show_settings__display_default_settings.snap
++++ b/crates/ruff/tests/snapshots/show_settings__display_default_settings.snap
+@@ -241,9 +241,26 @@ linter.flake8_gettext.functions_names = [
+ 	ngettext,
+ ]
+ linter.flake8_implicit_str_concat.allow_multiline = true
+-linter.flake8_import_conventions.aliases = {"matplotlib": "mpl", "matplotlib.pyplot": "plt", "pandas": "pd", "seaborn": "sns", "tensorflow": "tf", "networkx": "nx", "plotly.express": "px", "polars": "pl", "numpy": "np", "panel": "pn", "pyarrow": "pa", "altair": "alt", "tkinter": "tk", "holoviews": "hv"}
+-linter.flake8_import_conventions.banned_aliases = {}
+-linter.flake8_import_conventions.banned_from = []
++linter.flake8_import_conventions.aliases = {
++	altair = alt,
++	holoviews = hv,
++	matplotlib = mpl,
++	matplotlib.pyplot = plt,
++	networkx = nx,
++	numpy = np,
++	pandas = pd,
++	panel = pn,
++	plotly.express = px,
++	polars = pl,
++	pyarrow = pa,
++	seaborn = sns,
++	tensorflow = tf,
++	tkinter = tk,
++}
++linter.flake8_import_conventions.banned_aliases = {
++	tensorflow.keras.backend = [K],
++}
++linter.flake8_import_conventions.banned_from = {}
+ linter.flake8_pytest_style.fixture_parentheses = true
+ linter.flake8_pytest_style.parametrize_names_type = tuple
+ linter.flake8_pytest_style.parametrize_values_type = list
+@@ -284,23 +301,23 @@ linter.flake8_type_checking.runtime_required_base_classes = []
+ linter.flake8_type_checking.runtime_required_decorators = []
+ linter.flake8_type_checking.quote_annotations = false
+ linter.flake8_unused_arguments.ignore_variadic_names = false
+-linter.isort.required_imports = []
++linter.isort.required_imports = {}
+ linter.isort.combine_as_imports = false
+ linter.isort.force_single_line = false
+ linter.isort.force_sort_within_sections = false
+ linter.isort.detect_same_package = true
+ linter.isort.case_sensitive = false
+ linter.isort.force_wrap_aliases = false
+-linter.isort.force_to_top = []
++linter.isort.force_to_top = {}
+ linter.isort.known_modules = {}
+ linter.isort.order_by_type = true
+ linter.isort.relative_imports_order = furthest_to_closest
+-linter.isort.single_line_exclusions = []
++linter.isort.single_line_exclusions = {}
+ linter.isort.split_on_trailing_comma = true
+-linter.isort.classes = []
+-linter.isort.constants = []
+-linter.isort.variables = []
+-linter.isort.no_lines_before = []
++linter.isort.classes = {}
++linter.isort.constants = {}
++linter.isort.variables = {}
++linter.isort.no_lines_before = {}
+ linter.isort.lines_after_imports = -1
+ linter.isort.lines_between_types = 0
+ linter.isort.forced_separate = []
+@@ -341,7 +358,7 @@ linter.pylint.allow_magic_value_types = [
+ 	str,
+ 	bytes,
+ ]
+-linter.pylint.allow_dunder_method_names = []
++linter.pylint.allow_dunder_method_names = {}
+ linter.pylint.max_args = 5
+ linter.pylint.max_positional_args = 5
+ linter.pylint.max_returns = 6
+diff --git a/crates/ruff_linter/src/rules/flake8_import_conventions/mod.rs b/crates/ruff_linter/src/rules/flake8_import_conventions/mod.rs
+index 3bf95be28128e..fc5c6034af93d 100644
+--- a/crates/ruff_linter/src/rules/flake8_import_conventions/mod.rs
++++ b/crates/ruff_linter/src/rules/flake8_import_conventions/mod.rs
+@@ -11,7 +11,7 @@ mod tests {
+ 
+     use crate::assert_messages;
+     use crate::registry::Rule;
+-    use crate::rules::flake8_import_conventions::settings::default_aliases;
++    use crate::rules::flake8_import_conventions::settings::{default_aliases, BannedAliases};
+     use crate::settings::LinterSettings;
+     use crate::test::test_path;
+ 
+@@ -57,17 +57,20 @@ mod tests {
+                     banned_aliases: FxHashMap::from_iter([
+                         (
+                             "typing".to_string(),
+-                            vec!["t".to_string(), "ty".to_string()],
++                            BannedAliases::from_iter(["t".to_string(), "ty".to_string()]),
+                         ),
+                         (
+                             "numpy".to_string(),
+-                            vec!["nmp".to_string(), "npy".to_string()],
++                            BannedAliases::from_iter(["nmp".to_string(), "npy".to_string()]),
+                         ),
+                         (
+                             "tensorflow.keras.backend".to_string(),
+-                            vec!["K".to_string()],
++                            BannedAliases::from_iter(["K".to_string()]),
++                        ),
++                        (
++                            "torch.nn.functional".to_string(),
++                            BannedAliases::from_iter(["F".to_string()]),
+                         ),
+-                        ("torch.nn.functional".to_string(), vec!["F".to_string()]),
+                     ]),
+                     banned_from: FxHashSet::default(),
+                 },
+diff --git a/crates/ruff_linter/src/rules/flake8_import_conventions/rules/banned_import_alias.rs b/crates/ruff_linter/src/rules/flake8_import_conventions/rules/banned_import_alias.rs
+index bf41de81a9225..071736ac3cbae 100644
+--- a/crates/ruff_linter/src/rules/flake8_import_conventions/rules/banned_import_alias.rs
++++ b/crates/ruff_linter/src/rules/flake8_import_conventions/rules/banned_import_alias.rs
+@@ -1,10 +1,12 @@
+-use ruff_python_ast::Stmt;
+ use rustc_hash::FxHashMap;
+ 
+ use ruff_diagnostics::{Diagnostic, Violation};
+ use ruff_macros::{derive_message_formats, violation};
++use ruff_python_ast::Stmt;
+ use ruff_text_size::Ranged;
+ 
++use crate::rules::flake8_import_conventions::settings::BannedAliases;
++
+ /// ## What it does
+ /// Checks for imports that use non-standard naming conventions, like
+ /// `import tensorflow.keras.backend as K`.
+@@ -49,7 +51,7 @@ pub(crate) fn banned_import_alias(
+     stmt: &Stmt,
+     name: &str,
+     asname: &str,
+-    banned_conventions: &FxHashMap<String, Vec<String>>,
++    banned_conventions: &FxHashMap<String, BannedAliases>,
+ ) -> Option<Diagnostic> {
+     if let Some(banned_aliases) = banned_conventions.get(name) {
+         if banned_aliases
+diff --git a/crates/ruff_linter/src/rules/flake8_import_conventions/settings.rs b/crates/ruff_linter/src/rules/flake8_import_conventions/settings.rs
+index 70fe742a20e3e..e2002fd5295b5 100644
+--- a/crates/ruff_linter/src/rules/flake8_import_conventions/settings.rs
++++ b/crates/ruff_linter/src/rules/flake8_import_conventions/settings.rs
+@@ -1,11 +1,14 @@
+ //! Settings for import conventions.
+ 
+-use rustc_hash::{FxHashMap, FxHashSet};
+ use std::fmt::{Display, Formatter};
+ 
+-use crate::display_settings;
++use rustc_hash::{FxHashMap, FxHashSet};
++use serde::{Deserialize, Serialize};
++
+ use ruff_macros::CacheKey;
+ 
++use crate::display_settings;
++
+ const CONVENTIONAL_ALIASES: &[(&str, &str)] = &[
+     ("altair", "alt"),
+     ("matplotlib", "mpl"),
+@@ -23,10 +26,41 @@ const CONVENTIONAL_ALIASES: &[(&str, &str)] = &[
+     ("pyarrow", "pa"),
+ ];
+ 
++#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize, CacheKey)]
++#[serde(deny_unknown_fields, rename_all = "kebab-case")]
++#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
++pub struct BannedAliases(Vec<String>);
++
++impl Display for BannedAliases {
++    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
++        write!(f, "[")?;
++        for (i, alias) in self.0.iter().enumerate() {
++            if i > 0 {
++                write!(f, ", ")?;
++            }
++            write!(f, "{alias}")?;
++        }
++        write!(f, "]")
++    }
++}
++
++impl BannedAliases {
++    /// Returns an iterator over the banned aliases.
++    pub fn iter(&self) -> impl Iterator<Item = &str> {
++        self.0.iter().map(String::as_str)
++    }
++}
++
++impl FromIterator<String> for BannedAliases {
++    fn from_iter<I: IntoIterator<Item = String>>(iter: I) -> Self {
++        Self::from_iter(iter)
++    }
++}
++
+ #[derive(Debug, CacheKey)]
+ pub struct Settings {
+     pub aliases: FxHashMap<String, String>,
+-    pub banned_aliases: FxHashMap<String, Vec<String>>,
++    pub banned_aliases: FxHashMap<String, BannedAliases>,
+     pub banned_from: FxHashSet<String>,
+ }
+ 
+@@ -53,9 +87,9 @@ impl Display for Settings {
+             formatter = f,
+             namespace = "linter.flake8_import_conventions",
+             fields = [
+-                self.aliases | debug,
+-                self.banned_aliases | debug,
+-                self.banned_from | array,
++                self.aliases | map,
++                self.banned_aliases | map,
++                self.banned_from | set,
+             ]
+         }
+         Ok(())
+diff --git a/crates/ruff_linter/src/rules/flake8_tidy_imports/settings.rs b/crates/ruff_linter/src/rules/flake8_tidy_imports/settings.rs
+index 35d55e2e75b80..8f9e29ea21aac 100644
+--- a/crates/ruff_linter/src/rules/flake8_tidy_imports/settings.rs
++++ b/crates/ruff_linter/src/rules/flake8_tidy_imports/settings.rs
+@@ -13,6 +13,12 @@ pub struct ApiBan {
+     pub msg: String,
+ }
+ 
++impl Display for ApiBan {
++    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
++        write!(f, "{}", self.msg)
++    }
++}
++
+ #[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize, CacheKey, Default)]
+ #[serde(deny_unknown_fields, rename_all = "kebab-case")]
+ #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+@@ -47,7 +53,7 @@ impl Display for Settings {
+             namespace = "linter.flake8_tidy_imports",
+             fields = [
+                 self.ban_relative_imports,
+-                self.banned_api | debug,
++                self.banned_api | map,
+                 self.banned_module_level_imports | array,
+             ]
+         }
+diff --git a/crates/ruff_linter/src/rules/isort/mod.rs b/crates/ruff_linter/src/rules/isort/mod.rs
+index 47ec3c4dc9335..45ade065e6c72 100644
+--- a/crates/ruff_linter/src/rules/isort/mod.rs
++++ b/crates/ruff_linter/src/rules/isort/mod.rs
+@@ -274,11 +274,10 @@ fn format_import_block(
+ 
+ #[cfg(test)]
+ mod tests {
+-    use std::collections::BTreeSet;
+     use std::path::Path;
+ 
+     use anyhow::Result;
+-    use rustc_hash::FxHashMap;
++    use rustc_hash::{FxHashMap, FxHashSet};
+     use test_case::test_case;
+ 
+     use ruff_text_size::Ranged;
+@@ -495,7 +494,7 @@ mod tests {
+             Path::new("isort").join(path).as_path(),
+             &LinterSettings {
+                 isort: super::settings::Settings {
+-                    force_to_top: BTreeSet::from([
++                    force_to_top: FxHashSet::from_iter([
+                         "z".to_string(),
+                         "lib1".to_string(),
+                         "lib3".to_string(),
+@@ -575,9 +574,10 @@ mod tests {
+             &LinterSettings {
+                 isort: super::settings::Settings {
+                     force_single_line: true,
+-                    single_line_exclusions: vec!["os".to_string(), "logging.handlers".to_string()]
+-                        .into_iter()
+-                        .collect::<BTreeSet<_>>(),
++                    single_line_exclusions: FxHashSet::from_iter([
++                        "os".to_string(),
++                        "logging.handlers".to_string(),
++                    ]),
+                     ..super::settings::Settings::default()
+                 },
+                 src: vec![test_resource_path("fixtures/isort")],
+@@ -636,7 +636,7 @@ mod tests {
+             &LinterSettings {
+                 isort: super::settings::Settings {
+                     order_by_type: true,
+-                    classes: BTreeSet::from([
++                    classes: FxHashSet::from_iter([
+                         "SVC".to_string(),
+                         "SELU".to_string(),
+                         "N_CLASS".to_string(),
+@@ -664,7 +664,7 @@ mod tests {
+             &LinterSettings {
+                 isort: super::settings::Settings {
+                     order_by_type: true,
+-                    constants: BTreeSet::from([
++                    constants: FxHashSet::from_iter([
+                         "Const".to_string(),
+                         "constant".to_string(),
+                         "First".to_string(),
+@@ -694,7 +694,7 @@ mod tests {
+             &LinterSettings {
+                 isort: super::settings::Settings {
+                     order_by_type: true,
+-                    variables: BTreeSet::from([
++                    variables: FxHashSet::from_iter([
+                         "VAR".to_string(),
+                         "Variable".to_string(),
+                         "MyVar".to_string(),
+@@ -721,7 +721,7 @@ mod tests {
+             &LinterSettings {
+                 isort: super::settings::Settings {
+                     force_sort_within_sections: true,
+-                    force_to_top: BTreeSet::from(["z".to_string()]),
++                    force_to_top: FxHashSet::from_iter(["z".to_string()]),
+                     ..super::settings::Settings::default()
+                 },
+                 src: vec![test_resource_path("fixtures/isort")],
+@@ -771,7 +771,7 @@ mod tests {
+             &LinterSettings {
+                 src: vec![test_resource_path("fixtures/isort")],
+                 isort: super::settings::Settings {
+-                    required_imports: BTreeSet::from([
++                    required_imports: FxHashSet::from_iter([
+                         "from __future__ import annotations".to_string()
+                     ]),
+                     ..super::settings::Settings::default()
+@@ -801,7 +801,7 @@ mod tests {
+             &LinterSettings {
+                 src: vec![test_resource_path("fixtures/isort")],
+                 isort: super::settings::Settings {
+-                    required_imports: BTreeSet::from([
++                    required_imports: FxHashSet::from_iter([
+                         "from __future__ import annotations as _annotations".to_string(),
+                     ]),
+                     ..super::settings::Settings::default()
+@@ -824,7 +824,7 @@ mod tests {
+             &LinterSettings {
+                 src: vec![test_resource_path("fixtures/isort")],
+                 isort: super::settings::Settings {
+-                    required_imports: BTreeSet::from([
++                    required_imports: FxHashSet::from_iter([
+                         "from __future__ import annotations".to_string(),
+                         "from __future__ import generator_stop".to_string(),
+                     ]),
+@@ -848,9 +848,11 @@ mod tests {
+             &LinterSettings {
+                 src: vec![test_resource_path("fixtures/isort")],
+                 isort: super::settings::Settings {
+-                    required_imports: BTreeSet::from(["from __future__ import annotations, \
++                    required_imports: FxHashSet::from_iter([
++                        "from __future__ import annotations, \
+                                                        generator_stop"
+-                        .to_string()]),
++                            .to_string(),
++                    ]),
+                     ..super::settings::Settings::default()
+                 },
+                 ..LinterSettings::for_rule(Rule::MissingRequiredImport)
+@@ -871,7 +873,7 @@ mod tests {
+             &LinterSettings {
+                 src: vec![test_resource_path("fixtures/isort")],
+                 isort: super::settings::Settings {
+-                    required_imports: BTreeSet::from(["import os".to_string()]),
++                    required_imports: FxHashSet::from_iter(["import os".to_string()]),
+                     ..super::settings::Settings::default()
+                 },
+                 ..LinterSettings::for_rule(Rule::MissingRequiredImport)
+@@ -1002,7 +1004,7 @@ mod tests {
+             Path::new("isort").join(path).as_path(),
+             &LinterSettings {
+                 isort: super::settings::Settings {
+-                    no_lines_before: BTreeSet::from([
++                    no_lines_before: FxHashSet::from_iter([
+                         ImportSection::Known(ImportType::Future),
+                         ImportSection::Known(ImportType::StandardLibrary),
+                         ImportSection::Known(ImportType::ThirdParty),
+@@ -1030,7 +1032,7 @@ mod tests {
+             Path::new("isort").join(path).as_path(),
+             &LinterSettings {
+                 isort: super::settings::Settings {
+-                    no_lines_before: BTreeSet::from([
++                    no_lines_before: FxHashSet::from_iter([
+                         ImportSection::Known(ImportType::StandardLibrary),
+                         ImportSection::Known(ImportType::LocalFolder),
+                     ]),
+diff --git a/crates/ruff_linter/src/rules/isort/settings.rs b/crates/ruff_linter/src/rules/isort/settings.rs
+index f86d593a75968..cf51cd61700bd 100644
+--- a/crates/ruff_linter/src/rules/isort/settings.rs
++++ b/crates/ruff_linter/src/rules/isort/settings.rs
+@@ -1,16 +1,16 @@
+ //! Settings for the `isort` plugin.
+ 
+-use std::collections::BTreeSet;
+ use std::error::Error;
+ use std::fmt;
+ use std::fmt::{Display, Formatter};
+ 
++use rustc_hash::FxHashSet;
+ use serde::{Deserialize, Serialize};
+ use strum::IntoEnumIterator;
+ 
+-use crate::display_settings;
+ use ruff_macros::CacheKey;
+ 
++use crate::display_settings;
+ use crate::rules::isort::categorize::KnownModules;
+ use crate::rules::isort::ImportType;
+ 
+@@ -46,23 +46,23 @@ impl Display for RelativeImportsOrder {
+ #[derive(Debug, CacheKey)]
+ #[allow(clippy::struct_excessive_bools)]
+ pub struct Settings {
+-    pub required_imports: BTreeSet<String>,
++    pub required_imports: FxHashSet<String>,
+     pub combine_as_imports: bool,
+     pub force_single_line: bool,
+     pub force_sort_within_sections: bool,
+     pub case_sensitive: bool,
+     pub force_wrap_aliases: bool,
+-    pub force_to_top: BTreeSet<String>,
++    pub force_to_top: FxHashSet<String>,
+     pub known_modules: KnownModules,
+     pub detect_same_package: bool,
+     pub order_by_type: bool,
+     pub relative_imports_order: RelativeImportsOrder,
+-    pub single_line_exclusions: BTreeSet<String>,
++    pub single_line_exclusions: FxHashSet<String>,
+     pub split_on_trailing_comma: bool,
+-    pub classes: BTreeSet<String>,
+-    pub constants: BTreeSet<String>,
+-    pub variables: BTreeSet<String>,
+-    pub no_lines_before: BTreeSet<ImportSection>,
++    pub classes: FxHashSet<String>,
++    pub constants: FxHashSet<String>,
++    pub variables: FxHashSet<String>,
++    pub no_lines_before: FxHashSet<ImportSection>,
+     pub lines_after_imports: isize,
+     pub lines_between_types: usize,
+     pub forced_separate: Vec<String>,
+@@ -77,23 +77,23 @@ pub struct Settings {
+ impl Default for Settings {
+     fn default() -> Self {
+         Self {
+-            required_imports: BTreeSet::new(),
++            required_imports: FxHashSet::default(),
+             combine_as_imports: false,
+             force_single_line: false,
+             force_sort_within_sections: false,
+             detect_same_package: true,
+             case_sensitive: false,
+             force_wrap_aliases: false,
+-            force_to_top: BTreeSet::new(),
++            force_to_top: FxHashSet::default(),
+             known_modules: KnownModules::default(),
+             order_by_type: true,
+             relative_imports_order: RelativeImportsOrder::default(),
+-            single_line_exclusions: BTreeSet::new(),
++            single_line_exclusions: FxHashSet::default(),
+             split_on_trailing_comma: true,
+-            classes: BTreeSet::new(),
+-            constants: BTreeSet::new(),
+-            variables: BTreeSet::new(),
+-            no_lines_before: BTreeSet::new(),
++            classes: FxHashSet::default(),
++            constants: FxHashSet::default(),
++            variables: FxHashSet::default(),
++            no_lines_before: FxHashSet::default(),
+             lines_after_imports: -1,
+             lines_between_types: 0,
+             forced_separate: Vec::new(),
+@@ -113,23 +113,23 @@ impl Display for Settings {
+             formatter = f,
+             namespace = "linter.isort",
+             fields = [
+-                self.required_imports | array,
++                self.required_imports | set,
+                 self.combine_as_imports,
+                 self.force_single_line,
+                 self.force_sort_within_sections,
+                 self.detect_same_package,
+                 self.case_sensitive,
+                 self.force_wrap_aliases,
+-                self.force_to_top | array,
++                self.force_to_top | set,
+                 self.known_modules,
+                 self.order_by_type,
+                 self.relative_imports_order,
+-                self.single_line_exclusions | array,
++                self.single_line_exclusions | set,
+                 self.split_on_trailing_comma,
+-                self.classes | array,
+-                self.constants | array,
+-                self.variables | array,
+-                self.no_lines_before | array,
++                self.classes | set,
++                self.constants | set,
++                self.variables | set,
++                self.no_lines_before | set,
+                 self.lines_after_imports,
+                 self.lines_between_types,
+                 self.forced_separate | array,
+@@ -155,7 +155,7 @@ pub enum SettingsError {
+     InvalidUserDefinedSection(glob::PatternError),
+ }
+ 
+-impl fmt::Display for SettingsError {
++impl Display for SettingsError {
+     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+         match self {
+             SettingsError::InvalidKnownThirdParty(err) => {
+diff --git a/crates/ruff_linter/src/rules/pydocstyle/settings.rs b/crates/ruff_linter/src/rules/pydocstyle/settings.rs
+index b65172e4102d3..1b3a177af64eb 100644
+--- a/crates/ruff_linter/src/rules/pydocstyle/settings.rs
++++ b/crates/ruff_linter/src/rules/pydocstyle/settings.rs
+@@ -97,8 +97,8 @@ impl fmt::Display for Settings {
+             namespace = "linter.pydocstyle",
+             fields = [
+                 self.convention | optional,
+-                self.ignore_decorators | debug,
+-                self.property_decorators | debug
++                self.ignore_decorators | set,
++                self.property_decorators | set
+             ]
+         }
+         Ok(())
+diff --git a/crates/ruff_linter/src/rules/pylint/settings.rs b/crates/ruff_linter/src/rules/pylint/settings.rs
+index cdd55a9e3bbbf..c98698d5a283c 100644
+--- a/crates/ruff_linter/src/rules/pylint/settings.rs
++++ b/crates/ruff_linter/src/rules/pylint/settings.rs
+@@ -88,7 +88,7 @@ impl fmt::Display for Settings {
+             namespace = "linter.pylint",
+             fields = [
+                 self.allow_magic_value_types | array,
+-                self.allow_dunder_method_names | array,
++                self.allow_dunder_method_names | set,
+                 self.max_args,
+                 self.max_positional_args,
+                 self.max_returns,
+diff --git a/crates/ruff_linter/src/settings/mod.rs b/crates/ruff_linter/src/settings/mod.rs
+index 53f41534195ea..b18c052a38d47 100644
+--- a/crates/ruff_linter/src/settings/mod.rs
++++ b/crates/ruff_linter/src/settings/mod.rs
+@@ -155,6 +155,38 @@ macro_rules! display_settings {
+             }
+         }
+     };
++    (@field $fmt:ident, $prefix:ident, $settings:ident.$field:ident | map) => {
++        {
++            use itertools::Itertools;
++
++            write!($fmt, "{}{} = ", $prefix, stringify!($field))?;
++            if $settings.$field.is_empty() {
++                writeln!($fmt, "{{}}")?;
++            } else {
++                writeln!($fmt, "{{")?;
++                for (key, value) in $settings.$field.iter().sorted_by(|(left, _), (right, _)| left.cmp(right)) {
++                    writeln!($fmt, "\t{key} = {value},")?;
++                }
++                writeln!($fmt, "}}")?;
++            }
++        }
++    };
++    (@field $fmt:ident, $prefix:ident, $settings:ident.$field:ident | set) => {
++        {
++            use itertools::Itertools;
++
++            write!($fmt, "{}{} = ", $prefix, stringify!($field))?;
++            if $settings.$field.is_empty() {
++                writeln!($fmt, "{{}}")?;
++            } else {
++                writeln!($fmt, "{{")?;
++                for elem in $settings.$field.iter().sorted_by(|left, right| left.cmp(right)) {
++                    writeln!($fmt, "\t{elem},")?;
++                }
++                writeln!($fmt, "}}")?;
++            }
++        }
++    };
+     (@field $fmt:ident, $prefix:ident, $settings:ident.$field:ident | paths) => {
+         {
+             write!($fmt, "{}{} = ", $prefix, stringify!($field))?;
+diff --git a/crates/ruff_workspace/src/options.rs b/crates/ruff_workspace/src/options.rs
+index ad536a3f35631..d542b48c739a4 100644
+--- a/crates/ruff_workspace/src/options.rs
++++ b/crates/ruff_workspace/src/options.rs
+@@ -8,6 +8,7 @@ use strum::IntoEnumIterator;
+ 
+ use ruff_formatter::IndentStyle;
+ use ruff_linter::line_width::{IndentWidth, LineLength};
++use ruff_linter::rules::flake8_import_conventions::settings::BannedAliases;
+ use ruff_linter::rules::flake8_pytest_style::settings::SettingsError;
+ use ruff_linter::rules::flake8_pytest_style::types;
+ use ruff_linter::rules::flake8_quotes::settings::Quote;
+@@ -1309,7 +1310,7 @@ pub struct Flake8ImportConventionsOptions {
+             "tensorflow.keras.backend" = ["K"]
+     "#
+     )]
+-    pub banned_aliases: Option<FxHashMap<String, Vec<String>>>,
++    pub banned_aliases: Option<FxHashMap<String, BannedAliases>>,
+ 
+     /// A list of modules that should not be imported from using the
+     /// `from ... import ...` syntax.
+@@ -2376,14 +2377,14 @@ impl IsortOptions {
+         }
+ 
+         Ok(isort::settings::Settings {
+-            required_imports: BTreeSet::from_iter(self.required_imports.unwrap_or_default()),
++            required_imports: FxHashSet::from_iter(self.required_imports.unwrap_or_default()),
+             combine_as_imports: self.combine_as_imports.unwrap_or(false),
+             force_single_line: self.force_single_line.unwrap_or(false),
+             force_sort_within_sections,
+             case_sensitive: self.case_sensitive.unwrap_or(false),
+             force_wrap_aliases: self.force_wrap_aliases.unwrap_or(false),
+             detect_same_package: self.detect_same_package.unwrap_or(true),
+-            force_to_top: BTreeSet::from_iter(self.force_to_top.unwrap_or_default()),
++            force_to_top: FxHashSet::from_iter(self.force_to_top.unwrap_or_default()),
+             known_modules: isort::categorize::KnownModules::new(
+                 known_first_party,
+                 known_third_party,
+@@ -2393,14 +2394,14 @@ impl IsortOptions {
+             ),
+             order_by_type: self.order_by_type.unwrap_or(true),
+             relative_imports_order: self.relative_imports_order.unwrap_or_default(),
+-            single_line_exclusions: BTreeSet::from_iter(
++            single_line_exclusions: FxHashSet::from_iter(
+                 self.single_line_exclusions.unwrap_or_default(),
+             ),
+             split_on_trailing_comma: self.split_on_trailing_comma.unwrap_or(true),
+-            classes: BTreeSet::from_iter(self.classes.unwrap_or_default()),
+-            constants: BTreeSet::from_iter(self.constants.unwrap_or_default()),
+-            variables: BTreeSet::from_iter(self.variables.unwrap_or_default()),
+-            no_lines_before: BTreeSet::from_iter(no_lines_before),
++            classes: FxHashSet::from_iter(self.classes.unwrap_or_default()),
++            constants: FxHashSet::from_iter(self.constants.unwrap_or_default()),
++            variables: FxHashSet::from_iter(self.variables.unwrap_or_default()),
++            no_lines_before: FxHashSet::from_iter(no_lines_before),
+             lines_after_imports: self.lines_after_imports.unwrap_or(-1),
+             lines_between_types,
+             forced_separate: Vec::from_iter(self.forced_separate.unwrap_or_default()),

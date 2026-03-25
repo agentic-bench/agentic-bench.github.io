@@ -1,0 +1,232 @@
+diff --git a/OpenRA.Game/Graphics/Theater.cs b/OpenRA.Game/Graphics/Theater.cs
+index e282d5ee96d8..b80625d62763 100644
+--- a/OpenRA.Game/Graphics/Theater.cs
++++ b/OpenRA.Game/Graphics/Theater.cs
+@@ -80,7 +80,14 @@ public Theater(TileSet tileset, Action<uint, string> onMissingImage = null)
+ 						allFrames = frameCache[i];
+ 
+ 					var frameCount = tileset.EnableDepth ? allFrames.Length / 2 : allFrames.Length;
+-					var indices = t.Value.Frames != null ? t.Value.Frames : Enumerable.Range(0, frameCount);
++					var indices = t.Value.Frames != null ? t.Value.Frames : Exts.MakeArray(t.Value.TilesCount, j => j);
++
++					var start = indices.Min();
++					var end = indices.Max();
++					if (start < 0 || end >= frameCount)
++						throw new YamlException("Template `{0}` uses frames [{1}..{2}] of {3}, but only [0..{4}] actually exist"
++							.F(t.Key, start, end, i, frameCount - 1));
++
+ 					variants.Add(indices.Select(j =>
+ 					{
+ 						var f = allFrames[j];
+@@ -97,7 +104,7 @@ public Theater(TileSet tileset, Action<uint, string> onMissingImage = null)
+ 						if (sheetBuilder == null)
+ 							sheetBuilder = new SheetBuilder(SheetBuilder.FrameTypeToSheetType(f.Type), allocate);
+ 						else if (type != sheetBuilder.Type)
+-							throw new InvalidDataException("Sprite type mismatch. Terrain sprites must all be either Indexed or RGBA.");
++							throw new YamlException("Sprite type mismatch. Terrain sprites must all be either Indexed or RGBA.");
+ 
+ 						var s = sheetBuilder.Allocate(f.Size, zRamp, offset);
+ 						Util.FastCopyIntoChannel(s, f.Data);
+diff --git a/OpenRA.Game/Map/TileSet.cs b/OpenRA.Game/Map/TileSet.cs
+index 2b82b03ed0e4..e67bdf319700 100644
+--- a/OpenRA.Game/Map/TileSet.cs
++++ b/OpenRA.Game/Map/TileSet.cs
+@@ -73,10 +73,10 @@ public TerrainTemplateInfo(TileSet tileSet, MiniYaml my)
+ 				foreach (var node in nodes)
+ 				{
+ 					if (!int.TryParse(node.Key, out var key))
+-						throw new InvalidDataException("Tileset `{0}` template `{1}` frame `{2}` is not a valid integer.".F(tileSet.Id, Id, node.Key));
++						throw new YamlException("Tileset `{0}` template `{1}` defines a frame `{2}` that is not a valid integer.".F(tileSet.Id, Id, node.Key));
+ 
+ 					if (key < 0 || key >= tileInfo.Length)
+-						throw new InvalidDataException("Tileset `{0}` template `{1}` frame `{2}` must be between 0 and {3} for a {4}x{5} Size template.".F(tileSet.Id, Id, node.Key, tileInfo.Length, Size.X, Size.Y));
++						throw new YamlException("Tileset `{0}` template `{1}` references frame {2}, but only [0..{3}] are valid for a {4}x{5} Size template.".F(tileSet.Id, Id, key, tileInfo.Length - 1, Size.X, Size.Y));
+ 
+ 					tileInfo[key] = LoadTileInfo(tileSet, node.Value);
+ 				}
+@@ -88,8 +88,11 @@ public TerrainTemplateInfo(TileSet tileSet, MiniYaml my)
+ 				var i = 0;
+ 				foreach (var node in nodes)
+ 				{
+-					if (!int.TryParse(node.Key, out var key) || key != i++)
+-						throw new InvalidDataException("Invalid tile key '{0}' on template '{1}' of tileset '{2}'.".F(node.Key, Id, tileSet.Id));
++					if (!int.TryParse(node.Key, out var key))
++						throw new YamlException("Tileset `{0}` template `{1}` defines a frame `{2}` that is not a valid integer.".F(tileSet.Id, Id, node.Key));
++
++					if (key != i++)
++						throw new YamlException("Tileset `{0}` template `{1}` is missing a definition for frame {2}.".F(tileSet.Id, Id, i - 1));
+ 
+ 					tileInfo[key] = LoadTileInfo(tileSet, node.Value);
+ 				}
+@@ -165,14 +168,14 @@ public TileSet(IReadOnlyFileSystem fileSystem, string filepath)
+ 				.ToArray();
+ 
+ 			if (TerrainInfo.Length >= byte.MaxValue)
+-				throw new InvalidDataException("Too many terrain types.");
++				throw new YamlException("Too many terrain types.");
+ 
+ 			for (byte i = 0; i < TerrainInfo.Length; i++)
+ 			{
+ 				var tt = TerrainInfo[i].Type;
+ 
+ 				if (terrainIndexByType.ContainsKey(tt))
+-					throw new InvalidDataException("Duplicate terrain type '{0}' in '{1}'.".F(tt, filepath));
++					throw new YamlException("Duplicate terrain type '{0}' in '{1}'.".F(tt, filepath));
+ 
+ 				terrainIndexByType.Add(tt, i);
+ 			}
+diff --git a/OpenRA.Mods.Common/Graphics/DefaultSpriteSequence.cs b/OpenRA.Mods.Common/Graphics/DefaultSpriteSequence.cs
+index 1f201be94dac..51a72ec737ca 100644
+--- a/OpenRA.Mods.Common/Graphics/DefaultSpriteSequence.cs
++++ b/OpenRA.Mods.Common/Graphics/DefaultSpriteSequence.cs
+@@ -217,39 +217,32 @@ public DefaultSpriteSequence(ModData modData, TileSet tileSet, SpriteCache cache
+ 					Stride = LoadField(d, "Stride", Length);
+ 
+ 					if (Length > Stride)
+-						throw new InvalidOperationException(
+-							"{0}: Sequence {1}.{2}: Length must be <= stride"
+-							.F(info.Nodes[0].Location, sequence, animation));
++						throw new YamlException("Sequence {0}.{1}: Length must be <= stride"
++							.F(sequence, animation));
+ 
+ 					if (Frames != null && Length > Frames.Length)
+-						throw new InvalidOperationException(
+-							"{0}: Sequence {1}.{2}: Length must be <= Frames.Length"
+-							.F(info.Nodes[0].Location, sequence, animation));
++						throw new YamlException("Sequence {0}.{1}: Length must be <= Frames.Length"
++							.F(sequence, animation));
+ 
+ 					var end = Start + (Facings - 1) * Stride + Length - 1;
+ 					if (Frames != null)
+ 					{
+ 						foreach (var f in Frames)
+ 							if (f < 0 || f >= frameCount)
+-								throw new InvalidOperationException(
+-									"{5}: Sequence {0}.{1} defines a Frames override that references frame {4}, but only [{2}..{3}] actually exist"
+-										.F(sequence, animation, Start, end, f, info.Nodes[0].Location));
++								throw new YamlException("Sequence {0}.{1} defines a Frames override that references frame {2}, but only [{3}..{4}] actually exist"
++									.F(sequence, animation, f, Start, end));
+ 
+ 						if (Start < 0 || end >= Frames.Length)
+-							throw new InvalidOperationException(
+-								"{5}: Sequence {0}.{1} uses indices [{2}..{3}] of the Frames list, but only {4} frames are defined"
+-									.F(sequence, animation, Start, end, Frames.Length, info.Nodes[0].Location));
++							throw new YamlException("Sequence {0}.{1} uses indices [{2}..{3}] of the Frames list, but only {4} frames are defined"
++									.F(sequence, animation, Start, end, Frames.Length));
+ 					}
+ 					else if (Start < 0 || end >= frameCount)
+-						throw new InvalidOperationException(
+-							"{5}: Sequence {0}.{1} uses frames [{2}..{3}], but only 0..{4} actually exist"
+-								.F(sequence, animation, Start, end, frameCount - 1, info.Nodes[0].Location));
++						throw new YamlException("Sequence {0}.{1} uses frames [{2}..{3}], but only [0..{4}] actually exist"
++								.F(sequence, animation, Start, end, frameCount - 1));
+ 
+ 					if (ShadowStart >= 0 && ShadowStart + (Facings - 1) * Stride + Length > frameCount)
+-						throw new InvalidOperationException(
+-							"{5}: Sequence {0}.{1}'s shadow frames use frames [{2}..{3}], but only [0..{4}] actually exist"
+-							.F(sequence, animation, ShadowStart, ShadowStart + (Facings - 1) * Stride + Length - 1, frameCount - 1,
+-								info.Nodes[0].Location));
++						throw new YamlException("Sequence {0}.{1}'s shadow frames use frames [{2}..{3}], but only [0..{4}] actually exist"
++							.F(sequence, animation, ShadowStart, ShadowStart + (Facings - 1) * Stride + Length - 1, frameCount - 1));
+ 
+ 					var usedFrames = new List<int>();
+ 					for (var facing = 0; facing < Facings; facing++)
+diff --git a/OpenRA.Mods.Common/UtilityCommands/CheckMissingSprites.cs b/OpenRA.Mods.Common/UtilityCommands/CheckMissingSprites.cs
+index b8edd5934830..231a07420419 100644
+--- a/OpenRA.Mods.Common/UtilityCommands/CheckMissingSprites.cs
++++ b/OpenRA.Mods.Common/UtilityCommands/CheckMissingSprites.cs
+@@ -32,40 +32,69 @@ void IUtilityCommand.Run(Utility utility, string[] args)
+ 			var modData = Game.ModData = utility.ModData;
+ 			var failed = false;
+ 
+-			// DefaultSequences is a dictionary of tileset: SequenceProvider
+-			// so we can also use this to key our tileset checks
+-			foreach (var kv in modData.DefaultSequences)
++			// We need two levels of YamlException handling to provide the desired behaviour:
++			// Parse errors within a single tileset should skip that tileset and allow the rest to be tested
++			// however, certain errors will be thrown by the outer modData.DefaultSequences, which prevent
++			// any tilesets from being checked further.
++			try
+ 			{
+-				Console.WriteLine("Tileset: " + kv.Key);
+-				var tileset = modData.DefaultTileSets[kv.Key];
+-				var missingImages = new HashSet<string>();
+-				Action<uint, string> onMissingImage = (id, f) =>
++				// DefaultSequences is a dictionary of tileset: SequenceProvider
++				// so we can also use this to key our tileset checks
++				foreach (var kv in modData.DefaultSequences)
+ 				{
+-					Console.WriteLine("\tTemplate `{0}` references sprite `{1}` that does not exist.", id, f);
+-					missingImages.Add(f);
+-				};
++					try
++					{
++						Console.WriteLine("Tileset: " + kv.Key);
++						var tileset = modData.DefaultTileSets[kv.Key];
++						var missingImages = new HashSet<string>();
++						Action<uint, string> onMissingImage = (id, f) =>
++						{
++							Console.WriteLine("\tTemplate `{0}` references sprite `{1}` that does not exist.", id, f);
++							missingImages.Add(f);
++						};
+ 
+-				var theater = new Theater(tileset, onMissingImage);
+-				foreach (var t in tileset.Templates)
+-					for (var v = 0; v < t.Value.Images.Length; v++)
+-						if (!missingImages.Contains(t.Value.Images[v]))
+-							for (var i = 0; i < t.Value.TilesCount; i++)
+-								if (t.Value[i] != null && !theater.HasTileSprite(new TerrainTile(t.Key, (byte)i), v))
+-									Console.WriteLine("\tTemplate `{0}` references frame {1} that does not exist in sprite `{2}`.", t.Key, i, t.Value.Images[v]);
++						var theater = new Theater(tileset, onMissingImage);
++						foreach (var t in tileset.Templates)
++							for (var v = 0; v < t.Value.Images.Length; v++)
++								if (!missingImages.Contains(t.Value.Images[v]))
++									for (var i = 0; i < t.Value.TilesCount; i++)
++										if (t.Value[i] != null && !theater.HasTileSprite(new TerrainTile(t.Key, (byte)i), v))
++											Console.WriteLine("\tTemplate `{0}` references frame {1} that does not exist in sprite `{2}`.", t.Key, i, t.Value.Images[v]);
+ 
+-				foreach (var image in kv.Value.Images)
+-				{
+-					foreach (var sequence in kv.Value.Sequences(image))
+-					{
+-						var s = kv.Value.GetSequence(image, sequence) as FileNotFoundSequence;
+-						if (s != null)
++						foreach (var image in kv.Value.Images)
+ 						{
+-							Console.WriteLine("\tSequence `{0}.{1}` references sprite `{2}` that does not exist.", image, sequence, s.Filename);
+-							failed = true;
++							foreach (var sequence in kv.Value.Sequences(image))
++							{
++								var s = kv.Value.GetSequence(image, sequence) as FileNotFoundSequence;
++								if (s != null)
++								{
++									Console.WriteLine("\tSequence `{0}.{1}` references sprite `{2}` that does not exist.", image, sequence, s.Filename);
++									failed = true;
++								}
++							}
+ 						}
+ 					}
++					catch (YamlException e)
++					{
++						// The stacktrace associated with yaml errors are not very useful
++						// Suppress them to make the lint output less intimidating for modders
++						Console.WriteLine("\t{0}".F(e.Message));
++						failed = true;
++					}
++					catch (Exception e)
++					{
++						Console.WriteLine("Failed with exception: {0}".F(e));
++						failed = true;
++					}
+ 				}
+ 			}
++			catch (YamlException e)
++			{
++				// The stacktrace associated with yaml errors are not very useful
++				// Suppress them to make the lint output less intimidating for modders
++				Console.WriteLine("{0}".F(e.Message));
++				failed = true;
++			}
+ 
+ 			if (failed)
+ 				Environment.Exit(1);

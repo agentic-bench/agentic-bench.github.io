@@ -1,2 +1,0 @@
-{"diff_id": "airflow_issue_10616_pr_10617_l_6bfba8c5", "input_tokens": 1000, "output_tokens": 200, "total_tokens": 1200, "steps": 3, "trajectory_input_costs": 0.00015, "trajectory_output_costs": 0.00012, "trajectory_total_costs": 0.00027, "evaluation_version": "1.0"}
-{"diff_id": "airflow_issue_12776_pr_12890_sm_db4e88c1", "input_tokens": 1000, "output_tokens": 200, "total_tokens": 1200, "steps": 3, "trajectory_input_costs": 0.00015, "trajectory_output_costs": 0.00012, "trajectory_total_costs": 0.00027, "evaluation_version": "1.0"}

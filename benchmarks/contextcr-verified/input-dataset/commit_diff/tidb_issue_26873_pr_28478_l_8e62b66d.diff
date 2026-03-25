@@ -1,0 +1,155 @@
+diff --git a/expression/expression.go b/expression/expression.go
+index 0e574ee7dc375..e37f8bc7e09b3 100644
+--- a/expression/expression.go
++++ b/expression/expression.go
+@@ -791,7 +791,7 @@ func SplitDNFItems(onExpr Expression) []Expression {
+ // If the Expression is a non-constant value, it means the result is unknown.
+ func EvaluateExprWithNull(ctx sessionctx.Context, schema *Schema, expr Expression) Expression {
+ 	if MaybeOverOptimized4PlanCache(ctx, []Expression{expr}) {
+-		ctx.GetSessionVars().StmtCtx.MaybeOverOptimized4PlanCache = true
++		return expr
+ 	}
+ 	return evaluateExprWithNull(ctx, schema, expr)
+ }
+diff --git a/planner/core/find_best_task.go b/planner/core/find_best_task.go
+index 0edbe0b1e5fed..1c618fd516a33 100644
+--- a/planner/core/find_best_task.go
++++ b/planner/core/find_best_task.go
+@@ -812,7 +812,10 @@ func (ds *DataSource) findBestTask(prop *property.PhysicalProperty, planCounter
+ 				p: dual,
+ 			}, cntPlan, nil
+ 		}
+-		canConvertPointGet := len(path.Ranges) > 0 && path.StoreType == kv.TiKV && ds.isPointGetConvertableSchema()
++		canConvertPointGet := len(path.Ranges) > 0 && path.StoreType == kv.TiKV && ds.isPointGetConvertableSchema() &&
++			// to avoid the over-optimized risk, do not generate PointGet for plan cache, for example,
++			// `pk>=$a and pk<=$b` can be optimized to a PointGet when `$a==$b`, but it can cause wrong results when `$a!=$b`.
++			!ds.ctx.GetSessionVars().StmtCtx.UseCache
+ 		if canConvertPointGet && !path.IsIntHandlePath {
+ 			// We simply do not build [batch] point get for prefix indexes. This can be optimized.
+ 			canConvertPointGet = path.Index.Unique && !path.Index.HasPrefixIndex()
+diff --git a/planner/core/prepare_test.go b/planner/core/prepare_test.go
+index 35d9aebc8d630..c49c6e95fcb83 100644
+--- a/planner/core/prepare_test.go
++++ b/planner/core/prepare_test.go
+@@ -345,6 +345,48 @@ func (s *testPrepareSerialSuite) TestPrepareTableAsNameOnGroupByWithCache(c *C)
+ 	tk.MustQuery("execute stmt").Sort().Check(testkit.Rows("partner1", "partner2", "partner3", "partner4"))
+ }
+ 
++func (s *testPrepareSerialSuite) TestPrepareCachePointGetInsert(c *C) {
++	defer testleak.AfterTest(c)()
++	store, dom, err := newStoreWithBootstrap()
++	c.Assert(err, IsNil)
++	tk := testkit.NewTestKit(c, store)
++	orgEnable := core.PreparedPlanCacheEnabled()
++	defer func() {
++		dom.Close()
++		err = store.Close()
++		c.Assert(err, IsNil)
++		core.SetPreparedPlanCache(orgEnable)
++	}()
++	core.SetPreparedPlanCache(true)
++	tk.Se, err = session.CreateSession4TestWithOpt(store, &session.Opt{
++		PreparedPlanCache: kvcache.NewSimpleLRUCache(100, 0.1, math.MaxUint64),
++	})
++	c.Assert(err, IsNil)
++
++	tk.MustExec("use test")
++	tk.MustExec("drop table if exists t")
++	tk.MustExec("create table t1 (a int, b int, primary key(a))")
++	tk.MustExec("insert into t1 values (1, 1), (2, 2), (3, 3)")
++
++	tk.MustExec("create table t2 (a int, b int, primary key(a))")
++	tk.MustExec(`prepare stmt1 from "insert into t2 select * from t1 where a=?"`)
++
++	tk.MustExec("set @a=1")
++	tk.MustExec("execute stmt1 using @a")
++	tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("0"))
++	tk.MustQuery("select * from t2 order by a").Check(testkit.Rows("1 1"))
++
++	tk.MustExec("set @a=2")
++	tk.MustExec("execute stmt1 using @a")
++	tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("1"))
++	tk.MustQuery("select * from t2 order by a").Check(testkit.Rows("1 1", "2 2"))
++
++	tk.MustExec("set @a=3")
++	tk.MustExec("execute stmt1 using @a")
++	tk.MustQuery(`select @@last_plan_from_cache`).Check(testkit.Rows("1"))
++	tk.MustQuery("select * from t2 order by a").Check(testkit.Rows("1 1", "2 2", "3 3"))
++}
++
+ // nolint:unused
+ func readGaugeInt(g prometheus.Gauge) int {
+ 	ch := make(chan prometheus.Metric, 1)
+@@ -1107,7 +1149,7 @@ func (s *testPlanSerialSuite) TestPlanCachePointGetAndTableDual(c *C) {
+ 	tk.MustQuery("select @@last_plan_from_cache").Check(testkit.Rows("0"))
+ 	// Must not reuse the previous TableDual plan.
+ 	tk.MustQuery("execute s0 using @a0, @a0, @b0").Check(testkit.Rows("0000 7777 1"))
+-	tk.MustQuery("select @@last_plan_from_cache").Check(testkit.Rows("0"))
++	tk.MustQuery("select @@last_plan_from_cache").Check(testkit.Rows("1"))
+ 
+ 	tk.MustExec("create table t1(c1 varchar(20), c2 varchar(20), c3 bigint(20), primary key(c1, c2))")
+ 	tk.MustExec("insert into t1 values('0000','7777',1)")
+@@ -1118,7 +1160,7 @@ func (s *testPlanSerialSuite) TestPlanCachePointGetAndTableDual(c *C) {
+ 	tk.MustQuery("select @@last_plan_from_cache").Check(testkit.Rows("0"))
+ 	// Must not reuse the previous PointGet plan.
+ 	tk.MustQuery("execute s1 using @a1, @a1, @b1").Check(testkit.Rows("0000 7777 1"))
+-	tk.MustQuery("select @@last_plan_from_cache").Check(testkit.Rows("0"))
++	tk.MustQuery("select @@last_plan_from_cache").Check(testkit.Rows("1"))
+ 
+ 	tk.MustExec("create table t2(c1 bigint(20) primary key, c2 varchar(20))")
+ 	tk.MustExec("insert into t2 values(1,'7777')")
+@@ -1129,7 +1171,7 @@ func (s *testPlanSerialSuite) TestPlanCachePointGetAndTableDual(c *C) {
+ 	tk.MustQuery("select @@last_plan_from_cache").Check(testkit.Rows("0"))
+ 	// Must not reuse the previous PointGet plan.
+ 	tk.MustQuery("execute s2 using @a2, @b2").Check(testkit.Rows("1 7777"))
+-	tk.MustQuery("select @@last_plan_from_cache").Check(testkit.Rows("0"))
++	tk.MustQuery("select @@last_plan_from_cache").Check(testkit.Rows("1"))
+ 
+ 	tk.MustExec("create table t3(c1 int, c2 int, c3 int, unique key(c1), key(c2))")
+ 	tk.MustExec("insert into t3 values(2,1,1)")
+@@ -1140,7 +1182,7 @@ func (s *testPlanSerialSuite) TestPlanCachePointGetAndTableDual(c *C) {
+ 	tk.MustQuery("select @@last_plan_from_cache").Check(testkit.Rows("0"))
+ 	// Must not reuse the previous IndexMerge with partial PointGet plan.
+ 	tk.MustQuery("execute s3 using @a3,@b3").Check(testkit.Rows("2 1 1"))
+-	tk.MustQuery("select @@last_plan_from_cache").Check(testkit.Rows("0"))
++	tk.MustQuery("select @@last_plan_from_cache").Check(testkit.Rows("1"))
+ 
+ 	tk.MustExec("prepare s3 from 'select /*+ use_index_merge(t3) */ * from t3 where (c1 >= ? and c1 <= ?) or c2 > 1'")
+ 	tk.MustExec("set @a3=1,@b3=3")
+@@ -1199,7 +1241,7 @@ func (s *testPlanSerialSuite) TestIssue23671(c *C) {
+ 	tk.MustQuery("execute s1 using @a, @b, @c").Check(testkit.Rows("1 1"))
+ 	tk.MustExec("set @a=1, @b=1, @c=10")
+ 	tk.MustQuery("execute s1 using @a, @b, @c").Check(testkit.Rows("1 1", "2 2"))
+-	tk.MustQuery("select @@last_plan_from_cache").Check(testkit.Rows("0"))
++	tk.MustQuery("select @@last_plan_from_cache").Check(testkit.Rows("1"))
+ }
+ 
+ func (s *testPlanSerialSuite) TestPartitionTable(c *C) {
+diff --git a/planner/core/stats.go b/planner/core/stats.go
+index 0447e625eca04..4b081ffa5f155 100644
+--- a/planner/core/stats.go
++++ b/planner/core/stats.go
+@@ -343,8 +343,6 @@ func (ds *DataSource) derivePathStatsAndTryHeuristics() error {
+ 	if selected != nil {
+ 		ds.possibleAccessPaths[0] = selected
+ 		ds.possibleAccessPaths = ds.possibleAccessPaths[:1]
+-		// TODO: Can we make a more careful check on whether the optimization depends on mutable constants?
+-		ds.ctx.GetSessionVars().StmtCtx.MaybeOverOptimized4PlanCache = true
+ 		if ds.ctx.GetSessionVars().StmtCtx.InVerboseExplain {
+ 			var tableName string
+ 			if ds.TableAsName.O == "" {
+diff --git a/util/ranger/detacher.go b/util/ranger/detacher.go
+index dba4d7de7964c..6dbe9bd2e419f 100644
+--- a/util/ranger/detacher.go
++++ b/util/ranger/detacher.go
+@@ -566,7 +566,9 @@ func ExtractEqAndInCondition(sctx sessionctx.Context, conditions []expression.Ex
+ 				// Maybe we can improve it later.
+ 				columnValues[i] = &valueInfo{mutable: true}
+ 			}
+-			sctx.GetSessionVars().StmtCtx.MaybeOverOptimized4PlanCache = true
++			if expression.MaybeOverOptimized4PlanCache(sctx, conditions) {
++				return nil, conditions, nil, nil, false
++			}
+ 		}
+ 	}
+ 	for i, offset := range offsets {
