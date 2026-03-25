@@ -14,7 +14,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.direct_gateway import single_request
 from ..base import BaseEvaluator
 
-COMMIT_DIFF_BASE = Path("benchmarks/contextcrbench/input-dataset/commit_diff")
+COMMIT_DIFF_BASE = Path("benchmarks/agenticcr-verified/input-dataset/commit_diff")
 MODEL = "gpt-5.1-2025-11-13"
 
 SYSTEM_PROMPT = """\

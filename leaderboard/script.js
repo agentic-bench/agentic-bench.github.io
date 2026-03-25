@@ -34,7 +34,7 @@ function displayName(col, tabName) {
     const bmOverrides = tabName && benchmarkMeta[tabName] ? (benchmarkMeta[tabName].display_names || {}) : {};
     let name = bmOverrides[col] || metricDisplayNames[col] || col.split('/').pop().replace(/_/g, ' ');
     
-    // Add tooltip for SNR metric in contextcrbench
+    // Add tooltip for SNR metric in agenticcr-verified
     if (col === 'overall_weighted_score' && tabName === 'agenticcr-verified') {
         name = `<span title="Signal-to-Noise Ratio (SNR) = A / (T - A) where A = aligned comments (signal), T = total comments. Higher SNR means better efficiency: more signal per noise. Penalizes agents generating many comments with few aligned.">${name}</span>`;
     }
