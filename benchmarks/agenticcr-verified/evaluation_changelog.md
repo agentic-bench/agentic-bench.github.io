@@ -1,4 +1,4 @@
-# ContextCR-Verified Evaluation Changelog
+# AgenticCR-Verified Evaluation Changelog
 
 ## Version 1.0 (Released 2026-01-10)
 

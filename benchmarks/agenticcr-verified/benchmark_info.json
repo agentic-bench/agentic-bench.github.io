@@ -1,7 +1,7 @@
 {
-  "name": "contextcr-verified",
+  "name": "agenticcr-verified",
   "tab_order": 1,
-  "display_name": "ContextCR-Verified",
+  "display_name": "AgenticCR-Verified",
   "current_version": "1.0",
   "benchmark_goal": "human-alignment",
   "dataset_total_diffs": 362,

@@ -1,6 +1,6 @@
 {
-  "contextcr-verified": {
-    "display_name": "ContextCR-Verified",
+  "agenticcr-verified": {
+    "display_name": "AgenticCR-Verified",
     "benchmark_goal": "human-alignment",
     "description": "Measures how well LLM-generated code review comments align with human reviewer comments on real-world PRs.",
     "primary_metric": "and(metric/human/is_human_llm_location_matched, metric/human/is_llm_human_aligned)",

@@ -16,13 +16,13 @@ __pycache__/
 *.log
 
 # working files
-benchmarks/contextcr-verified/input-dataset/contextcrbench2
+benchmarks/agenticcr-verified/input-dataset/contextcrbench2
 tmp_rovodev_evaluator_no_trajectory_for_coderabbit.py
-benchmarks/contextcr-verified/eval-results-backup
-benchmarks/contextcr-verified/input-dataset/contextcrbench_tasks_verify.csv
-benchmarks/contextcr-verified/input-dataset-backup
-benchmarks/contextcr-verified/llm-comments-backup
-benchmarks/contextcr-verified/contextcrbench_tasks.csv
-benchmarks/contextcr-verified/eval-results/eval-results-excluded
-benchmarks/contextcr-verified/contextcrbench_tasks.csv
+benchmarks/agenticcr-verified/eval-results-backup
+benchmarks/agenticcr-verified/input-dataset/contextcrbench_tasks_verify.csv
+benchmarks/agenticcr-verified/input-dataset-backup
+benchmarks/agenticcr-verified/llm-comments-backup
+benchmarks/agenticcr-verified/contextcrbench_tasks.csv
+benchmarks/agenticcr-verified/eval-results/eval-results-excluded
+benchmarks/agenticcr-verified/contextcrbench_tasks.csv
 src/extra

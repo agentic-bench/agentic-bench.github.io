@@ -1,5 +1,5 @@
 {
-  "benchmark_name": "contextcr-verified",
+  "benchmark_name": "agenticcr-verified",
   "current_version": "1.0",
   "versions": {
     "1.0": {

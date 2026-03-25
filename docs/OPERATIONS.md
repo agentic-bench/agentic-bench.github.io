@@ -16,10 +16,10 @@ cd src
 # Select LLM gateway (generic or direct), necessary configuration e.g., .env required
 export LLM_GATEWAY_BACKEND=generic
 
-# Evaluate on ContextCR-Verified
+# Evaluate on AgenticCR-Verified
 uv run src/evaluator.py \
-    --benchmark contextcr-verified \
-    --input ../benchmarks/contextcr-verified/llm-comments/my-agent_20260301-0900.jsonl \
+    --benchmark agenticcr-verified \
+    --input ../benchmarks/agenticcr-verified/llm-comments/my-agent_20260301-0900.jsonl \
     --benchmarks-root ../benchmarks
 
 # Evaluate on SCRBench
@@ -30,7 +30,7 @@ uv run src/evaluator.py \
 ```
 
 **Options:**
-- `--benchmark` — benchmark directory name (e.g. `contextcr-verified`, `scrbench`)
+- `--benchmark` — benchmark directory name (e.g. `agenticcr-verified`, `scrbench`)
 - `--input` — path to llm-comments JSONL file
 - `--benchmarks-root` — root folder containing benchmark directories (default: `../benchmarks`)
 - `--resume` — skip already-evaluated rows (default: overwrite)
@@ -120,7 +120,7 @@ The leaderboard's `primary_metric` can be an expression combining multiple metri
 3. The leaderboard then computes the **harmonic mean** of the underlying metrics for ranking (if configured in `group_summary`)
 4. Venn diagrams automatically detect and use the expression to build their sets
 
-**Example:** For ContextCR-Verified with `and(location, alignment)`:
+**Example:** For AgenticCR-Verified with `and(location, alignment)`:
 - Evaluator: computes boolean `True` only if comment is both localized AND aligned
 - Leaderboard: aggregates as `mean(bool)` = % of comments that are both localized AND aligned
 - Display: Shows "Code Review Capability" as harmonic mean of location + alignment metrics
@@ -132,8 +132,8 @@ The leaderboard's `primary_metric` can be an expression combining multiple metri
 
 ```json
 {
-  "name":                    "contextcr-verified",
-  "display_name":            "ContextCR-Verified",
+  "name":                    "agenticcr-verified",
+  "display_name":            "AgenticCR-Verified",
   "benchmark_goal":          "human-alignment",
   "tab_order":               1,
   "dataset_total_diffs":     362,
@@ -269,7 +269,7 @@ Each benchmark maintains an **evaluation version** that represents a snapshot of
 ### Philosophy
 
 - **Version represents the entire evaluator set** - Not individual evaluators
-- **Independent per benchmark** - ContextCR-Verified and SCRBench have separate version numbers
+- **Independent per benchmark** - AgenticCR-Verified and SCRBench have separate version numbers
 - **Semantic versioning** - MAJOR.MINOR format
   - **MAJOR bump** (e.g., 1.0 → 2.0): Add/remove evaluator, change LLM model, major prompt changes
   - **MINOR bump** (e.g., 1.0 → 1.1): Model version update, bug fixes, minor prompt tweaks
@@ -335,7 +335,7 @@ The leaderboard is a self-contained static HTML app in `leaderboard/`.
 |---|---|---|
 | Main leaderboard | `index.html` | Two-tab table with sorting, group collapse, Pareto plot |
 | Submission format | `format.html` | Full schema documentation for llm-comments format |
-| ContextCR-Verified | `benchmark-contextcr-verified.html` | Examples, groundtruth, metrics |
+| AgenticCR-Verified | `benchmark-agenticcr-verified.html` | Examples, groundtruth, metrics |
 | SCRBench | `benchmark-scrbench.html` | Examples, groundtruth, metrics, CWE info |
 
 **Features:**

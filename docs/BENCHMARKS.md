@@ -1,6 +1,6 @@
 # Benchmarks
 
-## ContextCR-Verified (`contextcr-verified`)
+## AgenticCR-Verified (`agenticcr-verified`)
 - **Goal:** human-alignment — does the agent identify the same issues as human expert reviewers?
 - **Dataset:** 362 real GitHub pull requests across multiple open-source projects
 - **Ground truth:** 561 human expert review comments (file, line, content)

@@ -35,7 +35,7 @@ function displayName(col, tabName) {
     let name = bmOverrides[col] || metricDisplayNames[col] || col.split('/').pop().replace(/_/g, ' ');
     
     // Add tooltip for SNR metric in contextcrbench
-    if (col === 'overall_weighted_score' && tabName === 'contextcr-verified') {
+    if (col === 'overall_weighted_score' && tabName === 'agenticcr-verified') {
         name = `<span title="Signal-to-Noise Ratio (SNR) = A / (T - A) where A = aligned comments (signal), T = total comments. Higher SNR means better efficiency: more signal per noise. Penalizes agents generating many comments with few aligned.">${name}</span>`;
     }
     
@@ -408,7 +408,7 @@ function renderInfoPanels() {
     // ---- Benchmarks panel ------------------------------------------------
     // Benchmark page URLs — add new entries here when adding new benchmarks
     const BENCHMARK_PAGES = {
-        'contextcr-verified': 'benchmark-contextcr-verified.html',
+        'agenticcr-verified': 'benchmark-agenticcr-verified.html',
         'scrbench':       'benchmark-scrbench.html',
     };
 
@@ -806,7 +806,7 @@ function renderVennDiagram(tabIdx) {
 
     // Color scheme - ensure first and fourth (Others) colors are distinct
     const colors = {
-        'contextcr-verified': ['#0969da', '#e74c3c', '#27ae60', '#f39c12'],  // Blue, Red, Green, Orange
+        'agenticcr-verified': ['#0969da', '#e74c3c', '#27ae60', '#f39c12'],  // Blue, Red, Green, Orange
         'scrbench': ['#1a7f37', '#8e44ad', '#16a085', '#cf222e'],  // Green, Purple, Teal, Red
     };
     const agentColors = colors[tabName] || ['#0969da', '#e74c3c', '#27ae60', '#f39c12', '#9b59b6'];
@@ -1128,7 +1128,7 @@ function renderGTCoverageDiagram(tabIdx) {
 
     // Color scheme
     const colors = {
-        'contextcr-verified': ['#0969da', '#e74c3c', '#27ae60', '#f39c12'],
+        'agenticcr-verified': ['#0969da', '#e74c3c', '#27ae60', '#f39c12'],
         'scrbench': ['#1a7f37', '#8e44ad', '#16a085', '#cf222e'],
     };
     const agentColors = colors[tabName] || ['#0969da', '#e74c3c', '#27ae60', '#f39c12', '#9b59b6'];
