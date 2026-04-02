@@ -1,0 +1,10 @@
+[
+  {
+    "path": "packages/vite/src/node/__tests__/config.spec.ts",
+    "line": 492,
+    "original_line": 492,
+    "review_comment": [
+      "Without this PR, this was:\r\n```\r\n[\r\n      \"module\",\r\n      \"node\",\r\n      \"development|production\",\r\n]\r\n```"
+    ]
+  }
+]

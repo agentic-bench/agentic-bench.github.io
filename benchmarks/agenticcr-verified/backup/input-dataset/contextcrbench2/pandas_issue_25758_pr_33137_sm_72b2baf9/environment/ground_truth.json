@@ -1,0 +1,11 @@
+[
+  {
+    "path": "pandas/tests/resample/test_datetime_index.py",
+    "line": 1444,
+    "original_line": 1444,
+    "review_comment": [
+      "Is the DST transition at midnight on the 4th?",
+      "Correct https://www.currenttimeonline.com/dst/dst.do?tz=America/Havana"
+    ]
+  }
+]

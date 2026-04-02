@@ -1,0 +1,11 @@
+[
+  {
+    "path": "modules/doctor/dbconsistency.go",
+    "line": 182,
+    "original_line": 181,
+    "review_comment": [
+      "Is it a good idea to cancel all db consistency checks immediately when one consistency check throws an error?\r\nI think it would be better to \r\n  a) only log them.\r\n  or\r\n  b) collect them and report them afterward.\r\nOtherwise, the database can be more broken than necessary as potentially helpful consistency checks will not be executed because of one error.\r\n\r\nThe only thing I am unsure about is how to handle the return value in that case.",
+      "Look at what kind of thing causes an error here.\r\n\r\nThese are critical errors that mean that the db is not working properly\r\n\r\nSo it is appropriate to stop.\r\n\r\n"
+    ]
+  }
+]

@@ -1,0 +1,11 @@
+[
+  {
+    "path": "tests/helpers/test_config_entry_oauth2_flow.py",
+    "line": 73,
+    "original_line": 73,
+    "review_comment": [
+      "Is there a test to verify this is appended? ",
+      "The core tests coverage stayed the same (lines are hit) currently in the core tests for those properties (including this new one) is missing. \r\n\r\nThe Toon tests actually verify them additionally."
+    ]
+  }
+]

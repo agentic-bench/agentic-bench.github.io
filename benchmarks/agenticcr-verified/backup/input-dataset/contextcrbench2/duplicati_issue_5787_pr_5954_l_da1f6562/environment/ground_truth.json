@@ -1,0 +1,18 @@
+[
+  {
+    "path": "Duplicati/Server/Program.cs",
+    "line": 707,
+    "original_line": 704,
+    "review_comment": [
+      "## Hard-coded credentials\n\nThe hard-coded value \"Duplicati-\" flows to the [password](1) parameter in [object creation of type Rfc2898DeriveBytes](2).\n\n[Show more details](https://github.com/duplicati/duplicati/security/code-scanning/228)"
+    ]
+  },
+  {
+    "path": "Duplicati/Server/Program.cs",
+    "line": 707,
+    "original_line": 704,
+    "review_comment": [
+      "## Hard-coded credentials\n\nThe hard-coded value \".debug.log\" flows to the [password](1) parameter in [object creation of type Rfc2898DeriveBytes](2).\n\n[Show more details](https://github.com/duplicati/duplicati/security/code-scanning/229)"
+    ]
+  }
+]

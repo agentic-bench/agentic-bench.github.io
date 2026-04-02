@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "openra_issue_20065_pr_20168_xl_fda28021"
+contextcrbench2_full_name = "OpenRA/OpenRA"
+contextcrbench2_lang = "c_sharp"
+contextcrbench2_issue_number = "20065"
+contextcrbench2_issue_title = "Ground units cannot rearm without `Repairable:` trait"
+contextcrbench2_pr_number = "20168"
+contextcrbench2_pr_title = "Refactor docking"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "fda280210bac6496ae5f05963699a6916f693fd7"
+contextcrbench2_commit_id = "fda280210bac6496ae5f05963699a6916f693fd7"
+contextcrbench2_created_at = "2023-01-05T10:27:24Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

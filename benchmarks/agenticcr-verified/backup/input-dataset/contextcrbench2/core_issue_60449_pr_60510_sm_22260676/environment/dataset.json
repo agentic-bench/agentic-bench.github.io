@@ -1,0 +1,13 @@
+[
+  {
+    "id": 18547,
+    "full_name": "home-assistant/core",
+    "lang": "python",
+    "issue_number": 60449,
+    "pr_number": 60510,
+    "diff_hunk": "@@ -88,6 +88,8 @@ def precision(self) -> float:\n     @property\n     def current_temperature(self) -> float:\n         \"\"\"Return the current temperature.\"\"\"\n+        if self.device.has_temperature_sensor and self.device.temperature is not None:\n+            return self.device.temperature  # type: ignore [no-any-return]\n         return self.device.actual_temperature  # type: ignore [no-any-return]\n \n     @property\n",
+    "diff_hunk_content_with_line_number": "[88][88]      @property\n[89][89]      def current_temperature(self) -> float:\n[90][90]          \"\"\"Return the current temperature.\"\"\"\n[][91] +        if self.device.has_temperature_sensor and self.device.temperature is not None:\n[][92] +            return self.device.temperature  # type: ignore [no-any-return]\n[91][93]          return self.device.actual_temperature  # type: ignore [no-any-return]\n[92][94]  \n[93][95]      @property",
+    "checked_commit_id": "22260676f52f69e148eee08657683d3ff78cecd7",
+    "pr_size": "sm"
+  }
+]

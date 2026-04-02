@@ -1,0 +1,37 @@
+[
+  {
+    "path": "pkg/executor/aggfuncs/func_group_concat.go",
+    "line": 80,
+    "original_line": 80,
+    "review_comment": [
+      "wanring message also use `RedactLogDisable`, is it the expected behavior? Because warning will not cause error, and the warning message will be recorded in the slow log if current sql is slow log.",
+      "Slow log have supported the ```tidb_redact_log```. it have been tracked in the https://github.com/pingcap/tidb/issues/51306. We can consider it as the default behavior."
+    ]
+  },
+  {
+    "path": "pkg/util/ranger/types.go",
+    "line": 190,
+    "original_line": 190,
+    "review_comment": [
+      "Maybe change it to private function since it is not suggested to use in product?",
+      "In fact, we use it in the UT for planner package."
+    ]
+  },
+  {
+    "path": "pkg/planner/core/exhaust_physical_plans.go",
+    "line": 1029,
+    "original_line": 1028,
+    "review_comment": [
+      "It is to build the range info which is used in explain."
+    ]
+  },
+  {
+    "path": "pkg/expression/constant.go",
+    "line": 160,
+    "original_line": 160,
+    "review_comment": [
+      "String comparison is slow. Why not use a custom type like `type RedactMode int8` instead?",
+      "The root cause is that this enum was originally defined as a string. This also involves the slow log and other sections controlled by tidb_redact_log. Therefore, if we need to make changes, it would be better to create a new PR to address the issue"
+    ]
+  }
+]

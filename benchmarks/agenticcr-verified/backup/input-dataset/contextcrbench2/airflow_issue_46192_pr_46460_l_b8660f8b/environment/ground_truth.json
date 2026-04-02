@@ -1,0 +1,20 @@
+[
+  {
+    "path": "airflow/jobs/scheduler_job_runner.py",
+    "line": 1395,
+    "original_line": 1395,
+    "review_comment": [
+      "We should also remove this function from the timetable.",
+      "removed"
+    ]
+  },
+  {
+    "path": "airflow/jobs/scheduler_job_runner.py",
+    "line": 1394,
+    "original_line": 1394,
+    "review_comment": [
+      "We should be able to do better\u2026 this currently takes three queries but we really only need one. I\u2019ll take a look after this PR.",
+      "https://github.com/apache/airflow/issues/46711#issue-2850147233\r\n\r\ncreated an issue for this. let me think a bit and see whether I can improve it but probably would still be better to do it in another PR"
+    ]
+  }
+]

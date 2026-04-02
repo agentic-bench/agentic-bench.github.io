@@ -1,0 +1,48 @@
+[
+  {
+    "path": "src/cascadia/TerminalApp/TerminalPage.cpp",
+    "line": 347,
+    "original_line": 518,
+    "review_comment": [
+      "It looks like App.cpp also had these two lines here:\r\n            TraceLoggingBool(profileIndex.has_value(), \"ProfileSpecified\", \"Whether the new tab specified a profile explicitly\"),\r\n            TraceLoggingGuid(profileGuid, \"ProfileGuid\", \"The GUID of the profile spawned in the new tab\"),\r\n\r\nWere these intentionally removed?",
+      "Added"
+    ]
+  },
+  {
+    "path": "src/cascadia/TerminalApp/TerminalPage.cpp",
+    "line": 962,
+    "original_line": 1127,
+    "review_comment": [
+      "Looks like you lost the \"#ifdef DEP_MICROSOFT_UI_XAML_708_FIXED\" here?",
+      "Added"
+    ]
+  },
+  {
+    "path": "src/cascadia/TerminalApp/App.h",
+    "line": 53,
+    "original_line": 54,
+    "review_comment": [
+      "I was more thinking this could just be a `TerminalPage`, we've been trying to avoid COM as much as possible. ",
+      "If we make _root a TerminalPage object type, then it seems that there are exceptions thrown during initialization. How about TerminalPage* ?",
+      "This must be `com_ptr`, this is good. @zadjii-msft has now experienced the crystalizing moment and understands why :smile:"
+    ]
+  },
+  {
+    "path": "src/cascadia/TerminalApp/App.h",
+    "line": 51,
+    "original_line": 52,
+    "review_comment": [
+      "Since we are now removing `_root` and `_tabRow`, we should remove this comment or move it to the new location (if it's still relevant).",
+      "added similar comment in TerminalPage"
+    ]
+  },
+  {
+    "path": "src/cascadia/TerminalApp/TerminalPage.cpp",
+    "line": 1064,
+    "original_line": 1063,
+    "review_comment": [
+      "Missing _comment_ change from #2446",
+      "applied"
+    ]
+  }
+]

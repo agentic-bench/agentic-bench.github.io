@@ -1,0 +1,69 @@
+diff --git a/activerecord/lib/active_record/connection_adapters/postgresql/database_statements.rb b/activerecord/lib/active_record/connection_adapters/postgresql/database_statements.rb
+index f572f5864266f..7bc4cd538e21f 100644
+--- a/activerecord/lib/active_record/connection_adapters/postgresql/database_statements.rb
++++ b/activerecord/lib/active_record/connection_adapters/postgresql/database_statements.rb
+@@ -55,11 +55,7 @@ def exec_query(sql, name = "SQL", binds = [], prepare: false, async: false) # :n
+             fields.each_with_index do |fname, i|
+               ftype = result.ftype i
+               fmod  = result.fmod i
+-              case type = get_oid_type(ftype, fmod, fname)
+-              when Type::Integer, Type::Float, OID::Decimal, Type::String, Type::DateTime, Type::Boolean
+-                # skip if a column has already been type casted by pg decoders
+-              else types[fname] = type
+-              end
++              types[fname] = get_oid_type(ftype, fmod, fname)
+             end
+             build_result(columns: fields, rows: result.values, column_types: types)
+           end
+diff --git a/activerecord/test/cases/base_test.rb b/activerecord/test/cases/base_test.rb
+index 547be9489907e..2aa8f93828a59 100644
+--- a/activerecord/test/cases/base_test.rb
++++ b/activerecord/test/cases/base_test.rb
+@@ -1442,6 +1442,13 @@ def cast(value)
+     assert_equal "t.lo", topic.author_name
+   end
+ 
++  if current_adapter?(:PostgreSQLAdapter)
++    def test_column_types_on_queries_on_postgresql
++      result = ActiveRecord::Base.connection.exec_query("SELECT 1 AS test")
++      assert_equal ActiveModel::Type::Integer, result.column_types["test"].class
++    end
++  end
++
+   def test_typecasting_aliases
+     assert_equal 10, Topic.select("10 as tenderlove").first.tenderlove
+   end
+diff --git a/activerecord/test/cases/calculations_test.rb b/activerecord/test/cases/calculations_test.rb
+index b22b8eabf113f..e36f0698bceb2 100644
+--- a/activerecord/test/cases/calculations_test.rb
++++ b/activerecord/test/cases/calculations_test.rb
+@@ -993,11 +993,24 @@ def test_pluck_functions_with_alias
+   end
+ 
+   def test_pluck_functions_without_alias
+-    assert_equal [
+-      [1, "The First Topic"], [2, "The Second Topic of the day"],
+-      [3, "The Third Topic of the day"], [4, "The Fourth Topic of the day"],
+-      [5, "The Fifth Topic of the day"]
+-    ], Topic.order(:id).pluck(
++    expected = if current_adapter?(:PostgreSQLAdapter)
++      # Postgres returns the same name for each column in the given query, so each column is named "coalesce"
++      # As a result Rails cannot accurately type cast each value.
++      # To work around this, you should use aliases in your select statement (see test_pluck_functions_with_alias).
++      [
++        ["1", "The First Topic"], ["2", "The Second Topic of the day"],
++        ["3", "The Third Topic of the day"], ["4", "The Fourth Topic of the day"],
++        ["5", "The Fifth Topic of the day"]
++      ]
++    else
++      [
++        [1, "The First Topic"], [2, "The Second Topic of the day"],
++        [3, "The Third Topic of the day"], [4, "The Fourth Topic of the day"],
++        [5, "The Fifth Topic of the day"]
++      ]
++    end
++
++    assert_equal expected, Topic.order(:id).pluck(
+       Arel.sql("COALESCE(id, 0)"),
+       Arel.sql("COALESCE(title, 'untitled')")
+     )

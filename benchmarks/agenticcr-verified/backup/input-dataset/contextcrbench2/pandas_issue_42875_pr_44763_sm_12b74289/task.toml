@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "pandas_issue_42875_pr_44763_sm_12b74289"
+contextcrbench2_full_name = "pandas-dev/pandas"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "42875"
+contextcrbench2_issue_title = "BUG: wrong/confusing error message in DataFrame.take with a scalar indexer"
+contextcrbench2_pr_number = "44763"
+contextcrbench2_pr_title = "BUG: Raise TypeError for scalar indexer in take"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "12b74289388058f2e5a6f5c4bd07784ffcbc9f76"
+contextcrbench2_commit_id = "a3deae2f858fcc8af4c3881dca42d5e2014251fb"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2021-12-05T11:09:38Z"
+contextcrbench2_entry_count = "2"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

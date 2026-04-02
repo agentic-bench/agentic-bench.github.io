@@ -1,0 +1,24 @@
+[
+  {
+    "path": "include/zephyr/types.h",
+    "line": 63,
+    "original_line": 63,
+    "review_comment": [
+      "It seems like you explicitly need this to match the type of `size_t`, except signed? What newlib/picolibc do is a clever hack which works on both clang and gcc:\r\n```\r\n#ifdef __SIZE_TYPE__\r\n/* If __SIZE_TYPE__ is defined (gcc) we define ssize_t based on size_t.\r\n   We simply change \"unsigned\" to \"signed\" for this single definition\r\n   to make sure ssize_t and size_t only differ by their signedness. */\r\n#define unsigned signed\r\ntypedef __SIZE_TYPE__ _ssize_t;\r\n#undef unsigned\r\n#else\r\n...\r\n```\r\nStick your existing definitions inside the `#else` clause.",
+      "Should be fixed now"
+    ]
+  },
+  {
+    "path": "include/zephyr/types.h",
+    "line": 45,
+    "original_line": 45,
+    "review_comment": [
+      "Every `off_t` is changed to `k_off_t`, meaning the system footprint will increase. Is this really correct?",
+      "Just for illustration, I would normally expect to see `k_off_t` used in thread stacks.\r\n\r\nIf an application used a new `k_off_t` in every function (which would be unusual), and the stack was 25 function calls deep (which is an exceptionally deep stack), then there would only be 100 bytes of additional stack space used. That average case would be significantly less.\r\n\r\nSo not too bad.\r\n\r\nThe benefit is, of course, that Zephyr would always be guaranteed to handle any practically sized file, even if it's 20 GiB or something crazy like that.\r\n\r\nThe down-side is that architectures would need 2 or more instructions to emulate 64-bit operations (sometimes many more), which would increase flash usage.\r\n\r\nE.g. the `samples/subsys/nvs` app increases by 1.1 kB when building for `nrf5340dk/nrf5340/cpuapp`, which I think could be concerning for some.",
+      "Moved the Kconfig option to the kernel and renamed `CONFIG_OFFSET_64BIT`, much like `CONFIG_TIMEOUT_64BIT`.\r\n\r\nIt is not enabled by default, but defers the decision to the user.\r\n\r\nAt least that sets us up for future-proofing `k_off_t`, @keith-packard. ",
+      "yeah, I get excited when I can reduce a function by four bytes in size... Making the shift from a POSIX type to a Zephyr type is sufficient to resolve the actual bug, we can argue when that type should shift to 64 bits in some later PR. Good call.",
+      "~~am I missing where the size is set? This is 64-bit always, which really is not needed for the vast majority of low flash devices zephyr supports~~ original comment shows original code, not updated code, can see changes were made",
+      "Fixed!"
+    ]
+  }
+]

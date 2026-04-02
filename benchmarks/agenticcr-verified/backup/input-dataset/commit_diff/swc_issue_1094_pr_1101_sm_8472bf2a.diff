@@ -1,0 +1,366 @@
+diff --git a/ecmascript/transforms/src/typescript/strip.rs b/ecmascript/transforms/src/typescript/strip.rs
+index 0c0111bdbe32..d9ad3ecebb89 100644
+--- a/ecmascript/transforms/src/typescript/strip.rs
++++ b/ecmascript/transforms/src/typescript/strip.rs
+@@ -16,6 +16,8 @@ type EnumValues = FxHashMap<Id, TsLit>;
+ 
+ #[derive(Debug, Serialize, Deserialize)]
+ #[non_exhaustive]
++// TODO(nayeemrmn): The name should be `ImportsNotUsedAsValues`. Rename as a
++// breaking change.
+ pub enum ImportNotUsedAsValues {
+     #[serde(rename = "remove")]
+     Remove,
+@@ -23,10 +25,10 @@ pub enum ImportNotUsedAsValues {
+     Preserve,
+ }
+ 
+-/// This value defaults to `Preserve`
++/// This value defaults to `Remove`
+ impl Default for ImportNotUsedAsValues {
+     fn default() -> Self {
+-        Self::Preserve
++        Self::Remove
+     }
+ }
+ 
+@@ -41,7 +43,7 @@ pub fn strip_with_config(config: Config) -> impl Fold {
+         config,
+         non_top_level: Default::default(),
+         scope: Default::default(),
+-        was_side_effect_import: Default::default(),
++        is_side_effect_import: Default::default(),
+     })
+ }
+ 
+@@ -55,8 +57,7 @@ struct Strip {
+     config: Config,
+     non_top_level: bool,
+     scope: Scope,
+-
+-    was_side_effect_import: bool,
++    is_side_effect_import: bool,
+ }
+ 
+ #[derive(Default)]
+@@ -704,7 +705,7 @@ impl VisitMut for Strip {
+     }
+ 
+     fn visit_mut_import_decl(&mut self, import: &mut ImportDecl) {
+-        self.was_side_effect_import = import.specifiers.is_empty();
++        self.is_side_effect_import = import.specifiers.is_empty();
+ 
+         import.specifiers.retain(|s| match *s {
+             ImportSpecifier::Default(ImportDefaultSpecifier { ref local, .. })
+@@ -713,26 +714,23 @@ impl VisitMut for Strip {
+                     .scope
+                     .imported_idents
+                     .get(&(local.sym.clone(), local.span.ctxt()));
+-                match self.config.import_not_used_as_values {
+-                    ImportNotUsedAsValues::Remove => match entry {
+-                        Some(&DeclInfo {
+-                            has_concrete: false,
+-                            ..
+-                        }) => false,
+-                        _ => true,
+-                    },
+-                    ImportNotUsedAsValues::Preserve => match entry {
+-                        Some(&DeclInfo {
+-                            has_type: true,
+-                            has_concrete: false,
+-                            ..
+-                        }) => false,
+-                        _ => true,
+-                    },
++                match entry {
++                    Some(&DeclInfo {
++                        has_concrete: false,
++                        ..
++                    }) => false,
++                    _ => true,
+                 }
+             }
+             _ => true,
+         });
++
++        if import.specifiers.is_empty() && !self.is_side_effect_import {
++            self.is_side_effect_import = match self.config.import_not_used_as_values {
++                ImportNotUsedAsValues::Remove => false,
++                ImportNotUsedAsValues::Preserve => true,
++            };
++        }
+     }
+ 
+     fn visit_mut_object_pat(&mut self, pat: &mut ObjectPat) {
+@@ -776,7 +774,7 @@ impl VisitMut for Strip {
+         // Second pass
+         let mut stmts = Vec::with_capacity(orig.len());
+         for mut item in take(orig) {
+-            self.was_side_effect_import = false;
++            self.is_side_effect_import = false;
+             match item {
+                 Stmt::Empty(..) => continue,
+ 
+@@ -880,7 +878,7 @@ impl VisitMut for Strip {
+ 
+         let mut stmts = Vec::with_capacity(items.len());
+         for mut item in take(items) {
+-            self.was_side_effect_import = false;
++            self.is_side_effect_import = false;
+             match item {
+                 // Strip out ts-only extensions
+                 ModuleItem::Stmt(Stmt::Decl(Decl::Fn(FnDecl {
+@@ -953,7 +951,7 @@ impl VisitMut for Strip {
+                 ModuleItem::ModuleDecl(ModuleDecl::Import(mut i)) => {
+                     i.visit_mut_with(self);
+ 
+-                    if self.was_side_effect_import || !i.specifiers.is_empty() {
++                    if self.is_side_effect_import || !i.specifiers.is_empty() {
+                         stmts.push(ModuleItem::ModuleDecl(ModuleDecl::Import(i)));
+                     }
+                 }
+diff --git a/ecmascript/transforms/tests/typescript_strip.rs b/ecmascript/transforms/tests/typescript_strip.rs
+index 60d00c5299dd..63871d8673e2 100644
+--- a/ecmascript/transforms/tests/typescript_strip.rs
++++ b/ecmascript/transforms/tests/typescript_strip.rs
+@@ -473,7 +473,7 @@ to!(
+     issue_791_1,
+     "import { IPerson } from '../types/types'
+ 
+-     export interface IEmployee extends IPerson { 
++     export interface IEmployee extends IPerson {
+      }
+ 
+      export function createPerson(person: IPerson) {
+@@ -488,13 +488,13 @@ to!(
+     issue_791_2,
+     "import { IPerson } from '../types/types'
+ 
+-     export class Employee implements IPerson { 
++     export class Employee implements IPerson {
+      }
+ 
+      export function createPerson(person: IPerson) {
+        const a = {} as IPerson
+      }",
+-    "export class Employee { 
++    "export class Employee {
+      }
+      export function createPerson(person) {
+        const a = {}
+@@ -518,11 +518,11 @@ to!(
+ to!(
+     issue_791_4,
+     "import { A, B } from '../types/types'
+-     
+-     export class Child extends A implements B { 
++
++     export class Child extends A implements B {
+      }",
+     "import { A } from '../types/types'
+-    
++
+     export class Child extends A {
+     }
+     "
+@@ -613,7 +613,7 @@ to!(
+     #level: LogLevels;
+     #handlers: BaseHandler[];
+     readonly #loggerName: string;
+-    
++
+     constructor(
+         loggerName: string,
+         levelName: LevelName,
+@@ -747,7 +747,7 @@ test!(
+     typescript_001,
+     "class A {
+         foo = new Subject()
+-      
++
+         constructor() {
+           this.foo.subscribe()
+         }
+@@ -770,7 +770,7 @@ test!(
+ 
+             declare1
+             declare2!: string
+-          
++
+             constructor(private readonly a: string, readonly c, private d: number = 1) {
+                 super()
+                 this.foo.subscribe()
+@@ -827,10 +827,10 @@ test!(
+           this.action = new Subject()
+         }
+       }
+-      
++
+       class Child extends Base {
+         @DefineAction() action: Observable<void>
+-       
++
+         callApi() {
+           console.log(this.action) // undefined
+         }
+@@ -888,18 +888,18 @@ test_exec!(
+         this.action = 1
+       }
+     }
+-    
++
+     class Child extends Base {
+       @DefineAction() action: number
+-     
++
+       callApi() {
+         console.log(this.action) // undefined
+         return this.action
+       }
+     }
+-    
++
+     const c = new Child()
+-    
++
+     c.callApi()
+     expect(c.callApi()).not.toBe(undefined)
+     expect(c.action).toBe(1);
+@@ -1980,9 +1980,9 @@ export default (identifier: string, level = 0, b = "", m = false) => {
+         newline as newlineFormatter,
+         breakpoint as breakpointFormatter,
+     } from "./format.ts";
+-    
++
+     const proseTypes = new Map();
+-    
++
+     // deno-lint-ignore ban-types
+     const prose = (l, i, nl, bp): string => {
+         return i(l) + bp + "prose {" + nl +
+@@ -2273,9 +2273,9 @@ export default (identifier: string, level = 0, b = "", m = false) => {
+             i(l + 1) + "color: #161e2e;" + nl +
+             i(l) + "}" + nl;
+     };
+-    
++
+     proseTypes.set("prose", prose);
+-    
++
+     // deno-lint-ignore ban-types
+     const proseSm = (l, i, nl, bp): string => {
+         return i(l) + bp + "prose-sm {" + nl +
+@@ -2461,9 +2461,9 @@ export default (identifier: string, level = 0, b = "", m = false) => {
+             i(l + 1) + "margin-bottom: 0;" + nl +
+             i(l) + "}" + nl;
+     };
+-    
++
+     proseTypes.set("prose-sm", proseSm);
+-    
++
+     // deno-lint-ignore ban-types
+     const proseLg = (l, i, nl, bp): string => {
+         return i(l) + bp + "prose-lg {" + nl +
+@@ -2649,9 +2649,9 @@ export default (identifier: string, level = 0, b = "", m = false) => {
+             i(l + 1) + "margin-bottom: 0;" + nl +
+             i(l) + "}" + nl;
+     };
+-    
++
+     proseTypes.set("prose-lg", proseLg);
+-    
++
+     // deno-lint-ignore ban-types
+     const proseXl = (l, i, nl, bp): string => {
+         return i(l) + bp + "prose-xl {" + nl +
+@@ -2837,9 +2837,9 @@ export default (identifier: string, level = 0, b = "", m = false) => {
+             i(l + 1) + "margin-bottom: 0;" + nl +
+             i(l) + "}" + nl;
+     };
+-    
++
+     proseTypes.set("prose-xl", proseXl);
+-    
++
+     // deno-lint-ignore ban-types
+     const prose2xl = (l, i, nl, bp) => {
+         return i(l) + bp + "prose-2xl {" + nl +
+@@ -3025,18 +3025,18 @@ export default (identifier: string, level = 0, b = "", m = false) => {
+             i(l + 1) + "margin-bottom: 0;" + nl +
+             i(l) + "}" + nl;
+     };
+-    
++
+     proseTypes.set("prose-2xl", prose2xl);
+-    
++
+     export default ((identifier, level = 0, b = "", m = false) => {
+         const i = indentFormatter(m);
+         const nl = newlineFormatter(m)();
+         const bp = breakpointFormatter(b);
+-    
++
+         if (proseTypes.has(identifier)) {
+             return proseTypes.get(identifier)(level, i, nl, bp);
+         }
+-    
++
+         return;
+     });
+     "#,
+@@ -3050,11 +3050,7 @@ test!(
+         decorators: true,
+         ..Default::default()
+     }),
+-    |_| {
+-        let mut config = strip::Config::default();
+-        config.import_not_used_as_values = strip::ImportNotUsedAsValues::Remove;
+-        strip_with_config(config)
+-    },
++    |_| strip(),
+     deno_7413_1,
+     "
+     import { a } from './foo';
+@@ -3064,6 +3060,21 @@ test!(
+     "
+ );
+ 
++test!(
++    Syntax::Typescript(TsConfig {
++        decorators: true,
++        ..Default::default()
++    }),
++    |_| strip(),
++    deno_7413_2,
++    "
++    import './foo';
++    ",
++    "
++    import './foo';
++    "
++);
++
+ test!(
+     Syntax::Typescript(TsConfig {
+         decorators: true,
+@@ -3071,14 +3082,16 @@ test!(
+     }),
+     |_| {
+         let mut config = strip::Config::default();
+-        config.import_not_used_as_values = strip::ImportNotUsedAsValues::Remove;
++        config.import_not_used_as_values = strip::ImportNotUsedAsValues::Preserve;
+         strip_with_config(config)
+     },
+-    deno_7413_2,
++    deno_7413_3,
+     "
+-    import './foo';
++    import { a } from './foo';
++    import { Type } from './types';
+     ",
+     "
+     import './foo';
++    import './types';
+     "
+ );

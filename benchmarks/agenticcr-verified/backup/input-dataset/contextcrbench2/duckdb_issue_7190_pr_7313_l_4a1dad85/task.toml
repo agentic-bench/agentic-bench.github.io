@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "duckdb_issue_7190_pr_7313_l_4a1dad85"
+contextcrbench2_full_name = "duckdb/duckdb"
+contextcrbench2_lang = "cpp"
+contextcrbench2_issue_number = "7190"
+contextcrbench2_issue_title = "Can't refer to alias in function chaining syntax"
+contextcrbench2_pr_number = "7313"
+contextcrbench2_pr_title = "Column function chaining alias"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "4a1dad856eacb31b67b0c41f0e091f9860ae2035"
+contextcrbench2_commit_id = "00e58ae67608dd5cd6087525a0f581916682f93a"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2023-05-01T13:53:52Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

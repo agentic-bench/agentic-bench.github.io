@@ -1,0 +1,13 @@
+[
+  {
+    "id": 40430,
+    "full_name": "pingcap/tidb",
+    "lang": "go",
+    "issue_number": 46577,
+    "pr_number": 46665,
+    "diff_hunk": "@@ -118,6 +118,7 @@ func (sc *StatsCache) Put(id int64, t *statistics.Table) {\n }\n \n func (sc *StatsCache) putCache(id int64, t *statistics.Table) bool {\n+\tmetrics.UpdateCounter.Inc()\n \tok := sc.c.Put(id, t)\n \tif ok {\n \t\treturn ok",
+    "diff_hunk_content_with_line_number": "[118][118]  }\n[119][119]  \n[120][120]  func (sc *StatsCache) putCache(id int64, t *statistics.Table) bool {\n[][121] +\tmetrics.UpdateCounter.Inc()\n[121][122]  \tok := sc.c.Put(id, t)\n[122][123]  \tif ok {\n[123][124]  \t\treturn ok",
+    "checked_commit_id": "f22177b0c0ee3d4ec7cf52881e37fd86c8ad7e9c",
+    "pr_size": "sm"
+  }
+]

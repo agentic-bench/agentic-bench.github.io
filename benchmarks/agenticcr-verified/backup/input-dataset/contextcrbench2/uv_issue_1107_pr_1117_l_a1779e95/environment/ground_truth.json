@@ -1,0 +1,18 @@
+[
+  {
+    "path": "crates/puffin-resolver/src/resolution.rs",
+    "line": 293,
+    "original_line": 293,
+    "review_comment": [
+      "This is all just indented."
+    ]
+  },
+  {
+    "path": "crates/puffin/src/main.rs",
+    "line": 209,
+    "original_line": 209,
+    "review_comment": [
+      "So we now support `--no-header` but not `--header` (the default), which seems ok."
+    ]
+  }
+]

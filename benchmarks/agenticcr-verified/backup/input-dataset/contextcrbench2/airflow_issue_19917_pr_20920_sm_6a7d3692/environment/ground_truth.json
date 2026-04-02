@@ -1,0 +1,10 @@
+[
+  {
+    "path": "airflow/models/dagrun.py",
+    "line": 804,
+    "original_line": 804,
+    "review_comment": [
+      "Let\u2019s refactor this to early returns to improve readability, something like\r\n\r\n```python\r\ndef task_filter(task: \"Operator\") -> bool:\r\n    if task.task_id in task_ids:\r\n        return False\r\n    if self.is_backfill:\r\n        return ...\r\n    ...\r\n    return ...\r\n```"
+    ]
+  }
+]

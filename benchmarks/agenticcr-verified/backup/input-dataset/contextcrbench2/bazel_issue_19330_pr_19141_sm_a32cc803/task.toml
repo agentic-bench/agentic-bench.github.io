@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "bazel_issue_19330_pr_19141_sm_a32cc803"
+contextcrbench2_full_name = "bazelbuild/bazel"
+contextcrbench2_lang = "java"
+contextcrbench2_issue_number = "19330"
+contextcrbench2_issue_title = "incompatible_visibility_private_attributes_at_definition"
+contextcrbench2_pr_number = "19141"
+contextcrbench2_pr_title = "Flip `--incompatible_visibility_private_attributes_at_definition` and make it less breaking"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "a32cc803af863bcd5a004a32f9d4ec68cdd234c3"
+contextcrbench2_commit_id = "8d3a6424fe285b6d8d9793b6ef24a305e0cc04ef"
+contextcrbench2_created_at = "2023-09-22T17:19:35Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

@@ -1,0 +1,8 @@
+{
+    "task_id": "openssl_issue_24728_pr_25253_xl_4b56fe78",
+    "repo": "openssl",
+    "issue_number": 24728,
+    "pr_number": 25253,
+    "checked_commit_id": "4b56fe789987e5e8fa4958878d65ab8ff200d9e6",
+    "entry_count": 2
+}

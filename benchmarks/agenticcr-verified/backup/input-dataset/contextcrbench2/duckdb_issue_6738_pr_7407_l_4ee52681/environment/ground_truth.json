@@ -1,0 +1,10 @@
+[
+  {
+    "path": "src/storage/data_table.cpp",
+    "line": 538,
+    "original_line": 538,
+    "review_comment": [
+      "Completely unrelated to this PR but this should probably be an enum not a bool in the API - the code is hard to understand (what do `true` and `false` mean). I might clean that up later."
+    ]
+  }
+]

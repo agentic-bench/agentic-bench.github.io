@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "systemd_issue_19409_pr_19453_l_998df7ce"
+contextcrbench2_full_name = "systemd/systemd"
+contextcrbench2_lang = "c"
+contextcrbench2_issue_number = "19409"
+contextcrbench2_issue_title = "RFE: (Documentation) alias in template, seems that WantedBy=/Alias= can't be used together"
+contextcrbench2_pr_number = "19453"
+contextcrbench2_pr_title = "Consider instance aliases"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "998df7ce0d9ee01630851ccbaccc9b08aaf6c8c6"
+contextcrbench2_commit_id = "41b2d7ac1dbcc30e417bb25aff13698ca4d2bd58"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2021-05-04T14:08:35Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

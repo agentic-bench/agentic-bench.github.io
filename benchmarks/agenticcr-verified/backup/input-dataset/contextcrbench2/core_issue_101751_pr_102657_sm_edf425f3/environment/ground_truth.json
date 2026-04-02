@@ -1,0 +1,12 @@
+[
+  {
+    "path": "tests/components/api/test_init.py",
+    "line": 373,
+    "original_line": 372,
+    "review_comment": [
+      "Assert the `test_value` list here so we know that the service call hasn't completeted at this point, ie after the post call but before the future is done.",
+      "But we already know it hasn't been completed, because we haven't provided the value for the future yet, and later we verify that the value is used. But if you believe an additional assert will be more readable, I will add it.",
+      "We think that it should work that way. To prove it, we should assert. There's a difference."
+    ]
+  }
+]

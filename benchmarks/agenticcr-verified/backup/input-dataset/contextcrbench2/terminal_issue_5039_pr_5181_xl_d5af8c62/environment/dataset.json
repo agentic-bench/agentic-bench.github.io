@@ -1,0 +1,13 @@
+[
+  {
+    "id": 47241,
+    "full_name": "microsoft/terminal",
+    "lang": "cpp",
+    "issue_number": 5039,
+    "pr_number": 5181,
+    "diff_hunk": "@@ -538,7 +547,7 @@ using namespace Microsoft::Console::Types;\n             RETURN_IF_FAILED(_EraseLine());\r\n         }\r\n     }\r\n-    else if (_newBottomLine)\r\n+    else if (_newBottomLine && coord.Y == _lastViewport.BottomInclusive())\r\n     {\r\n         // If we're on a new line, then we don't need to erase the line. The\r\n         //      line is already empty.\r",
+    "diff_hunk_content_with_line_number": "[538][547]              RETURN_IF_FAILED(_EraseLine());\n[539][548]          }\n[540][549]      }\n[541][] -    else if (_newBottomLine)\n[][550] +    else if (_newBottomLine && coord.Y == _lastViewport.BottomInclusive())\n[542][551]      {\n[543][552]          // If we're on a new line, then we don't need to erase the line. The\n[544][553]          //      line is already empty.",
+    "checked_commit_id": "d5af8c623c86f38fcb5a66607b27d984227b5988",
+    "pr_size": "xl"
+  }
+]

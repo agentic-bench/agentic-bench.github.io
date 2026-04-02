@@ -1,0 +1,11 @@
+[
+  {
+    "path": "homeassistant/components/sabnzbd/sensor.py",
+    "line": 132,
+    "original_line": 132,
+    "review_comment": [
+      "Only the key is not unique enough if more than one config entry is setup. We could prefix with the config entry entry_id if there's no better unique_id.\r\n\r\nhttps://developers.home-assistant.io/docs/entity_registry_index#unique-id-requirements",
+      "https://github.com/home-assistant/core/pull/71455"
+    ]
+  }
+]

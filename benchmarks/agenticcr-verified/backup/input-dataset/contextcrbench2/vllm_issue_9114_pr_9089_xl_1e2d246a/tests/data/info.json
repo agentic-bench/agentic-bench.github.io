@@ -1,0 +1,8 @@
+{
+    "task_id": "vllm_issue_9114_pr_9089_xl_1e2d246a",
+    "repo": "vllm",
+    "issue_number": 9114,
+    "pr_number": 9089,
+    "checked_commit_id": "1e2d246a71cfaa19e5d4041fcc1164b787c4e128",
+    "entry_count": 1
+}

@@ -1,0 +1,13 @@
+[
+  {
+    "id": 67726,
+    "full_name": "astral-sh/ruff",
+    "lang": "rust",
+    "issue_number": 6975,
+    "pr_number": 8943,
+    "diff_hunk": "@@ -17,3 +17,10 @@ pub(crate) const fn is_hug_parens_with_braces_and_square_brackets_enabled(\n ) -> bool {\n     context.is_preview()\n }\n+\n+/// Returns `true` if the [`prefer_splitting_right_hand_side_of_assignments`](https://github.com/astral-sh/ruff/issues/6975) preview style is enabled.\n+pub(crate) const fn is_prefer_splitting_right_hand_side_of_assignments_enabled(\n+    context: &PyFormatContext,\n+) -> bool {\n+    context.is_preview()\n+}\n",
+    "diff_hunk_content_with_line_number": "[17][17]  ) -> bool {\n[18][18]      context.is_preview()\n[19][19]  }\n[][20] +\n[][21] +/// Returns `true` if the [`prefer_splitting_right_hand_side_of_assignments`](https://github.com/astral-sh/ruff/issues/6975) preview style is enabled.\n[][22] +pub(crate) const fn is_prefer_splitting_right_hand_side_of_assignments_enabled(\n[][23] +    context: &PyFormatContext,\n[][24] +) -> bool {\n[][25] +    context.is_preview()\n[][26] +}",
+    "checked_commit_id": "1fe91c84c1b03d561653e8dae2abcc9e73235181",
+    "pr_size": "xl"
+  }
+]

@@ -1,0 +1,6 @@
+{
+  "issue_title": "[Feature] Add debug log when calling to waitForResponse/waitForRequest",
+  "issue_body": "When calling to `waitForResponse`/`waitForRequest` I don't see any debug logs, it can be very useful to have some debug log with the URL or the predicate in order to debug issues\r\n",
+  "pr_title": "feat(logs): add wrapApiCall for logging to many api methods",
+  "pr_body": "Some methods (quite a few!) were missing the wrapper that produces the log.\r\n\r\nFixes #5087."
+}

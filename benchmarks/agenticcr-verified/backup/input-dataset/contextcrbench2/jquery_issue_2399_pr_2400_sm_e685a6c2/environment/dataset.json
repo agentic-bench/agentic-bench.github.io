@@ -1,0 +1,13 @@
+[
+  {
+    "id": 32129,
+    "full_name": "jquery/jquery",
+    "lang": "javascript",
+    "issue_number": 2399,
+    "pr_number": 2400,
+    "diff_hunk": "@@ -11,7 +11,7 @@ module.exports = function( grunt ) {\n \tvar fs = require( \"fs\" ),\n \t\trequirejs = require( \"requirejs\" ),\n \t\tsrcFolder = __dirname + \"/../../src/\",\n-\t\trdefineEnd = /\\}\\);[^}\\w]*$/,\n+\t\trdefineEnd = /\\}\\s*?\\);[^}\\w]*$/,\n \t\tconfig = {\n \t\t\tbaseUrl: \"src\",\n \t\t\tname: \"jquery\",",
+    "diff_hunk_content_with_line_number": "[11][11]  \tvar fs = require( \"fs\" ),\n[12][12]  \t\trequirejs = require( \"requirejs\" ),\n[13][13]  \t\tsrcFolder = __dirname + \"/../../src/\",\n[14][] -\t\trdefineEnd = /\\}\\);[^}\\w]*$/,\n[][14] +\t\trdefineEnd = /\\}\\s*?\\);[^}\\w]*$/,\n[15][15]  \t\tconfig = {\n[16][16]  \t\t\tbaseUrl: \"src\",\n[17][17]  \t\t\tname: \"jquery\",",
+    "checked_commit_id": "e685a6c2cd4a36738d2ff4feb27e1278344e4ee6",
+    "pr_size": "sm"
+  }
+]

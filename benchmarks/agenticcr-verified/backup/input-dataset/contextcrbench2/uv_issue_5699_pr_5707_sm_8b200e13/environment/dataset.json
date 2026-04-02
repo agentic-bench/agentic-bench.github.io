@@ -1,0 +1,13 @@
+[
+  {
+    "id": 49523,
+    "full_name": "astral-sh/uv",
+    "lang": "rust",
+    "issue_number": 5699,
+    "pr_number": 5707,
+    "diff_hunk": "@@ -16,8 +16,6 @@ use uv_normalize::PackageName;\n pub enum Error {\n     #[error(\"Building source distributions is disabled\")]\n     NoBuild,\n-    #[error(\"Using pre-built wheels is disabled\")]\n-    NoBinary,\n \n     // Network error\n     #[error(\"Failed to parse URL: {0}\")]\n",
+    "diff_hunk_content_with_line_number": "[16][16]  pub enum Error {\n[17][17]      #[error(\"Building source distributions is disabled\")]\n[18][18]      NoBuild,\n[19][] -    #[error(\"Using pre-built wheels is disabled\")]\n[20][] -    NoBinary,\n[21][19]  \n[22][20]      // Network error\n[23][21]      #[error(\"Failed to parse URL: {0}\")]",
+    "checked_commit_id": "8b200e13c3ad420ea419fcb9c2ca411966760067",
+    "pr_size": "sm"
+  }
+]

@@ -1,0 +1,21 @@
+[
+  {
+    "path": "crates/uv/tests/pip_compile.rs",
+    "line": 443,
+    "original_line": 443,
+    "review_comment": [
+      "Oh nice!",
+      "Yeah let's go..."
+    ]
+  },
+  {
+    "path": "crates/uv/src/commands/pip_compile.rs",
+    "line": 123,
+    "original_line": 123,
+    "review_comment": [
+      "Just wondering, why only when empty?",
+      "It's possible that an extra _will be_ used for one of the source trees, but we can't know that until much later, since we don't have any of the metadata for the source trees yet.",
+      "Ah okay \ud83d\udc4d a comment might be nice"
+    ]
+  }
+]

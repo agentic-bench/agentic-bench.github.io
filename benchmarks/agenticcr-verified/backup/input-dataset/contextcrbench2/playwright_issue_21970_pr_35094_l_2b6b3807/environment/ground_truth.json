@@ -1,0 +1,10 @@
+[
+  {
+    "path": "packages/playwright/src/runner/dispatcher.ts",
+    "line": 63,
+    "original_line": 63,
+    "review_comment": [
+      "Let's make sure this is not async to reason about stable order."
+    ]
+  }
+]

@@ -1,0 +1,10 @@
+[
+  {
+    "path": "packages/svelte/src/store/utils.js",
+    "line": 25,
+    "original_line": 24,
+    "review_comment": [
+      "```suggestion\r\n\t// StartStopNotifier could mutate state, and we want to silence the corresponding validation error\r\n\tconst unsub = untrack(() =>\r\n```"
+    ]
+  }
+]

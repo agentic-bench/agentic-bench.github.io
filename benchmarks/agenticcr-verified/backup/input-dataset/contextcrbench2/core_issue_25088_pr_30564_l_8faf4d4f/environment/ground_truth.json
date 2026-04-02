@@ -1,0 +1,10 @@
+[
+  {
+    "path": "homeassistant/components/ring/camera.py",
+    "line": 56,
+    "original_line": 56,
+    "review_comment": [
+      "This does a request."
+    ]
+  }
+]

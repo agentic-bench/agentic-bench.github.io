@@ -1,0 +1,6 @@
+{
+  "issue_title": "Viewport incorrectly calculated in textWysiwyg",
+  "issue_body": "I have a long text element. \r\n- In the first instance, the whole text fits the visible canvas area. When I edit everything works as expected.\r\n- In the second instance, I position the text to the right, such that most of it does not fit the canvas. When I click to edit the text jumps to the right.\r\n- In the third instance, I close the sidebar next to the canvas and push the text to the right so that it does not fit the canvas. When I click to edit the text jumps to the right but just a little. \r\n\r\nhttps://user-images.githubusercontent.com/14358394/138605762-e3be14ac-48b0-41fe-b562-8f95d53d9154.mp4\r\n\r\n\r\nThe size of the jump seems to be correlated with the zoom level:\r\n\r\nhttps://user-images.githubusercontent.com/14358394/138606578-80d096c9-fc25-4dfd-8e29-3d6ac2175182.mp4\r\n\r\n\r\nIt seems to me there is some issue with the sceneCoordsToViewportCoords calculation... but I can't figure out what.\r\n",
+  "pr_title": "fix: fixed jumping text (#4098)",
+  "pr_body": "Fixed #4098"
+}

@@ -1,0 +1,11 @@
+[
+  {
+    "path": "src/Files.App/UWPToWinAppSDKUpgradeHelpers.cs",
+    "line": 27,
+    "original_line": 27,
+    "review_comment": [
+      "What does this do?",
+      "Heck if I know :) It's taken from the sample (it's the COM CLSID of the DataTransferManager interface or something)\r\nEdit: can't find again the docs page with the sample, but it's also shown here: https://github.com/microsoft/CsWinRT/issues/970"
+    ]
+  }
+]

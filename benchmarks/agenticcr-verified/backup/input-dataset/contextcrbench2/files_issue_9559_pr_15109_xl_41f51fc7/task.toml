@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "files_issue_9559_pr_15109_xl_41f51fc7"
+contextcrbench2_full_name = "files-community/Files"
+contextcrbench2_lang = "c_sharp"
+contextcrbench2_issue_number = "9559"
+contextcrbench2_issue_title = "Feature: Add support for key remapping"
+contextcrbench2_pr_number = "15109"
+contextcrbench2_pr_title = "Feature: Added support for custom key bindings"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "41f51fc7d9b95b6cd44034c9ccd8e3dd8d640db6"
+contextcrbench2_commit_id = "8ae0d50e5e2138503ace6e2bd783605d7095d25b"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2024-04-07T16:57:31Z"
+contextcrbench2_entry_count = "3"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

@@ -1,0 +1,244 @@
+diff --git a/src/cascadia/TerminalSettingsEditor/ColorSchemeViewModel.cpp b/src/cascadia/TerminalSettingsEditor/ColorSchemeViewModel.cpp
+index 2d53ef38245..62491f7418d 100644
+--- a/src/cascadia/TerminalSettingsEditor/ColorSchemeViewModel.cpp
++++ b/src/cascadia/TerminalSettingsEditor/ColorSchemeViewModel.cpp
+@@ -10,8 +10,9 @@
+ 
+ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+ {
+-    ColorSchemeViewModel::ColorSchemeViewModel(const Model::ColorScheme scheme, const Editor::ColorSchemesPageViewModel parentPageVM) :
++    ColorSchemeViewModel::ColorSchemeViewModel(const Model::ColorScheme scheme, const Editor::ColorSchemesPageViewModel parentPageVM, const Model::CascadiaSettings& settings) :
+         _scheme{ scheme },
++        _settings{ settings },
+         _NonBrightColorTable{ single_threaded_observable_vector<Editor::ColorTableEntry>() },
+         _BrightColorTable{ single_threaded_observable_vector<Editor::ColorTableEntry>() },
+         _parentPageVM{ parentPageVM }
+@@ -49,6 +50,16 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         return _Name;
+     }
+ 
++    bool ColorSchemeViewModel::IsDefaultScheme()
++    {
++        return _Name == _settings.ProfileDefaults().DefaultAppearance().ColorSchemeName();
++    }
++
++    void ColorSchemeViewModel::RefreshIsDefault()
++    {
++        _NotifyChanges(L"IsDefaultScheme");
++    }
++
+     bool ColorSchemeViewModel::RequestRename(winrt::hstring newName)
+     {
+         if (const auto parentPageVM{ _parentPageVM.get() })
+diff --git a/src/cascadia/TerminalSettingsEditor/ColorSchemeViewModel.h b/src/cascadia/TerminalSettingsEditor/ColorSchemeViewModel.h
+index cd0fa99cbed..84158100c3e 100644
+--- a/src/cascadia/TerminalSettingsEditor/ColorSchemeViewModel.h
++++ b/src/cascadia/TerminalSettingsEditor/ColorSchemeViewModel.h
+@@ -21,7 +21,7 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+     struct ColorSchemeViewModel : ColorSchemeViewModelT<ColorSchemeViewModel>, ViewModelHelper<ColorSchemeViewModel>
+     {
+     public:
+-        ColorSchemeViewModel(const Model::ColorScheme scheme, const Editor::ColorSchemesPageViewModel parentPageVM);
++        ColorSchemeViewModel(const Model::ColorScheme scheme, const Editor::ColorSchemesPageViewModel parentPageVM, const Model::CascadiaSettings& settings);
+ 
+         winrt::hstring Name();
+         void Name(winrt::hstring newName);
+@@ -33,6 +33,8 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         bool RequestRename(winrt::hstring newName);
+ 
+         Editor::ColorTableEntry ColorEntryAt(uint32_t index);
++        bool IsDefaultScheme();
++        void RefreshIsDefault();
+ 
+         // DON'T YOU DARE ADD A `WINRT_CALLBACK(PropertyChanged` TO A CLASS DERIVED FROM ViewModelHelper. Do this instead:
+         using ViewModelHelper<ColorSchemeViewModel>::PropertyChanged;
+@@ -49,6 +51,7 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+     private:
+         winrt::hstring _Name;
+         Model::ColorScheme _scheme;
++        Model::CascadiaSettings _settings;
+         weak_ref<Editor::ColorSchemesPageViewModel> _parentPageVM{ nullptr };
+ 
+         void _ColorEntryChangedHandler(const Windows::Foundation::IInspectable& sender, const Windows::UI::Xaml::Data::PropertyChangedEventArgs& args);
+diff --git a/src/cascadia/TerminalSettingsEditor/ColorSchemeViewModel.idl b/src/cascadia/TerminalSettingsEditor/ColorSchemeViewModel.idl
+index 1140f8c670e..8ffa62bbaf7 100644
+--- a/src/cascadia/TerminalSettingsEditor/ColorSchemeViewModel.idl
++++ b/src/cascadia/TerminalSettingsEditor/ColorSchemeViewModel.idl
+@@ -9,6 +9,7 @@ namespace Microsoft.Terminal.Settings.Editor
+     {
+         String Name;
+         Boolean IsInBoxScheme;
++        Boolean IsDefaultScheme { get; };
+ 
+         Boolean RequestRename(String newName);
+ 
+diff --git a/src/cascadia/TerminalSettingsEditor/ColorSchemes.cpp b/src/cascadia/TerminalSettingsEditor/ColorSchemes.cpp
+index 06a84e2e53b..39634c620d4 100644
+--- a/src/cascadia/TerminalSettingsEditor/ColorSchemes.cpp
++++ b/src/cascadia/TerminalSettingsEditor/ColorSchemes.cpp
+@@ -65,6 +65,11 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         itemContainer.as<ContentControl>().Focus(FocusState::Programmatic);
+     }
+ 
++    void ColorSchemes::SetAsDefault_Click(const IInspectable& /*sender*/, const RoutedEventArgs& /*e*/)
++    {
++        _ViewModel.RequestSetSelectedSchemeAsDefault();
++    }
++
+     void ColorSchemes::AddNew_Click(const IInspectable& /*sender*/, const RoutedEventArgs& /*e*/)
+     {
+         if (const auto newSchemeVM{ _ViewModel.RequestAddNew() })
+diff --git a/src/cascadia/TerminalSettingsEditor/ColorSchemes.h b/src/cascadia/TerminalSettingsEditor/ColorSchemes.h
+index 152a0fffea3..1133aff5aa9 100644
+--- a/src/cascadia/TerminalSettingsEditor/ColorSchemes.h
++++ b/src/cascadia/TerminalSettingsEditor/ColorSchemes.h
+@@ -17,6 +17,7 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+ 
+         void OnNavigatedTo(const winrt::Windows::UI::Xaml::Navigation::NavigationEventArgs& e);
+ 
++        void SetAsDefault_Click(const winrt::Windows::Foundation::IInspectable& sender, const winrt::Windows::UI::Xaml::RoutedEventArgs& e);
+         void AddNew_Click(const winrt::Windows::Foundation::IInspectable& sender, const winrt::Windows::UI::Xaml::RoutedEventArgs& e);
+         void ListView_PreviewKeyDown(const winrt::Windows::Foundation::IInspectable& sender, const winrt::Windows::UI::Xaml::Input::KeyRoutedEventArgs& e);
+         void ListView_SelectionChanged(const winrt::Windows::Foundation::IInspectable& sender, const winrt::Windows::UI::Xaml::Controls::SelectionChangedEventArgs& e);
+diff --git a/src/cascadia/TerminalSettingsEditor/ColorSchemes.xaml b/src/cascadia/TerminalSettingsEditor/ColorSchemes.xaml
+index 91aa29b4514..dac4be074ff 100644
+--- a/src/cascadia/TerminalSettingsEditor/ColorSchemes.xaml
++++ b/src/cascadia/TerminalSettingsEditor/ColorSchemes.xaml
+@@ -54,6 +54,7 @@
+                               Margin="0,2,0,2"
+                               Style="{StaticResource SchemeGridStyle}">
+                             <Grid.ColumnDefinitions>
++                                <ColumnDefinition Width="Auto" />
+                                 <ColumnDefinition Width="*" />
+                                 <ColumnDefinition Width="Auto" />
+                             </Grid.ColumnDefinitions>
+@@ -61,7 +62,21 @@
+                                        VerticalAlignment="Center"
+                                        Style="{StaticResource SettingsPageItemHeaderStyle}"
+                                        Text="{x:Bind Name, Mode=OneWay}" />
+-                            <Grid Grid.Column="1"
++                            <Border Grid.Column="1"
++                                    Margin="10,0,0,0"
++                                    Padding="2,0,2,0"
++                                    HorizontalAlignment="Left"
++                                    VerticalAlignment="Center"
++                                    Background="{ThemeResource SystemAltMediumLowColor}"
++                                    BorderBrush="{ThemeResource SystemControlForegroundBaseMediumBrush}"
++                                    BorderThickness="1"
++                                    CornerRadius="1"
++                                    Visibility="{x:Bind IsDefaultScheme, Mode=OneWay}">
++                                <TextBlock x:Uid="ColorScheme_DefaultTag"
++                                           Grid.Column="1"
++                                           Foreground="{ThemeResource SystemControlForegroundBaseMediumBrush}" />
++                            </Border>
++                            <Grid Grid.Column="2"
+                                   VerticalAlignment="Center"
+                                   ColumnSpacing="4"
+                                   RowSpacing="4">
+@@ -228,11 +243,18 @@
+                     </Button.Flyout>
+                 </Button>
+ 
+-                <TextBlock x:Name="SelectedSchemeDisclaimer"
+-                           Margin="10,0,0,0"
+-                           VerticalAlignment="Center"
+-                           Style="{StaticResource DisclaimerStyle}" />
++                <Button x:Name="SetAsDefaultButton"
++                        x:Uid="ColorScheme_SetAsDefaultButton"
++                        Margin="10,0,0,0"
++                        Click="SetAsDefault_Click"
++                        IsEnabled="{x:Bind ViewModel.HasCurrentScheme, Mode=OneWay}"
++                        Style="{StaticResource BrowseButtonStyle}" />
+             </StackPanel>
++
++            <TextBlock x:Name="SelectedSchemeDisclaimer"
++                       Margin="10,8,0,0"
++                       VerticalAlignment="Center"
++                       Style="{StaticResource DisclaimerStyle}" />
+         </StackPanel>
+     </ScrollViewer>
+ </Page>
+diff --git a/src/cascadia/TerminalSettingsEditor/ColorSchemesPageViewModel.cpp b/src/cascadia/TerminalSettingsEditor/ColorSchemesPageViewModel.cpp
+index ad8b68526c5..fa9e1caabe5 100644
+--- a/src/cascadia/TerminalSettingsEditor/ColorSchemesPageViewModel.cpp
++++ b/src/cascadia/TerminalSettingsEditor/ColorSchemesPageViewModel.cpp
+@@ -85,7 +85,7 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         for (const auto& pair : colorSchemeMap)
+         {
+             const auto scheme = pair.Value();
+-            auto viewModel{ winrt::make<ColorSchemeViewModel>(scheme, *this) };
++            auto viewModel{ winrt::make<ColorSchemeViewModel>(scheme, *this, _settings) };
+             viewModel.IsInBoxScheme(std::find(std::begin(InBoxSchemes), std::end(InBoxSchemes), scheme.Name()) != std::end(InBoxSchemes));
+             allColorSchemes.emplace_back(viewModel);
+ 
+@@ -108,7 +108,7 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         _settings.GlobalSettings().AddColorScheme(scheme);
+ 
+         // Construct the new color scheme VM
+-        const auto schemeVM{ winrt::make<ColorSchemeViewModel>(scheme, *this) };
++        const auto schemeVM{ winrt::make<ColorSchemeViewModel>(scheme, *this, _settings) };
+         _AllColorSchemes.Append(schemeVM);
+         _viewModelToSchemeMap.Insert(schemeVM, scheme);
+         return schemeVM;
+@@ -176,6 +176,19 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         }
+     }
+ 
++    void ColorSchemesPageViewModel::RequestSetSelectedSchemeAsDefault()
++    {
++        if (_CurrentScheme)
++        {
++            _settings.ProfileDefaults().DefaultAppearance().ColorSchemeName(_CurrentScheme.Name());
++            for (const auto scheme : _AllColorSchemes)
++            {
++                auto schemeImpl{ get_self<ColorSchemeViewModel>(scheme) };
++                schemeImpl->RefreshIsDefault();
++            }
++        }
++    }
++
+     bool ColorSchemesPageViewModel::CanDeleteCurrentScheme() const
+     {
+         if (_CurrentScheme)
+diff --git a/src/cascadia/TerminalSettingsEditor/ColorSchemesPageViewModel.h b/src/cascadia/TerminalSettingsEditor/ColorSchemesPageViewModel.h
+index 953431a8636..c03c976e6ca 100644
+--- a/src/cascadia/TerminalSettingsEditor/ColorSchemesPageViewModel.h
++++ b/src/cascadia/TerminalSettingsEditor/ColorSchemesPageViewModel.h
+@@ -25,6 +25,7 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         bool RequestRenameCurrentScheme(winrt::hstring newName);
+         void RequestDeleteCurrentScheme();
+         void RequestEditSelectedScheme();
++        void RequestSetSelectedSchemeAsDefault();
+ 
+         bool CanDeleteCurrentScheme() const;
+ 
+diff --git a/src/cascadia/TerminalSettingsEditor/ColorSchemesPageViewModel.idl b/src/cascadia/TerminalSettingsEditor/ColorSchemesPageViewModel.idl
+index a59e96164e0..fb2f7918bba 100644
+--- a/src/cascadia/TerminalSettingsEditor/ColorSchemesPageViewModel.idl
++++ b/src/cascadia/TerminalSettingsEditor/ColorSchemesPageViewModel.idl
+@@ -20,6 +20,7 @@ namespace Microsoft.Terminal.Settings.Editor
+         Boolean RequestRenameCurrentScheme(String newName);
+         void RequestDeleteCurrentScheme();
+         void RequestEditSelectedScheme();
++        void RequestSetSelectedSchemeAsDefault();
+ 
+         ColorSchemeViewModel CurrentScheme;
+         Boolean HasCurrentScheme { get; };
+diff --git a/src/cascadia/TerminalSettingsEditor/Resources/en-US/Resources.resw b/src/cascadia/TerminalSettingsEditor/Resources/en-US/Resources.resw
+index f64faec7b40..e83c04801b4 100644
+--- a/src/cascadia/TerminalSettingsEditor/Resources/en-US/Resources.resw
++++ b/src/cascadia/TerminalSettingsEditor/Resources/en-US/Resources.resw
+@@ -1501,4 +1501,12 @@
+     <value>Text</value>
+     <comment>Displayed text used to demonstrate the styling of an associated color scheme.</comment>
+   </data>
++  <data name="ColorScheme_DefaultTag.Text" xml:space="preserve">
++    <value>default</value>
++    <comment>Text label displayed adjacent to a "color scheme" entry signifying that it is currently set as the default color scheme to be used.</comment>
++  </data>
++  <data name="ColorScheme_SetAsDefaultButton.Content" xml:space="preserve">
++    <value>Set as default</value>
++    <comment>Text label for a button that, when invoked, sets the selected color scheme as the default scheme to use.</comment>
++  </data>
+ </root>
+\ No newline at end of file

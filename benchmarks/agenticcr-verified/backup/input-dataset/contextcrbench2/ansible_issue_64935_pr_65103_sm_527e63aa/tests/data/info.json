@@ -1,0 +1,8 @@
+{
+    "task_id": "ansible_issue_64935_pr_65103_sm_527e63aa",
+    "repo": "ansible",
+    "issue_number": 64935,
+    "pr_number": 65103,
+    "checked_commit_id": "527e63aab40156acd193d5aebb522956fc91d79b",
+    "entry_count": 2
+}

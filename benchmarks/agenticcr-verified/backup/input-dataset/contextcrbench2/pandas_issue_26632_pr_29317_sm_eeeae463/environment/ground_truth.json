@@ -1,0 +1,12 @@
+[
+  {
+    "path": "pandas/core/internals/blocks.py",
+    "line": 2828,
+    "original_line": 2828,
+    "review_comment": [
+      "can we just move 2834 here?",
+      "Not sure how to do that. Perhaps like that ?\r\n```python\r\n        if not mask.any() and not convert:\r\n            return self\r\n        if mask.any():\r\n            block = super()._replace_coerce(\r\n                to_replace=to_replace,\r\n                value=value,\r\n                inplace=inplace,\r\n                regex=regex,\r\n                convert=convert,\r\n                mask=mask,\r\n            )\r\n            if convert:\r\n                block = [b.convert(numeric=False, copy=True) for b in block]\r\n            return block\r\n        return [self.convert(numeric=False, copy=True)]\r\n```\r\nThere are 4 possible senarios\r\n1. mask.any() and convert:\r\nreturn [b.convert(numeric=False, copy=True) for b in block]\r\n2. mask.any() and not convert:\r\nreturn block\r\n3. not mask.any() and convert\r\nreturn [self.convert(numeric=False, copy=True)]\r\n4. not mask.any() and not convert\r\nreturn self\r\n\r\n@jreback ",
+      "i c. this actually looks more complicated than your current change"
+    ]
+  }
+]

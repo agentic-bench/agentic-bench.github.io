@@ -1,0 +1,12 @@
+[
+  {
+    "path": "executor/test/loadremotetest/error_test.go",
+    "line": 297,
+    "original_line": 297,
+    "review_comment": [
+      "does this warning happen when we use `set id=7.1`?",
+      "the SQL does not use IGNORE INTO, so it will become an error. I want to check that the warnings path and error path are both covered.",
+      "https://github.com/pingcap/tidb/pull/44167/commits/fbbd07de214a878afe0ccb97a0d6f3d51c7aa051"
+    ]
+  }
+]

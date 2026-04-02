@@ -1,0 +1,364 @@
+diff --git a/crates/ruff/resources/test/fixtures/flake8_simplify/SIM210.py b/crates/ruff/resources/test/fixtures/flake8_simplify/SIM210.py
+index 9def63a549c955..201f6e24582c77 100644
+--- a/crates/ruff/resources/test/fixtures/flake8_simplify/SIM210.py
++++ b/crates/ruff/resources/test/fixtures/flake8_simplify/SIM210.py
+@@ -13,3 +13,8 @@ def bool():
+         return False
+ 
+     a = True if b else False
++
++
++# Regression test for: https://github.com/astral-sh/ruff/issues/7076
++samesld = True if (psl.privatesuffix(urlparse(response.url).netloc) ==
++                                   psl.privatesuffix(src.netloc)) else False
+diff --git a/crates/ruff/src/checkers/ast/analyze/expression.rs b/crates/ruff/src/checkers/ast/analyze/expression.rs
+index 553eb461ac7363..e803222d0c5b83 100644
+--- a/crates/ruff/src/checkers/ast/analyze/expression.rs
++++ b/crates/ruff/src/checkers/ast/analyze/expression.rs
+@@ -1253,14 +1253,10 @@ pub(crate) fn expression(expr: &Expr, checker: &mut Checker) {
+             range: _,
+         }) => {
+             if checker.enabled(Rule::IfExprWithTrueFalse) {
+-                flake8_simplify::rules::explicit_true_false_in_ifexpr(
+-                    checker, expr, test, body, orelse,
+-                );
++                flake8_simplify::rules::if_expr_with_true_false(checker, expr, test, body, orelse);
+             }
+             if checker.enabled(Rule::IfExprWithFalseTrue) {
+-                flake8_simplify::rules::explicit_false_true_in_ifexpr(
+-                    checker, expr, test, body, orelse,
+-                );
++                flake8_simplify::rules::if_expr_with_false_true(checker, expr, test, body, orelse);
+             }
+             if checker.enabled(Rule::IfExprWithTwistedArms) {
+                 flake8_simplify::rules::twisted_arms_in_ifexpr(checker, expr, test, body, orelse);
+diff --git a/crates/ruff/src/rules/flake8_simplify/rules/ast_ifexp.rs b/crates/ruff/src/rules/flake8_simplify/rules/ast_ifexp.rs
+index 312cf01ecc5cb8..62e194ab5d4c71 100644
+--- a/crates/ruff/src/rules/flake8_simplify/rules/ast_ifexp.rs
++++ b/crates/ruff/src/rules/flake8_simplify/rules/ast_ifexp.rs
+@@ -4,6 +4,7 @@ use ruff_text_size::{Ranged, TextRange};
+ use ruff_diagnostics::{AlwaysAutofixableViolation, AutofixKind, Diagnostic, Edit, Fix, Violation};
+ use ruff_macros::{derive_message_formats, violation};
+ use ruff_python_ast::helpers::{is_const_false, is_const_true};
++use ruff_python_ast::parenthesize::parenthesized_range;
+ 
+ use crate::checkers::ast::Checker;
+ use crate::registry::AsRule;
+@@ -30,7 +31,7 @@ use crate::registry::AsRule;
+ /// - [Python documentation: Truth Value Testing](https://docs.python.org/3/library/stdtypes.html#truth-value-testing)
+ #[violation]
+ pub struct IfExprWithTrueFalse {
+-    expr: String,
++    is_compare: bool,
+ }
+ 
+ impl Violation for IfExprWithTrueFalse {
+@@ -38,13 +39,21 @@ impl Violation for IfExprWithTrueFalse {
+ 
+     #[derive_message_formats]
+     fn message(&self) -> String {
+-        let IfExprWithTrueFalse { expr } = self;
+-        format!("Use `bool({expr})` instead of `True if {expr} else False`")
++        let IfExprWithTrueFalse { is_compare } = self;
++        if !is_compare {
++            format!("Use `bool(...)` instead of `True if ... else False`")
++        } else {
++            format!("Remove unnecessary `True if ... else False` from comparison")
++        }
+     }
+ 
+     fn autofix_title(&self) -> Option<String> {
+-        let IfExprWithTrueFalse { expr } = self;
+-        Some(format!("Replace with `not {expr}"))
++        let IfExprWithTrueFalse { is_compare } = self;
++        if !is_compare {
++            Some(format!("Replace with `bool(...)"))
++        } else {
++            Some(format!("Remove unnecessary `True if ... else False`"))
++        }
+     }
+ }
+ 
+@@ -70,20 +79,16 @@ impl Violation for IfExprWithTrueFalse {
+ /// ## References
+ /// - [Python documentation: Truth Value Testing](https://docs.python.org/3/library/stdtypes.html#truth-value-testing)
+ #[violation]
+-pub struct IfExprWithFalseTrue {
+-    expr: String,
+-}
++pub struct IfExprWithFalseTrue;
+ 
+ impl AlwaysAutofixableViolation for IfExprWithFalseTrue {
+     #[derive_message_formats]
+     fn message(&self) -> String {
+-        let IfExprWithFalseTrue { expr } = self;
+-        format!("Use `not {expr}` instead of `False if {expr} else True`")
++        format!("Use `not ...` instead of `False if ... else True`")
+     }
+ 
+     fn autofix_title(&self) -> String {
+-        let IfExprWithFalseTrue { expr } = self;
+-        format!("Replace with `bool({expr})")
++        format!("Replace with `not ...`")
+     }
+ }
+ 
+@@ -135,7 +140,7 @@ impl AlwaysAutofixableViolation for IfExprWithTwistedArms {
+ }
+ 
+ /// SIM210
+-pub(crate) fn explicit_true_false_in_ifexpr(
++pub(crate) fn if_expr_with_true_false(
+     checker: &mut Checker,
+     expr: &Expr,
+     test: &Expr,
+@@ -148,33 +153,43 @@ pub(crate) fn explicit_true_false_in_ifexpr(
+ 
+     let mut diagnostic = Diagnostic::new(
+         IfExprWithTrueFalse {
+-            expr: checker.generator().expr(test),
++            is_compare: test.is_compare_expr(),
+         },
+         expr.range(),
+     );
+     if checker.patch(diagnostic.kind.rule()) {
+         if test.is_compare_expr() {
+             diagnostic.set_fix(Fix::suggested(Edit::range_replacement(
+-                checker.locator().slice(test).to_string(),
++                checker
++                    .locator()
++                    .slice(
++                        parenthesized_range(test.into(), expr.into(), checker.locator().contents())
++                            .unwrap_or(test.range()),
++                    )
++                    .to_string(),
+                 expr.range(),
+             )));
+         } else if checker.semantic().is_builtin("bool") {
+-            let node = ast::ExprName {
+-                id: "bool".into(),
+-                ctx: ExprContext::Load,
+-                range: TextRange::default(),
+-            };
+-            let node1 = ast::ExprCall {
+-                func: Box::new(node.into()),
+-                arguments: Arguments {
+-                    args: vec![test.clone()],
+-                    keywords: vec![],
+-                    range: TextRange::default(),
+-                },
+-                range: TextRange::default(),
+-            };
+             diagnostic.set_fix(Fix::suggested(Edit::range_replacement(
+-                checker.generator().expr(&node1.into()),
++                checker.generator().expr(
++                    &ast::ExprCall {
++                        func: Box::new(
++                            ast::ExprName {
++                                id: "bool".into(),
++                                ctx: ExprContext::Load,
++                                range: TextRange::default(),
++                            }
++                            .into(),
++                        ),
++                        arguments: Arguments {
++                            args: vec![test.clone()],
++                            keywords: vec![],
++                            range: TextRange::default(),
++                        },
++                        range: TextRange::default(),
++                    }
++                    .into(),
++                ),
+                 expr.range(),
+             )));
+         };
+@@ -183,7 +198,7 @@ pub(crate) fn explicit_true_false_in_ifexpr(
+ }
+ 
+ /// SIM211
+-pub(crate) fn explicit_false_true_in_ifexpr(
++pub(crate) fn if_expr_with_false_true(
+     checker: &mut Checker,
+     expr: &Expr,
+     test: &Expr,
+@@ -194,21 +209,17 @@ pub(crate) fn explicit_false_true_in_ifexpr(
+         return;
+     }
+ 
+-    let mut diagnostic = Diagnostic::new(
+-        IfExprWithFalseTrue {
+-            expr: checker.generator().expr(test),
+-        },
+-        expr.range(),
+-    );
++    let mut diagnostic = Diagnostic::new(IfExprWithFalseTrue, expr.range());
+     if checker.patch(diagnostic.kind.rule()) {
+-        let node = test.clone();
+-        let node1 = ast::ExprUnaryOp {
+-            op: UnaryOp::Not,
+-            operand: Box::new(node),
+-            range: TextRange::default(),
+-        };
+         diagnostic.set_fix(Fix::suggested(Edit::range_replacement(
+-            checker.generator().expr(&node1.into()),
++            checker.generator().expr(
++                &ast::ExprUnaryOp {
++                    op: UnaryOp::Not,
++                    operand: Box::new(test.clone()),
++                    range: TextRange::default(),
++                }
++                .into(),
++            ),
+             expr.range(),
+         )));
+     }
+diff --git a/crates/ruff/src/rules/flake8_simplify/snapshots/ruff__rules__flake8_simplify__tests__SIM210_SIM210.py.snap b/crates/ruff/src/rules/flake8_simplify/snapshots/ruff__rules__flake8_simplify__tests__SIM210_SIM210.py.snap
+index 717740927a1a8c..19850609f4bf3c 100644
+--- a/crates/ruff/src/rules/flake8_simplify/snapshots/ruff__rules__flake8_simplify__tests__SIM210_SIM210.py.snap
++++ b/crates/ruff/src/rules/flake8_simplify/snapshots/ruff__rules__flake8_simplify__tests__SIM210_SIM210.py.snap
+@@ -1,14 +1,14 @@
+ ---
+ source: crates/ruff/src/rules/flake8_simplify/mod.rs
+ ---
+-SIM210.py:1:5: SIM210 [*] Use `bool(b)` instead of `True if b else False`
++SIM210.py:1:5: SIM210 [*] Use `bool(...)` instead of `True if ... else False`
+   |
+ 1 | a = True if b else False  # SIM210
+   |     ^^^^^^^^^^^^^^^^^^^^ SIM210
+ 2 | 
+ 3 | a = True if b != c else False  # SIM210
+   |
+-  = help: Replace with `not b
++  = help: Replace with `bool(...)
+ 
+ ℹ Suggested fix
+ 1   |-a = True if b else False  # SIM210
+@@ -17,7 +17,7 @@ SIM210.py:1:5: SIM210 [*] Use `bool(b)` instead of `True if b else False`
+ 3 3 | a = True if b != c else False  # SIM210
+ 4 4 | 
+ 
+-SIM210.py:3:5: SIM210 [*] Use `bool(b != c)` instead of `True if b != c else False`
++SIM210.py:3:5: SIM210 [*] Remove unnecessary `True if ... else False` from comparison
+   |
+ 1 | a = True if b else False  # SIM210
+ 2 | 
+@@ -26,7 +26,7 @@ SIM210.py:3:5: SIM210 [*] Use `bool(b != c)` instead of `True if b != c else Fal
+ 4 | 
+ 5 | a = True if b + c else False  # SIM210
+   |
+-  = help: Replace with `not b != c
++  = help: Remove unnecessary `True if ... else False`
+ 
+ ℹ Suggested fix
+ 1 1 | a = True if b else False  # SIM210
+@@ -37,7 +37,7 @@ SIM210.py:3:5: SIM210 [*] Use `bool(b != c)` instead of `True if b != c else Fal
+ 5 5 | a = True if b + c else False  # SIM210
+ 6 6 | 
+ 
+-SIM210.py:5:5: SIM210 [*] Use `bool(b + c)` instead of `True if b + c else False`
++SIM210.py:5:5: SIM210 [*] Use `bool(...)` instead of `True if ... else False`
+   |
+ 3 | a = True if b != c else False  # SIM210
+ 4 | 
+@@ -46,7 +46,7 @@ SIM210.py:5:5: SIM210 [*] Use `bool(b + c)` instead of `True if b + c else False
+ 6 | 
+ 7 | a = False if b else True  # OK
+   |
+-  = help: Replace with `not b + c
++  = help: Replace with `bool(...)
+ 
+ ℹ Suggested fix
+ 2 2 | 
+@@ -58,13 +58,32 @@ SIM210.py:5:5: SIM210 [*] Use `bool(b + c)` instead of `True if b + c else False
+ 7 7 | a = False if b else True  # OK
+ 8 8 | 
+ 
+-SIM210.py:15:9: SIM210 Use `bool(b)` instead of `True if b else False`
++SIM210.py:15:9: SIM210 Use `bool(...)` instead of `True if ... else False`
+    |
+ 13 |         return False
+ 14 | 
+ 15 |     a = True if b else False
+    |         ^^^^^^^^^^^^^^^^^^^^ SIM210
+    |
+-   = help: Replace with `not b
++   = help: Replace with `bool(...)
++
++SIM210.py:19:11: SIM210 [*] Remove unnecessary `True if ... else False` from comparison
++   |
++18 |   # Regression test for: https://github.com/astral-sh/ruff/issues/7076
++19 |   samesld = True if (psl.privatesuffix(urlparse(response.url).netloc) ==
++   |  ___________^
++20 | |                                    psl.privatesuffix(src.netloc)) else False
++   | |____________________________________________________________________________^ SIM210
++   |
++   = help: Remove unnecessary `True if ... else False`
++
++ℹ Suggested fix
++16 16 | 
++17 17 | 
++18 18 | # Regression test for: https://github.com/astral-sh/ruff/issues/7076
++19    |-samesld = True if (psl.privatesuffix(urlparse(response.url).netloc) ==
++20    |-                                   psl.privatesuffix(src.netloc)) else False
++   19 |+samesld = (psl.privatesuffix(urlparse(response.url).netloc) ==
++   20 |+                                   psl.privatesuffix(src.netloc))
+ 
+ 
+diff --git a/crates/ruff/src/rules/flake8_simplify/snapshots/ruff__rules__flake8_simplify__tests__SIM211_SIM211.py.snap b/crates/ruff/src/rules/flake8_simplify/snapshots/ruff__rules__flake8_simplify__tests__SIM211_SIM211.py.snap
+index e221b2b3dc98cf..b6d6d2570f1eff 100644
+--- a/crates/ruff/src/rules/flake8_simplify/snapshots/ruff__rules__flake8_simplify__tests__SIM211_SIM211.py.snap
++++ b/crates/ruff/src/rules/flake8_simplify/snapshots/ruff__rules__flake8_simplify__tests__SIM211_SIM211.py.snap
+@@ -1,14 +1,14 @@
+ ---
+ source: crates/ruff/src/rules/flake8_simplify/mod.rs
+ ---
+-SIM211.py:1:5: SIM211 [*] Use `not b` instead of `False if b else True`
++SIM211.py:1:5: SIM211 [*] Use `not ...` instead of `False if ... else True`
+   |
+ 1 | a = False if b else True  # SIM211
+   |     ^^^^^^^^^^^^^^^^^^^^ SIM211
+ 2 | 
+ 3 | a = False if b != c else True  # SIM211
+   |
+-  = help: Replace with `bool(b)
++  = help: Replace with `not ...`
+ 
+ ℹ Suggested fix
+ 1   |-a = False if b else True  # SIM211
+@@ -17,7 +17,7 @@ SIM211.py:1:5: SIM211 [*] Use `not b` instead of `False if b else True`
+ 3 3 | a = False if b != c else True  # SIM211
+ 4 4 | 
+ 
+-SIM211.py:3:5: SIM211 [*] Use `not b != c` instead of `False if b != c else True`
++SIM211.py:3:5: SIM211 [*] Use `not ...` instead of `False if ... else True`
+   |
+ 1 | a = False if b else True  # SIM211
+ 2 | 
+@@ -26,7 +26,7 @@ SIM211.py:3:5: SIM211 [*] Use `not b != c` instead of `False if b != c else True
+ 4 | 
+ 5 | a = False if b + c else True  # SIM211
+   |
+-  = help: Replace with `bool(b != c)
++  = help: Replace with `not ...`
+ 
+ ℹ Suggested fix
+ 1 1 | a = False if b else True  # SIM211
+@@ -37,7 +37,7 @@ SIM211.py:3:5: SIM211 [*] Use `not b != c` instead of `False if b != c else True
+ 5 5 | a = False if b + c else True  # SIM211
+ 6 6 | 
+ 
+-SIM211.py:5:5: SIM211 [*] Use `not b + c` instead of `False if b + c else True`
++SIM211.py:5:5: SIM211 [*] Use `not ...` instead of `False if ... else True`
+   |
+ 3 | a = False if b != c else True  # SIM211
+ 4 | 
+@@ -46,7 +46,7 @@ SIM211.py:5:5: SIM211 [*] Use `not b + c` instead of `False if b + c else True`
+ 6 | 
+ 7 | a = True if b else False  # OK
+   |
+-  = help: Replace with `bool(b + c)
++  = help: Replace with `not ...`
+ 
+ ℹ Suggested fix
+ 2 2 | 

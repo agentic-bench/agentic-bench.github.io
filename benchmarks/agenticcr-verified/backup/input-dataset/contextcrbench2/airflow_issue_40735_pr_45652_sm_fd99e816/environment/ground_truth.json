@@ -1,0 +1,12 @@
+[
+  {
+    "path": "tests/listeners/class_listener.py",
+    "line": 68,
+    "original_line": 68,
+    "review_comment": [
+      "The PR updates the if/else condition. Will we remove the airflow 2 codepath for airflow 3 release ? Or do we need to keep that for provider compatibility ?",
+      "It is here for provider compatibility. I think it can be moved to particular provider tho: would require more unrelated test changes and I'd rather do them in a separate PR.",
+      "Sound good to me, thanks."
+    ]
+  }
+]

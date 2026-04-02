@@ -1,0 +1,6 @@
+{
+  "issue_title": "esp8266: can't unmount filesystem",
+  "issue_body": "Since I found a way to mount an sd card in place of the internal filesystem, I was looking for a way to unmaount a mounted filesystem, so that people don't need to edit their `_boot.py` to use an sd card.\n\nI found code in https://github.com/micropython/micropython/blob/master/extmod/fsusermount.c#L53-L70 that suggests that to unmount a file system, I just need to pass `None` as the device. However, when I try that on the esp8266, I get a reboot:\n\n```\n>>> uos.VfsFat(None, \"\")\nFatal exception 29(StoreProhibitedCause):\nepc1=0x4025aa26, epc2=0x00000000, epc3=0x00000000, excvaddr=0x00000000, depc=0x00000000\n\n ets Jan  8 2013,rst cause:2, boot mode:(3,7)\n\nload 0x40100000, len 30860, room 16 \ntail 12\nchksum 0xff\nho 0 tail 12 room 4\nload 0x3ffe8000, len 1060, room 12 \ntail 8\nchksum 0x33\nload 0x3ffe8430, len 3000, room 0 \ntail 8\nchksum 0x55\ncsum 0x55\n```\n",
+  "pr_title": "esp8266/modous: Add unmount method",
+  "pr_body": "Fixes #2338.\n\nThis is a more object-oriented approach, where uos is only a proxy\nfor the methods on the vfs object. Unfortunately, it's a much dirtier\npatch, as some internals had to be exposed (the STATIC method removed)\nfor this to work. It also takes more memory in the object dicts.\n"
+}

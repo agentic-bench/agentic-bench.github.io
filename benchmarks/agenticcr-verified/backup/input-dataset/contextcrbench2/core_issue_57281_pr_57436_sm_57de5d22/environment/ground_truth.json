@@ -1,0 +1,15 @@
+[
+  {
+    "path": "homeassistant/components/upnp/sensor.py",
+    "line": 78,
+    "original_line": 78,
+    "review_comment": [
+      "Side note: Having these sensors that are calculated states is not in line with our standards. Integrations that integrate devices or services should not calculate state. We have other integrations for that like template and integration sensors.",
+      "Do you want this to be fixed with this PR @MartinHjelmare? It'll be a breaking change as certain sensors are no longer (directly) supported.",
+      "No. I suggest we deprecate these sensors separately. Start by making them disabled by default. If they are still added, log a warning saying they are deprecated and will be removed in a future release. Then after some time, remove them.",
+      "@MartinHjelmare @StevenLooman This is bad. Us users are mostly interested in the kB/sec sensors.\r\nMe personally I don't want to create template sensors when it can be avoided.\r\nIs it a solution to perform the calculations in the backend library and provide the resulting data to Core? And maybe leave out / replace some of the unwanted RAW_SENSORs?",
+      "Yes, you can offload it to the library.",
+      "Issue requesting the proposed implementation: https://github.com/StevenLooman/async_upnp_client/issues/102"
+    ]
+  }
+]

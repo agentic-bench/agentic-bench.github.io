@@ -1,0 +1,13 @@
+[
+  {
+    "id": 48816,
+    "full_name": "redis/redis",
+    "lang": "c",
+    "issue_number": 4707,
+    "pr_number": 9462,
+    "diff_hunk": "@@ -181,6 +181,20 @@ void *ztrycalloc_usable(size_t size, size_t *usable) {\n #endif\n }\n \n+/* Allocate memory and zero it or panic.\n+ * We need this wrapper to have a calloc compatible signature */\n+void *zcalloc_num(size_t num, size_t size) {\n+    /* Ensure that the arguments to calloc(), when multiplied, do not wrap.\n+     * Division operations are susceptible to divide-by-zero errors so we also check it. */\n+    if ((size == 0) || (num > SIZE_MAX/size)) {\n+        zmalloc_oom_handler(SIZE_MAX);\n+        return NULL;\n+    }\n+    void *ptr = ztrycalloc_usable(num*size, NULL);\n+    if (!ptr) zmalloc_oom_handler(num*size);\n+    return ptr;\n+}\n+\n /* Allocate memory and zero it or panic */\n void *zcalloc(size_t size) {\n     void *ptr = ztrycalloc_usable(size, NULL);\n",
+    "diff_hunk_content_with_line_number": "[181][181]  #endif\n[182][182]  }\n[183][183]  \n[][184] +/* Allocate memory and zero it or panic.\n[][185] + * We need this wrapper to have a calloc compatible signature */\n[][186] +void *zcalloc_num(size_t num, size_t size) {\n[][187] +    /* Ensure that the arguments to calloc(), when multiplied, do not wrap.\n[][188] +     * Division operations are susceptible to divide-by-zero errors so we also check it. */\n[][189] +    if ((size == 0) || (num > SIZE_MAX/size)) {\n[][190] +        zmalloc_oom_handler(SIZE_MAX);\n[][191] +        return NULL;\n[][192] +    }\n[][193] +    void *ptr = ztrycalloc_usable(num*size, NULL);\n[][194] +    if (!ptr) zmalloc_oom_handler(num*size);\n[][195] +    return ptr;\n[][196] +}\n[][197] +\n[184][198]  /* Allocate memory and zero it or panic */\n[185][199]  void *zcalloc(size_t size) {\n[186][200]      void *ptr = ztrycalloc_usable(size, NULL);",
+    "checked_commit_id": "2b66f5249f4ad3623bde77def23de6b9f79706ed",
+    "pr_size": "xl"
+  }
+]

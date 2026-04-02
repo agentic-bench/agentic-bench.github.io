@@ -1,0 +1,382 @@
+diff --git a/models/repo/git.go b/models/repo/git.go
+index 610c55429657c..388bf8652237e 100644
+--- a/models/repo/git.go
++++ b/models/repo/git.go
+@@ -21,6 +21,8 @@ const (
+ 	MergeStyleRebaseMerge MergeStyle = "rebase-merge"
+ 	// MergeStyleSquash squash commits into single commit before merging
+ 	MergeStyleSquash MergeStyle = "squash"
++	// MergeStyleFastForwardOnly fast-forward merge if possible, otherwise fail
++	MergeStyleFastForwardOnly MergeStyle = "fast-forward-only"
+ 	// MergeStyleManuallyMerged pr has been merged manually, just mark it as merged directly
+ 	MergeStyleManuallyMerged MergeStyle = "manually-merged"
+ 	// MergeStyleRebaseUpdate not a merge style, used to update pull head by rebase
+diff --git a/models/repo/repo_unit.go b/models/repo/repo_unit.go
+index 8a3ba1ee89092..31a2a2e248228 100644
+--- a/models/repo/repo_unit.go
++++ b/models/repo/repo_unit.go
+@@ -122,6 +122,7 @@ type PullRequestsConfig struct {
+ 	AllowRebase                   bool
+ 	AllowRebaseMerge              bool
+ 	AllowSquash                   bool
++	AllowFastForwardOnly          bool
+ 	AllowManualMerge              bool
+ 	AutodetectManualMerge         bool
+ 	AllowRebaseUpdate             bool
+@@ -148,6 +149,7 @@ func (cfg *PullRequestsConfig) IsMergeStyleAllowed(mergeStyle MergeStyle) bool {
+ 		mergeStyle == MergeStyleRebase && cfg.AllowRebase ||
+ 		mergeStyle == MergeStyleRebaseMerge && cfg.AllowRebaseMerge ||
+ 		mergeStyle == MergeStyleSquash && cfg.AllowSquash ||
++		mergeStyle == MergeStyleFastForwardOnly && cfg.AllowFastForwardOnly ||
+ 		mergeStyle == MergeStyleManuallyMerged && cfg.AllowManualMerge
+ }
+ 
+diff --git a/modules/git/error.go b/modules/git/error.go
+index dc10d451b3bbf..91d25eca69a4d 100644
+--- a/modules/git/error.go
++++ b/modules/git/error.go
+@@ -96,7 +96,7 @@ func (err ErrBranchNotExist) Unwrap() error {
+ 	return util.ErrNotExist
+ }
+ 
+-// ErrPushOutOfDate represents an error if merging fails due to unrelated histories
++// ErrPushOutOfDate represents an error if merging fails due to the base branch being updated
+ type ErrPushOutOfDate struct {
+ 	StdOut string
+ 	StdErr string
+diff --git a/modules/repository/create.go b/modules/repository/create.go
+index 7c954a14121b6..ca2150b972e06 100644
+--- a/modules/repository/create.go
++++ b/modules/repository/create.go
+@@ -87,7 +87,11 @@ func CreateRepositoryByExample(ctx context.Context, doer, u *user_model.User, re
+ 			units = append(units, repo_model.RepoUnit{
+ 				RepoID: repo.ID,
+ 				Type:   tp,
+-				Config: &repo_model.PullRequestsConfig{AllowMerge: true, AllowRebase: true, AllowRebaseMerge: true, AllowSquash: true, DefaultMergeStyle: repo_model.MergeStyle(setting.Repository.PullRequest.DefaultMergeStyle), AllowRebaseUpdate: true},
++				Config: &repo_model.PullRequestsConfig{
++					AllowMerge: true, AllowRebase: true, AllowRebaseMerge: true, AllowSquash: true, AllowFastForwardOnly: true,
++					DefaultMergeStyle: repo_model.MergeStyle(setting.Repository.PullRequest.DefaultMergeStyle),
++					AllowRebaseUpdate: true,
++				},
+ 			})
+ 		} else {
+ 			units = append(units, repo_model.RepoUnit{
+diff --git a/modules/structs/repo.go b/modules/structs/repo.go
+index 51e175fba8ea2..93aca5cb1f0c3 100644
+--- a/modules/structs/repo.go
++++ b/modules/structs/repo.go
+@@ -98,6 +98,7 @@ type Repository struct {
+ 	AllowRebase                   bool             `json:"allow_rebase"`
+ 	AllowRebaseMerge              bool             `json:"allow_rebase_explicit"`
+ 	AllowSquash                   bool             `json:"allow_squash_merge"`
++	AllowFastForwardOnly          bool             `json:"allow_fast_forward_only_merge"`
+ 	AllowRebaseUpdate             bool             `json:"allow_rebase_update"`
+ 	DefaultDeleteBranchAfterMerge bool             `json:"default_delete_branch_after_merge"`
+ 	DefaultMergeStyle             string           `json:"default_merge_style"`
+@@ -195,6 +196,8 @@ type EditRepoOption struct {
+ 	AllowRebaseMerge *bool `json:"allow_rebase_explicit,omitempty"`
+ 	// either `true` to allow squash-merging pull requests, or `false` to prevent squash-merging.
+ 	AllowSquash *bool `json:"allow_squash_merge,omitempty"`
++	// either `true` to allow fast-forward-only merging pull requests, or `false` to prevent fast-forward-only merging.
++	AllowFastForwardOnly *bool `json:"allow_fast_forward_only_merge,omitempty"`
+ 	// either `true` to allow mark pr as merged manually, or `false` to prevent it.
+ 	AllowManualMerge *bool `json:"allow_manual_merge,omitempty"`
+ 	// either `true` to enable AutodetectManualMerge, or `false` to prevent it. Note: In some special cases, misjudgments can occur.
+diff --git a/options/locale/locale_en-US.ini b/options/locale/locale_en-US.ini
+index effb3896c25eb..ead2ca24264d1 100644
+--- a/options/locale/locale_en-US.ini
++++ b/options/locale/locale_en-US.ini
+@@ -1775,6 +1775,7 @@ pulls.merge_pull_request = Create merge commit
+ pulls.rebase_merge_pull_request = Rebase then fast-forward
+ pulls.rebase_merge_commit_pull_request = Rebase then create merge commit
+ pulls.squash_merge_pull_request = Create squash commit
++pulls.fast_forward_only_merge_pull_request = Fast-forward
+ pulls.merge_manually = Manually merged
+ pulls.merge_commit_id = The merge commit ID
+ pulls.require_signed_wont_sign = The branch requires signed commits but this merge will not be signed
+diff --git a/routers/api/v1/repo/repo.go b/routers/api/v1/repo/repo.go
+index 436b83adf2b35..3ba4ac7b1b419 100644
+--- a/routers/api/v1/repo/repo.go
++++ b/routers/api/v1/repo/repo.go
+@@ -883,6 +883,7 @@ func updateRepoUnits(ctx *context.APIContext, opts api.EditRepoOption) error {
+ 					AllowRebase:                   true,
+ 					AllowRebaseMerge:              true,
+ 					AllowSquash:                   true,
++					AllowFastForwardOnly:          true,
+ 					AllowManualMerge:              true,
+ 					AutodetectManualMerge:         false,
+ 					AllowRebaseUpdate:             true,
+@@ -909,6 +910,9 @@ func updateRepoUnits(ctx *context.APIContext, opts api.EditRepoOption) error {
+ 			if opts.AllowSquash != nil {
+ 				config.AllowSquash = *opts.AllowSquash
+ 			}
++			if opts.AllowFastForwardOnly != nil {
++				config.AllowFastForwardOnly = *opts.AllowFastForwardOnly
++			}
+ 			if opts.AllowManualMerge != nil {
+ 				config.AllowManualMerge = *opts.AllowManualMerge
+ 			}
+diff --git a/routers/api/v1/repo/repo_test.go b/routers/api/v1/repo/repo_test.go
+index 29e2d1f21d9ae..08ba7fabac4b3 100644
+--- a/routers/api/v1/repo/repo_test.go
++++ b/routers/api/v1/repo/repo_test.go
+@@ -35,6 +35,7 @@ func TestRepoEdit(t *testing.T) {
+ 	allowRebase := false
+ 	allowRebaseMerge := false
+ 	allowSquashMerge := false
++	allowFastForwardOnlyMerge := false
+ 	archived := true
+ 	opts := api.EditRepoOption{
+ 		Name:                      &ctx.Repo.Repository.Name,
+@@ -50,6 +51,7 @@ func TestRepoEdit(t *testing.T) {
+ 		AllowRebase:               &allowRebase,
+ 		AllowRebaseMerge:          &allowRebaseMerge,
+ 		AllowSquash:               &allowSquashMerge,
++		AllowFastForwardOnly:      &allowFastForwardOnlyMerge,
+ 		Archived:                  &archived,
+ 	}
+ 
+diff --git a/routers/web/repo/issue.go b/routers/web/repo/issue.go
+index c8c9924a9eb77..7b8f2f1f51943 100644
+--- a/routers/web/repo/issue.go
++++ b/routers/web/repo/issue.go
+@@ -1862,6 +1862,8 @@ func ViewIssue(ctx *context.Context) {
+ 				mergeStyle = repo_model.MergeStyleRebaseMerge
+ 			} else if prConfig.AllowSquash {
+ 				mergeStyle = repo_model.MergeStyleSquash
++			} else if prConfig.AllowFastForwardOnly {
++				mergeStyle = repo_model.MergeStyleFastForwardOnly
+ 			} else if prConfig.AllowManualMerge {
+ 				mergeStyle = repo_model.MergeStyleManuallyMerged
+ 			}
+diff --git a/routers/web/repo/setting/setting.go b/routers/web/repo/setting/setting.go
+index fc1403b3cc0b0..7df0d1ebaf4fb 100644
+--- a/routers/web/repo/setting/setting.go
++++ b/routers/web/repo/setting/setting.go
+@@ -576,6 +576,7 @@ func SettingsPost(ctx *context.Context) {
+ 					AllowRebase:                   form.PullsAllowRebase,
+ 					AllowRebaseMerge:              form.PullsAllowRebaseMerge,
+ 					AllowSquash:                   form.PullsAllowSquash,
++					AllowFastForwardOnly:          form.PullsAllowFastForwardOnly,
+ 					AllowManualMerge:              form.PullsAllowManualMerge,
+ 					AutodetectManualMerge:         form.EnableAutodetectManualMerge,
+ 					AllowRebaseUpdate:             form.PullsAllowRebaseUpdate,
+diff --git a/services/convert/repository.go b/services/convert/repository.go
+index c16180c0afc30..9184bc05c7a9b 100644
+--- a/services/convert/repository.go
++++ b/services/convert/repository.go
+@@ -93,6 +93,7 @@ func innerToRepo(ctx context.Context, repo *repo_model.Repository, permissionInR
+ 	allowRebase := false
+ 	allowRebaseMerge := false
+ 	allowSquash := false
++	allowFastForwardOnly := false
+ 	allowRebaseUpdate := false
+ 	defaultDeleteBranchAfterMerge := false
+ 	defaultMergeStyle := repo_model.MergeStyleMerge
+@@ -105,6 +106,7 @@ func innerToRepo(ctx context.Context, repo *repo_model.Repository, permissionInR
+ 		allowRebase = config.AllowRebase
+ 		allowRebaseMerge = config.AllowRebaseMerge
+ 		allowSquash = config.AllowSquash
++		allowFastForwardOnly = config.AllowFastForwardOnly
+ 		allowRebaseUpdate = config.AllowRebaseUpdate
+ 		defaultDeleteBranchAfterMerge = config.DefaultDeleteBranchAfterMerge
+ 		defaultMergeStyle = config.GetDefaultMergeStyle()
+@@ -219,6 +221,7 @@ func innerToRepo(ctx context.Context, repo *repo_model.Repository, permissionInR
+ 		AllowRebase:                   allowRebase,
+ 		AllowRebaseMerge:              allowRebaseMerge,
+ 		AllowSquash:                   allowSquash,
++		AllowFastForwardOnly:          allowFastForwardOnly,
+ 		AllowRebaseUpdate:             allowRebaseUpdate,
+ 		DefaultDeleteBranchAfterMerge: defaultDeleteBranchAfterMerge,
+ 		DefaultMergeStyle:             string(defaultMergeStyle),
+diff --git a/services/forms/repo_form.go b/services/forms/repo_form.go
+index 845eccf817d3a..b2b169d5c5d20 100644
+--- a/services/forms/repo_form.go
++++ b/services/forms/repo_form.go
+@@ -151,6 +151,7 @@ type RepoSettingForm struct {
+ 	PullsAllowRebase                      bool
+ 	PullsAllowRebaseMerge                 bool
+ 	PullsAllowSquash                      bool
++	PullsAllowFastForwardOnly             bool
+ 	PullsAllowManualMerge                 bool
+ 	PullsDefaultMergeStyle                string
+ 	EnableAutodetectManualMerge           bool
+diff --git a/services/pull/merge.go b/services/pull/merge.go
+index 63f0268bebece..135a1c74c83a6 100644
+--- a/services/pull/merge.go
++++ b/services/pull/merge.go
+@@ -267,6 +267,10 @@ func doMergeAndPush(ctx context.Context, pr *issues_model.PullRequest, doer *use
+ 		if err := doMergeStyleSquash(mergeCtx, message); err != nil {
+ 			return "", err
+ 		}
++	case repo_model.MergeStyleFastForwardOnly:
++		if err := doMergeStyleFastForwardOnly(mergeCtx); err != nil {
++			return "", err
++		}
+ 	default:
+ 		return "", models.ErrInvalidMergeStyle{ID: pr.BaseRepo.ID, Style: mergeStyle}
+ 	}
+diff --git a/services/pull/merge_ff_only.go b/services/pull/merge_ff_only.go
+new file mode 100644
+index 0000000000000..f57c732104cc2
+--- /dev/null
++++ b/services/pull/merge_ff_only.go
+@@ -0,0 +1,21 @@
++// Copyright 2023 The Gitea Authors. All rights reserved.
++// SPDX-License-Identifier: MIT
++
++package pull
++
++import (
++	repo_model "code.gitea.io/gitea/models/repo"
++	"code.gitea.io/gitea/modules/git"
++	"code.gitea.io/gitea/modules/log"
++)
++
++// doMergeStyleFastForwardOnly merges the tracking into the current HEAD - which is assumed to be staging branch (equal to the pr.BaseBranch)
++func doMergeStyleFastForwardOnly(ctx *mergeContext) error {
++	cmd := git.NewCommand(ctx, "merge", "--ff-only").AddDynamicArguments(trackingBranch)
++	if err := runMergeCommand(ctx, repo_model.MergeStyleFastForwardOnly, cmd); err != nil {
++		log.Error("%-v Unable to merge tracking into base: %v", ctx.pr, err)
++		return err
++	}
++
++	return nil
++}
+diff --git a/services/pull/merge_merge.go b/services/pull/merge_merge.go
+index 0f7664297aa81..bf56c071db07b 100644
+--- a/services/pull/merge_merge.go
++++ b/services/pull/merge_merge.go
+@@ -9,7 +9,7 @@ import (
+ 	"code.gitea.io/gitea/modules/log"
+ )
+ 
+-// doMergeStyleMerge merges the tracking into the current HEAD - which is assumed to tbe staging branch (equal to the pr.BaseBranch)
++// doMergeStyleMerge merges the tracking branch into the current HEAD - which is assumed to be the staging branch (equal to the pr.BaseBranch)
+ func doMergeStyleMerge(ctx *mergeContext, message string) error {
+ 	cmd := git.NewCommand(ctx, "merge", "--no-ff", "--no-commit").AddDynamicArguments(trackingBranch)
+ 	if err := runMergeCommand(ctx, repo_model.MergeStyleMerge, cmd); err != nil {
+diff --git a/templates/repo/issue/view_content/pull.tmpl b/templates/repo/issue/view_content/pull.tmpl
+index 2b5776ea03a52..7140584c5b516 100644
+--- a/templates/repo/issue/view_content/pull.tmpl
++++ b/templates/repo/issue/view_content/pull.tmpl
+@@ -197,7 +197,7 @@
+ 				{{if .AllowMerge}} {{/* user is allowed to merge */}}
+ 					{{$prUnit := .Repository.MustGetUnit $.Context $.UnitTypePullRequests}}
+ 					{{$approvers := (.Issue.PullRequest.GetApprovers ctx)}}
+-					{{if or $prUnit.PullRequestsConfig.AllowMerge $prUnit.PullRequestsConfig.AllowRebase $prUnit.PullRequestsConfig.AllowRebaseMerge $prUnit.PullRequestsConfig.AllowSquash}}
++					{{if or $prUnit.PullRequestsConfig.AllowMerge $prUnit.PullRequestsConfig.AllowRebase $prUnit.PullRequestsConfig.AllowRebaseMerge $prUnit.PullRequestsConfig.AllowSquash $prUnit.PullRequestsConfig.AllowFastForwardOnly}}
+ 						{{$hasPendingPullRequestMergeTip := ""}}
+ 						{{if .HasPendingPullRequestMerge}}
+ 							{{$createdPRMergeStr := TimeSinceUnix .PendingPullRequestMerge.CreatedUnix ctx.Locale}}
+@@ -268,6 +268,13 @@
+ 									'mergeMessageFieldText': {{.GetCommitMessages}} + defaultSquashMergeMessage,
+ 									'hideAutoMerge': generalHideAutoMerge,
+ 								},
++								{
++									'name': 'fast-forward-only',
++									'allowed': {{and $prUnit.PullRequestsConfig.AllowFastForwardOnly (eq .Issue.PullRequest.CommitsBehind 0)}},
++									'textDoMerge': {{$.locale.Tr "repo.pulls.fast_forward_only_merge_pull_request"}},
++									'hideMergeMessageTexts': true,
++									'hideAutoMerge': generalHideAutoMerge,
++								},
+ 								{
+ 									'name': 'manually-merged',
+ 									'allowed': {{$prUnit.PullRequestsConfig.AllowManualMerge}},
+diff --git a/templates/repo/settings/options.tmpl b/templates/repo/settings/options.tmpl
+index 07b2f58d53bff..cd730554fe96a 100644
+--- a/templates/repo/settings/options.tmpl
++++ b/templates/repo/settings/options.tmpl
+@@ -517,6 +517,12 @@
+ 								<label>{{ctx.Locale.Tr "repo.pulls.squash_merge_pull_request"}}</label>
+ 							</div>
+ 						</div>
++						<div class="field">
++							<div class="ui checkbox">
++								<input name="pulls_allow_fast_forward_only" type="checkbox" {{if or (not $pullRequestEnabled) ($prUnit.PullRequestsConfig.AllowFastForwardOnly)}}checked{{end}}>
++								<label>{{.locale.Tr "repo.pulls.fast_forward_only_merge_pull_request"}}</label>
++							</div>
++						</div>
+ 						<div class="field">
+ 							<div class="ui checkbox">
+ 								<input name="pulls_allow_manual_merge" type="checkbox" {{if or (not $pullRequestEnabled) ($prUnit.PullRequestsConfig.AllowManualMerge)}}checked{{end}}>
+@@ -534,6 +540,7 @@
+ 									<option value="rebase" {{if or (not $pullRequestEnabled) (eq $prUnit.PullRequestsConfig.DefaultMergeStyle "rebase")}}selected{{end}}>{{ctx.Locale.Tr "repo.pulls.rebase_merge_pull_request"}}</option>
+ 									<option value="rebase-merge" {{if or (not $pullRequestEnabled) (eq $prUnit.PullRequestsConfig.DefaultMergeStyle "rebase-merge")}}selected{{end}}>{{ctx.Locale.Tr "repo.pulls.rebase_merge_commit_pull_request"}}</option>
+ 									<option value="squash" {{if or (not $pullRequestEnabled) (eq $prUnit.PullRequestsConfig.DefaultMergeStyle "squash")}}selected{{end}}>{{ctx.Locale.Tr "repo.pulls.squash_merge_pull_request"}}</option>
++									<option value="fast-forward-only" {{if or (not $pullRequestEnabled) (eq $prUnit.PullRequestsConfig.DefaultMergeStyle "fast-forward-only")}}selected{{end}}>{{ctx.Locale.Tr "repo.pulls.fast_forward_only_merge_pull_request"}}</option>
+ 								</select>{{svg "octicon-triangle-down" 14 "dropdown icon"}}
+ 								<div class="default text">
+ 									{{if (eq $prUnit.PullRequestsConfig.DefaultMergeStyle "merge")}}
+@@ -548,12 +555,16 @@
+ 									{{if (eq $prUnit.PullRequestsConfig.DefaultMergeStyle "squash")}}
+ 										{{ctx.Locale.Tr "repo.pulls.squash_merge_pull_request"}}
+ 									{{end}}
++									{{if (eq $prUnit.PullRequestsConfig.DefaultMergeStyle "fast-forward-only")}}
++										{{.locale.Tr "repo.pulls.fast_forward_only_merge_pull_request"}}
++									{{end}}
+ 								</div>
+ 								<div class="menu">
+ 									<div class="item" data-value="merge">{{ctx.Locale.Tr "repo.pulls.merge_pull_request"}}</div>
+ 									<div class="item" data-value="rebase">{{ctx.Locale.Tr "repo.pulls.rebase_merge_pull_request"}}</div>
+ 									<div class="item" data-value="rebase-merge">{{ctx.Locale.Tr "repo.pulls.rebase_merge_commit_pull_request"}}</div>
+ 									<div class="item" data-value="squash">{{ctx.Locale.Tr "repo.pulls.squash_merge_pull_request"}}</div>
++									<div class="item" data-value="fast-forward-only">{{ctx.Locale.Tr "repo.pulls.fast_forward_only_merge_pull_request"}}</div>
+ 								</div>
+ 							</div>
+ 						</div>
+diff --git a/templates/swagger/v1_json.tmpl b/templates/swagger/v1_json.tmpl
+index dc04a97b833c7..bc1151df8c8fb 100644
+--- a/templates/swagger/v1_json.tmpl
++++ b/templates/swagger/v1_json.tmpl
+@@ -19195,6 +19195,11 @@
+       "description": "EditRepoOption options when editing a repository's properties",
+       "type": "object",
+       "properties": {
++        "allow_fast_forward_only_merge": {
++          "description": "either `true` to allow fast-forward-only merging pull requests, or `false` to prevent fast-forward-only merging.",
++          "type": "boolean",
++          "x-go-name": "AllowFastForwardOnly"
++        },
+         "allow_manual_merge": {
+           "description": "either `true` to allow mark pr as merged manually, or `false` to prevent it.",
+           "type": "boolean",
+@@ -22032,6 +22037,10 @@
+       "description": "Repository represents a repository",
+       "type": "object",
+       "properties": {
++        "allow_fast_forward_only_merge": {
++          "type": "boolean",
++          "x-go-name": "AllowFastForwardOnly"
++        },
+         "allow_merge_commits": {
+           "type": "boolean",
+           "x-go-name": "AllowMerge"
+diff --git a/tests/integration/api_repo_edit_test.go b/tests/integration/api_repo_edit_test.go
+index c4fc2177b4ce1..7de8910ee0651 100644
+--- a/tests/integration/api_repo_edit_test.go
++++ b/tests/integration/api_repo_edit_test.go
+@@ -65,6 +65,7 @@ func getRepoEditOptionFromRepo(repo *repo_model.Repository) *api.EditRepoOption
+ 	allowRebase := false
+ 	allowRebaseMerge := false
+ 	allowSquash := false
++	allowFastForwardOnly := false
+ 	if unit, err := repo.GetUnit(db.DefaultContext, unit_model.TypePullRequests); err == nil {
+ 		config := unit.PullRequestsConfig()
+ 		hasPullRequests = true
+@@ -73,6 +74,7 @@ func getRepoEditOptionFromRepo(repo *repo_model.Repository) *api.EditRepoOption
+ 		allowRebase = config.AllowRebase
+ 		allowRebaseMerge = config.AllowRebaseMerge
+ 		allowSquash = config.AllowSquash
++		allowFastForwardOnly = config.AllowFastForwardOnly
+ 	}
+ 	archived := repo.IsArchived
+ 	return &api.EditRepoOption{
+@@ -92,6 +94,7 @@ func getRepoEditOptionFromRepo(repo *repo_model.Repository) *api.EditRepoOption
+ 		AllowRebase:               &allowRebase,
+ 		AllowRebaseMerge:          &allowRebaseMerge,
+ 		AllowSquash:               &allowSquash,
++		AllowFastForwardOnly:      &allowFastForwardOnly,
+ 		Archived:                  &archived,
+ 	}
+ }

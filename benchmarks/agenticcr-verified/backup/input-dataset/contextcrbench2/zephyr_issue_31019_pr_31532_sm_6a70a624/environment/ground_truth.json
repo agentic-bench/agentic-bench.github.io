@@ -1,0 +1,11 @@
+[
+  {
+    "path": "subsys/bluetooth/controller/hci/hci.c",
+    "line": 1506,
+    "original_line": 1506,
+    "review_comment": [
+      "Is it certain that the only reason `ll_scan_enable()` might return CMD_DISALLOWED is that the current state was already what was requested as the target state?",
+      "yes. By implementation, Command Disallowed is only returned for failure to start/stop and already started/stopped scanning state. Only other error code returned by ll_scan_enable function is Invalid HCI Command Parameters."
+    ]
+  }
+]

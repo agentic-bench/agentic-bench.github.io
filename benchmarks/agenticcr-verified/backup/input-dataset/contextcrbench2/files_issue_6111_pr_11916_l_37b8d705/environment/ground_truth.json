@@ -1,0 +1,10 @@
+[
+  {
+    "path": "src/Files.App/Actions/Navigation/CloseSelectedTabAction.cs",
+    "line": 40,
+    "original_line": 38,
+    "review_comment": [
+      "```suggestion\r\n\r\n\t\t\treturn Task.CompletedTask;\r\n```\r\n\r\nAdd a new line break before return statement"
+    ]
+  }
+]

@@ -1,0 +1,11 @@
+[
+  {
+    "path": "src/OpenApi/test/Services/OpenApiSchemaService/OpenApiComponentService.ParameterSchemas.cs",
+    "line": 164,
+    "original_line": 163,
+    "review_comment": [
+      "Based on some [recent bugs](https://github.com/domaindrivendev/Swashbuckle.AspNetCore/issues?q=is%3Aissue+defaultvalue+is%3Aopen+created%3A%3E2024-05-01+) we've had in Swashbuckle, you might want to add some test cases for:\r\n\r\n- `[DefaultValue(null)] int? id`\r\n- `[DefaultValue(2)] int? id`\r\n- `[DefaultValue(null)] string? id`\r\n- `[DefaultValue(\"foo\")] string? id`\r\n- `[DefaultValue(null)] TaskStatus? status`\r\n- `[DefaultValue(TaskStatus.Canceled)] TaskStatus? status`\r\n",
+      "Great list! Thank you for sharing. I'll add these. I suspect that `[DefaultValue(null)]` will be interesting to sus out."
+    ]
+  }
+]

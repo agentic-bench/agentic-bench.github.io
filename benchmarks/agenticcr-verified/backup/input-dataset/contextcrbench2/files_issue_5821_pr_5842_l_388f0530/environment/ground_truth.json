@@ -1,0 +1,12 @@
+[
+  {
+    "path": "Files/ViewModels/ItemViewModel.cs",
+    "line": 822,
+    "original_line": 822,
+    "review_comment": [
+      "I noticed this change will make it try and show previews in details view, which isn't useful since it's so small. Should this e reverted?\r\n![image](https://user-images.githubusercontent.com/59544401/129666970-59a876e6-b0ad-49be-b9a0-4ba36a9db975.png)\r\n",
+      "also, @gave92 you were right xD. It looks like ThumbnailOptions.ResizeThumbnail is the better option. `UseCurrentScale` won't use smaller icons like this one\r\n![image](https://user-images.githubusercontent.com/59544401/129671046-2ae86279-b422-4825-a0e0-eeb61480cc2c.png)\r\n",
+      "Does Resize cut off the thumbnail?"
+    ]
+  }
+]

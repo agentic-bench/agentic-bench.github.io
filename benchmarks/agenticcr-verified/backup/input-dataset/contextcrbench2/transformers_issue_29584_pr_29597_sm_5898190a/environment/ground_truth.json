@@ -1,0 +1,11 @@
+[
+  {
+    "path": "examples/tensorflow/question-answering/run_qa.py",
+    "line": 710,
+    "original_line": 709,
+    "review_comment": [
+      "Can you add a comment here saying optimizer value doesn't mattr as it won't be used?",
+      "Done!"
+    ]
+  }
+]

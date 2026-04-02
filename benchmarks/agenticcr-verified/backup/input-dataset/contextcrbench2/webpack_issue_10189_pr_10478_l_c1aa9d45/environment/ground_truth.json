@@ -1,0 +1,11 @@
+[
+  {
+    "path": "test/configCases/dll-plugin/0-issue-10475/node_modules/test-package/working-constants.js",
+    "line": 1,
+    "original_line": 1,
+    "review_comment": [
+      "This file is not actually used",
+      "It doesn't hurt..."
+    ]
+  }
+]

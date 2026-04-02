@@ -1,0 +1,1643 @@
+diff --git a/tests/components/nordpool/conftest.py b/tests/components/nordpool/conftest.py
+index b33a5a607fb60..de777a7269a09 100644
+--- a/tests/components/nordpool/conftest.py
++++ b/tests/components/nordpool/conftest.py
+@@ -3,20 +3,16 @@
+ from __future__ import annotations
+ 
+ from collections.abc import AsyncGenerator
+-from datetime import datetime
+ import json
+ from typing import Any
+ from unittest.mock import patch
+ 
+-from pynordpool import NordPoolClient
+-from pynordpool.const import Currency
+-from pynordpool.model import DeliveryPeriodData
++from pynordpool import API, NordPoolClient
+ import pytest
+ 
+ from homeassistant.components.nordpool.const import DOMAIN
+ from homeassistant.config_entries import SOURCE_USER
+ from homeassistant.core import HomeAssistant
+-from homeassistant.util import dt as dt_util
+ 
+ from . import ENTRY_CONFIG
+ 
+@@ -32,9 +28,7 @@ async def no_sleep() -> AsyncGenerator[None]:
+ 
+ 
+ @pytest.fixture
+-async def load_int(
+-    hass: HomeAssistant, get_data: DeliveryPeriodData
+-) -> MockConfigEntry:
++async def load_int(hass: HomeAssistant, get_client: NordPoolClient) -> MockConfigEntry:
+     """Set up the Nord Pool integration in Home Assistant."""
+     config_entry = MockConfigEntry(
+         domain=DOMAIN,
+@@ -44,37 +38,75 @@ async def load_int(
+ 
+     config_entry.add_to_hass(hass)
+ 
+-    with (
+-        patch(
+-            "homeassistant.components.nordpool.coordinator.NordPoolClient.async_get_delivery_period",
+-            return_value=get_data,
+-        ),
+-    ):
+-        await hass.config_entries.async_setup(config_entry.entry_id)
++    await hass.config_entries.async_setup(config_entry.entry_id)
+     await hass.async_block_till_done()
+ 
+     return config_entry
+ 
+ 
+-@pytest.fixture(name="get_data")
++@pytest.fixture(name="get_client")
+ async def get_data_from_library(
+-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker, load_json: dict[str, Any]
+-) -> DeliveryPeriodData:
++    hass: HomeAssistant,
++    aioclient_mock: AiohttpClientMocker,
++    load_json: list[dict[str, Any]],
++) -> AsyncGenerator[NordPoolClient]:
+     """Retrieve data from Nord Pool library."""
+-
++    aioclient_mock.request(
++        "GET",
++        url=API + "/DayAheadPrices",
++        params={
++            "date": "2024-11-05",
++            "market": "DayAhead",
++            "deliveryArea": "SE3,SE4",
++            "currency": "SEK",
++        },
++        json=load_json[0],
++    )
++    aioclient_mock.request(
++        "GET",
++        url=API + "/DayAheadPrices",
++        params={
++            "date": "2024-11-05",
++            "market": "DayAhead",
++            "deliveryArea": "SE3",
++            "currency": "EUR",
++        },
++        json=load_json[0],
++    )
++    aioclient_mock.request(
++        "GET",
++        url=API + "/DayAheadPrices",
++        params={
++            "date": "2024-11-04",
++            "market": "DayAhead",
++            "deliveryArea": "SE3,SE4",
++            "currency": "SEK",
++        },
++        json=load_json[1],
++    )
++    aioclient_mock.request(
++        "GET",
++        url=API + "/DayAheadPrices",
++        params={
++            "date": "2024-11-06",
++            "market": "DayAhead",
++            "deliveryArea": "SE3,SE4",
++            "currency": "SEK",
++        },
++        json=load_json[2],
++    )
+     client = NordPoolClient(aioclient_mock.create_session(hass.loop))
+-    with patch("pynordpool.NordPoolClient._get", return_value=load_json):
+-        output = await client.async_get_delivery_period(
+-            datetime(2024, 11, 5, 13, tzinfo=dt_util.UTC), Currency.SEK, ["SE3", "SE4"]
+-        )
++    yield client
+     await client._session.close()
+-    return output
+ 
+ 
+ @pytest.fixture(name="load_json")
+-def load_json_from_fixture(load_data: str) -> dict[str, Any]:
++def load_json_from_fixture() -> list[dict[str, Any]]:
+     """Load fixture with json data and return."""
+-    return json.loads(load_data)
++    today = load_fixture("delivery_period_today.json", DOMAIN)
++    yesterday = load_fixture("delivery_period_yesterday.json", DOMAIN)
++    tomorrow = load_fixture("delivery_period_tomorrow.json", DOMAIN)
++    return [json.loads(today), json.loads(yesterday), json.loads(tomorrow)]
+ 
+ 
+ @pytest.fixture(name="load_data", scope="package")
+diff --git a/tests/components/nordpool/snapshots/test_diagnostics.ambr b/tests/components/nordpool/snapshots/test_diagnostics.ambr
+index dde2eca0022e0..76a3dd9640508 100644
+--- a/tests/components/nordpool/snapshots/test_diagnostics.ambr
++++ b/tests/components/nordpool/snapshots/test_diagnostics.ambr
+@@ -2,282 +2,840 @@
+ # name: test_diagnostics
+   dict({
+     'raw': dict({
+-      'areaAverages': list([
+-        dict({
+-          'areaCode': 'SE3',
+-          'price': 900.74,
+-        }),
+-        dict({
+-          'areaCode': 'SE4',
+-          'price': 1166.12,
+-        }),
+-      ]),
+-      'areaStates': list([
+-        dict({
+-          'areas': list([
+-            'SE3',
+-            'SE4',
+-          ]),
+-          'state': 'Final',
+-        }),
+-      ]),
+-      'blockPriceAggregates': list([
+-        dict({
+-          'averagePricePerArea': dict({
+-            'SE3': dict({
+-              'average': 422.87,
+-              'max': 1406.14,
+-              'min': 61.69,
+-            }),
+-            'SE4': dict({
+-              'average': 497.97,
+-              'max': 1648.25,
+-              'min': 65.19,
+-            }),
+-          }),
+-          'blockName': 'Off-peak 1',
+-          'deliveryEnd': '2024-11-05T07:00:00Z',
+-          'deliveryStart': '2024-11-04T23:00:00Z',
+-        }),
+-        dict({
+-          'averagePricePerArea': dict({
+-            'SE3': dict({
+-              'average': 1315.97,
+-              'max': 2512.65,
+-              'min': 925.05,
+-            }),
+-            'SE4': dict({
+-              'average': 1735.59,
+-              'max': 3533.03,
+-              'min': 1081.72,
+-            }),
+-          }),
+-          'blockName': 'Peak',
+-          'deliveryEnd': '2024-11-05T19:00:00Z',
+-          'deliveryStart': '2024-11-05T07:00:00Z',
+-        }),
+-        dict({
+-          'averagePricePerArea': dict({
+-            'SE3': dict({
+-              'average': 610.79,
+-              'max': 835.53,
+-              'min': 289.14,
+-            }),
+-            'SE4': dict({
+-              'average': 793.98,
+-              'max': 1112.57,
+-              'min': 349.21,
+-            }),
+-          }),
+-          'blockName': 'Off-peak 2',
+-          'deliveryEnd': '2024-11-05T23:00:00Z',
+-          'deliveryStart': '2024-11-05T19:00:00Z',
+-        }),
+-      ]),
+-      'currency': 'SEK',
+-      'deliveryAreas': list([
+-        'SE3',
+-        'SE4',
+-      ]),
+-      'deliveryDateCET': '2024-11-05',
+-      'exchangeRate': 11.6402,
+-      'market': 'DayAhead',
+-      'multiAreaEntries': list([
+-        dict({
+-          'deliveryEnd': '2024-11-05T00:00:00Z',
+-          'deliveryStart': '2024-11-04T23:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 250.73,
+-            'SE4': 283.79,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T01:00:00Z',
+-          'deliveryStart': '2024-11-05T00:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 76.36,
+-            'SE4': 81.36,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T02:00:00Z',
+-          'deliveryStart': '2024-11-05T01:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 73.92,
+-            'SE4': 79.15,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T03:00:00Z',
+-          'deliveryStart': '2024-11-05T02:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 61.69,
+-            'SE4': 65.19,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T04:00:00Z',
+-          'deliveryStart': '2024-11-05T03:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 64.6,
+-            'SE4': 68.44,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T05:00:00Z',
+-          'deliveryStart': '2024-11-05T04:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 453.27,
+-            'SE4': 516.71,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T06:00:00Z',
+-          'deliveryStart': '2024-11-05T05:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 996.28,
+-            'SE4': 1240.85,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T07:00:00Z',
+-          'deliveryStart': '2024-11-05T06:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 1406.14,
+-            'SE4': 1648.25,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T08:00:00Z',
+-          'deliveryStart': '2024-11-05T07:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 1346.54,
+-            'SE4': 1570.5,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T09:00:00Z',
+-          'deliveryStart': '2024-11-05T08:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 1150.28,
+-            'SE4': 1345.37,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T10:00:00Z',
+-          'deliveryStart': '2024-11-05T09:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 1031.32,
+-            'SE4': 1206.51,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T11:00:00Z',
+-          'deliveryStart': '2024-11-05T10:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 927.37,
+-            'SE4': 1085.8,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T12:00:00Z',
+-          'deliveryStart': '2024-11-05T11:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 925.05,
+-            'SE4': 1081.72,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T13:00:00Z',
+-          'deliveryStart': '2024-11-05T12:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 949.49,
+-            'SE4': 1130.38,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T14:00:00Z',
+-          'deliveryStart': '2024-11-05T13:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 1042.03,
+-            'SE4': 1256.91,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T15:00:00Z',
+-          'deliveryStart': '2024-11-05T14:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 1258.89,
+-            'SE4': 1765.82,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T16:00:00Z',
+-          'deliveryStart': '2024-11-05T15:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 1816.45,
+-            'SE4': 2522.55,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T17:00:00Z',
+-          'deliveryStart': '2024-11-05T16:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 2512.65,
+-            'SE4': 3533.03,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T18:00:00Z',
+-          'deliveryStart': '2024-11-05T17:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 1819.83,
+-            'SE4': 2524.06,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T19:00:00Z',
+-          'deliveryStart': '2024-11-05T18:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 1011.77,
+-            'SE4': 1804.46,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T20:00:00Z',
+-          'deliveryStart': '2024-11-05T19:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 835.53,
+-            'SE4': 1112.57,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T21:00:00Z',
+-          'deliveryStart': '2024-11-05T20:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 796.19,
+-            'SE4': 1051.69,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T22:00:00Z',
+-          'deliveryStart': '2024-11-05T21:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 522.3,
+-            'SE4': 662.44,
+-          }),
+-        }),
+-        dict({
+-          'deliveryEnd': '2024-11-05T23:00:00Z',
+-          'deliveryStart': '2024-11-05T22:00:00Z',
+-          'entryPerArea': dict({
+-            'SE3': 289.14,
+-            'SE4': 349.21,
+-          }),
+-        }),
+-      ]),
+-      'updatedAt': '2024-11-04T12:15:03.9456464Z',
+-      'version': 3,
++      '2024-11-04': dict({
++        'areaAverages': list([
++          dict({
++            'areaCode': 'SE3',
++            'price': 1006.88,
++          }),
++          dict({
++            'areaCode': 'SE4',
++            'price': 1190.46,
++          }),
++        ]),
++        'areaStates': list([
++          dict({
++            'areas': list([
++              'SE3',
++              'SE4',
++            ]),
++            'state': 'Final',
++          }),
++        ]),
++        'blockPriceAggregates': list([
++          dict({
++            'averagePricePerArea': dict({
++              'SE3': dict({
++                'average': 408.69,
++                'max': 1426.17,
++                'min': 66.13,
++              }),
++              'SE4': dict({
++                'average': 530.61,
++                'max': 1695.95,
++                'min': 78.59,
++              }),
++            }),
++            'blockName': 'Off-peak 1',
++            'deliveryEnd': '2024-11-04T07:00:00Z',
++            'deliveryStart': '2024-11-03T23:00:00Z',
++          }),
++          dict({
++            'averagePricePerArea': dict({
++              'SE3': dict({
++                'average': 1455.48,
++                'max': 2812.53,
++                'min': 952.76,
++              }),
++              'SE4': dict({
++                'average': 1692.2,
++                'max': 3313.53,
++                'min': 1085.73,
++              }),
++            }),
++            'blockName': 'Peak',
++            'deliveryEnd': '2024-11-04T19:00:00Z',
++            'deliveryStart': '2024-11-04T07:00:00Z',
++          }),
++          dict({
++            'averagePricePerArea': dict({
++              'SE3': dict({
++                'average': 857.49,
++                'max': 1165.02,
++                'min': 465.38,
++              }),
++              'SE4': dict({
++                'average': 1004.95,
++                'max': 1398.35,
++                'min': 528.83,
++              }),
++            }),
++            'blockName': 'Off-peak 2',
++            'deliveryEnd': '2024-11-04T23:00:00Z',
++            'deliveryStart': '2024-11-04T19:00:00Z',
++          }),
++        ]),
++        'currency': 'SEK',
++        'deliveryAreas': list([
++          'SE3',
++          'SE4',
++        ]),
++        'deliveryDateCET': '2024-11-04',
++        'exchangeRate': 11.64318,
++        'market': 'DayAhead',
++        'multiAreaEntries': list([
++          dict({
++            'deliveryEnd': '2024-11-04T00:00:00Z',
++            'deliveryStart': '2024-11-03T23:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 66.13,
++              'SE4': 78.59,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T01:00:00Z',
++            'deliveryStart': '2024-11-04T00:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 72.54,
++              'SE4': 86.51,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T02:00:00Z',
++            'deliveryStart': '2024-11-04T01:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 73.12,
++              'SE4': 84.88,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T03:00:00Z',
++            'deliveryStart': '2024-11-04T02:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 171.97,
++              'SE4': 217.26,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T04:00:00Z',
++            'deliveryStart': '2024-11-04T03:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 181.05,
++              'SE4': 227.74,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T05:00:00Z',
++            'deliveryStart': '2024-11-04T04:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 360.71,
++              'SE4': 414.61,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T06:00:00Z',
++            'deliveryStart': '2024-11-04T05:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 917.83,
++              'SE4': 1439.33,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T07:00:00Z',
++            'deliveryStart': '2024-11-04T06:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1426.17,
++              'SE4': 1695.95,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T08:00:00Z',
++            'deliveryStart': '2024-11-04T07:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1350.96,
++              'SE4': 1605.13,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T09:00:00Z',
++            'deliveryStart': '2024-11-04T08:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1195.06,
++              'SE4': 1393.46,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T10:00:00Z',
++            'deliveryStart': '2024-11-04T09:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 992.35,
++              'SE4': 1126.71,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T11:00:00Z',
++            'deliveryStart': '2024-11-04T10:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 976.63,
++              'SE4': 1107.97,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T12:00:00Z',
++            'deliveryStart': '2024-11-04T11:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 952.76,
++              'SE4': 1085.73,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T13:00:00Z',
++            'deliveryStart': '2024-11-04T12:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1029.37,
++              'SE4': 1177.71,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T14:00:00Z',
++            'deliveryStart': '2024-11-04T13:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1043.35,
++              'SE4': 1194.59,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T15:00:00Z',
++            'deliveryStart': '2024-11-04T14:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1359.57,
++              'SE4': 1561.12,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T16:00:00Z',
++            'deliveryStart': '2024-11-04T15:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1848.35,
++              'SE4': 2145.84,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T17:00:00Z',
++            'deliveryStart': '2024-11-04T16:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 2812.53,
++              'SE4': 3313.53,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T18:00:00Z',
++            'deliveryStart': '2024-11-04T17:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 2351.69,
++              'SE4': 2751.87,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T19:00:00Z',
++            'deliveryStart': '2024-11-04T18:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1553.08,
++              'SE4': 1842.77,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T20:00:00Z',
++            'deliveryStart': '2024-11-04T19:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1165.02,
++              'SE4': 1398.35,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T21:00:00Z',
++            'deliveryStart': '2024-11-04T20:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1007.48,
++              'SE4': 1172.35,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T22:00:00Z',
++            'deliveryStart': '2024-11-04T21:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 792.09,
++              'SE4': 920.28,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-04T23:00:00Z',
++            'deliveryStart': '2024-11-04T22:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 465.38,
++              'SE4': 528.83,
++            }),
++          }),
++        ]),
++        'updatedAt': '2024-11-04T08:09:11.1931991Z',
++        'version': 3,
++      }),
++      '2024-11-05': dict({
++        'areaAverages': list([
++          dict({
++            'areaCode': 'SE3',
++            'price': 900.74,
++          }),
++          dict({
++            'areaCode': 'SE4',
++            'price': 1166.12,
++          }),
++        ]),
++        'areaStates': list([
++          dict({
++            'areas': list([
++              'SE3',
++              'SE4',
++            ]),
++            'state': 'Final',
++          }),
++        ]),
++        'blockPriceAggregates': list([
++          dict({
++            'averagePricePerArea': dict({
++              'SE3': dict({
++                'average': 422.87,
++                'max': 1406.14,
++                'min': 61.69,
++              }),
++              'SE4': dict({
++                'average': 497.97,
++                'max': 1648.25,
++                'min': 65.19,
++              }),
++            }),
++            'blockName': 'Off-peak 1',
++            'deliveryEnd': '2024-11-05T07:00:00Z',
++            'deliveryStart': '2024-11-04T23:00:00Z',
++          }),
++          dict({
++            'averagePricePerArea': dict({
++              'SE3': dict({
++                'average': 1315.97,
++                'max': 2512.65,
++                'min': 925.05,
++              }),
++              'SE4': dict({
++                'average': 1735.59,
++                'max': 3533.03,
++                'min': 1081.72,
++              }),
++            }),
++            'blockName': 'Peak',
++            'deliveryEnd': '2024-11-05T19:00:00Z',
++            'deliveryStart': '2024-11-05T07:00:00Z',
++          }),
++          dict({
++            'averagePricePerArea': dict({
++              'SE3': dict({
++                'average': 610.79,
++                'max': 835.53,
++                'min': 289.14,
++              }),
++              'SE4': dict({
++                'average': 793.98,
++                'max': 1112.57,
++                'min': 349.21,
++              }),
++            }),
++            'blockName': 'Off-peak 2',
++            'deliveryEnd': '2024-11-05T23:00:00Z',
++            'deliveryStart': '2024-11-05T19:00:00Z',
++          }),
++        ]),
++        'currency': 'SEK',
++        'deliveryAreas': list([
++          'SE3',
++          'SE4',
++        ]),
++        'deliveryDateCET': '2024-11-05',
++        'exchangeRate': 11.6402,
++        'market': 'DayAhead',
++        'multiAreaEntries': list([
++          dict({
++            'deliveryEnd': '2024-11-05T00:00:00Z',
++            'deliveryStart': '2024-11-04T23:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 250.73,
++              'SE4': 283.79,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T01:00:00Z',
++            'deliveryStart': '2024-11-05T00:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 76.36,
++              'SE4': 81.36,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T02:00:00Z',
++            'deliveryStart': '2024-11-05T01:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 73.92,
++              'SE4': 79.15,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T03:00:00Z',
++            'deliveryStart': '2024-11-05T02:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 61.69,
++              'SE4': 65.19,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T04:00:00Z',
++            'deliveryStart': '2024-11-05T03:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 64.6,
++              'SE4': 68.44,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T05:00:00Z',
++            'deliveryStart': '2024-11-05T04:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 453.27,
++              'SE4': 516.71,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T06:00:00Z',
++            'deliveryStart': '2024-11-05T05:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 996.28,
++              'SE4': 1240.85,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T07:00:00Z',
++            'deliveryStart': '2024-11-05T06:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1406.14,
++              'SE4': 1648.25,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T08:00:00Z',
++            'deliveryStart': '2024-11-05T07:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1346.54,
++              'SE4': 1570.5,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T09:00:00Z',
++            'deliveryStart': '2024-11-05T08:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1150.28,
++              'SE4': 1345.37,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T10:00:00Z',
++            'deliveryStart': '2024-11-05T09:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1031.32,
++              'SE4': 1206.51,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T11:00:00Z',
++            'deliveryStart': '2024-11-05T10:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 927.37,
++              'SE4': 1085.8,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T12:00:00Z',
++            'deliveryStart': '2024-11-05T11:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 925.05,
++              'SE4': 1081.72,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T13:00:00Z',
++            'deliveryStart': '2024-11-05T12:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 949.49,
++              'SE4': 1130.38,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T14:00:00Z',
++            'deliveryStart': '2024-11-05T13:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1042.03,
++              'SE4': 1256.91,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T15:00:00Z',
++            'deliveryStart': '2024-11-05T14:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1258.89,
++              'SE4': 1765.82,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T16:00:00Z',
++            'deliveryStart': '2024-11-05T15:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1816.45,
++              'SE4': 2522.55,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T17:00:00Z',
++            'deliveryStart': '2024-11-05T16:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 2512.65,
++              'SE4': 3533.03,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T18:00:00Z',
++            'deliveryStart': '2024-11-05T17:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1819.83,
++              'SE4': 2524.06,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T19:00:00Z',
++            'deliveryStart': '2024-11-05T18:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1011.77,
++              'SE4': 1804.46,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T20:00:00Z',
++            'deliveryStart': '2024-11-05T19:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 835.53,
++              'SE4': 1112.57,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T21:00:00Z',
++            'deliveryStart': '2024-11-05T20:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 796.19,
++              'SE4': 1051.69,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T22:00:00Z',
++            'deliveryStart': '2024-11-05T21:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 522.3,
++              'SE4': 662.44,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-05T23:00:00Z',
++            'deliveryStart': '2024-11-05T22:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 289.14,
++              'SE4': 349.21,
++            }),
++          }),
++        ]),
++        'updatedAt': '2024-11-04T12:15:03.9456464Z',
++        'version': 3,
++      }),
++      '2024-11-06': dict({
++        'areaAverages': list([
++          dict({
++            'areaCode': 'SE3',
++            'price': 900.65,
++          }),
++          dict({
++            'areaCode': 'SE4',
++            'price': 1581.19,
++          }),
++        ]),
++        'areaStates': list([
++          dict({
++            'areas': list([
++              'SE3',
++              'SE4',
++            ]),
++            'state': 'Final',
++          }),
++        ]),
++        'blockPriceAggregates': list([
++          dict({
++            'averagePricePerArea': dict({
++              'SE3': dict({
++                'average': 422.51,
++                'max': 1820.5,
++                'min': 74.06,
++              }),
++              'SE4': dict({
++                'average': 706.61,
++                'max': 2449.96,
++                'min': 157.34,
++              }),
++            }),
++            'blockName': 'Off-peak 1',
++            'deliveryEnd': '2024-11-06T07:00:00Z',
++            'deliveryStart': '2024-11-05T23:00:00Z',
++          }),
++          dict({
++            'averagePricePerArea': dict({
++              'SE3': dict({
++                'average': 1346.82,
++                'max': 2366.57,
++                'min': 903.31,
++              }),
++              'SE4': dict({
++                'average': 2306.88,
++                'max': 5511.77,
++                'min': 1362.84,
++              }),
++            }),
++            'blockName': 'Peak',
++            'deliveryEnd': '2024-11-06T19:00:00Z',
++            'deliveryStart': '2024-11-06T07:00:00Z',
++          }),
++          dict({
++            'averagePricePerArea': dict({
++              'SE3': dict({
++                'average': 518.43,
++                'max': 716.82,
++                'min': 250.64,
++              }),
++              'SE4': dict({
++                'average': 1153.25,
++                'max': 1624.33,
++                'min': 539.42,
++              }),
++            }),
++            'blockName': 'Off-peak 2',
++            'deliveryEnd': '2024-11-06T23:00:00Z',
++            'deliveryStart': '2024-11-06T19:00:00Z',
++          }),
++        ]),
++        'currency': 'SEK',
++        'deliveryAreas': list([
++          'SE3',
++          'SE4',
++        ]),
++        'deliveryDateCET': '2024-11-06',
++        'exchangeRate': 11.66314,
++        'market': 'DayAhead',
++        'multiAreaEntries': list([
++          dict({
++            'deliveryEnd': '2024-11-06T00:00:00Z',
++            'deliveryStart': '2024-11-05T23:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 126.66,
++              'SE4': 275.6,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T01:00:00Z',
++            'deliveryStart': '2024-11-06T00:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 74.06,
++              'SE4': 157.34,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T02:00:00Z',
++            'deliveryStart': '2024-11-06T01:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 78.38,
++              'SE4': 165.62,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T03:00:00Z',
++            'deliveryStart': '2024-11-06T02:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 92.37,
++              'SE4': 196.17,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T04:00:00Z',
++            'deliveryStart': '2024-11-06T03:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 99.14,
++              'SE4': 190.58,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T05:00:00Z',
++            'deliveryStart': '2024-11-06T04:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 447.51,
++              'SE4': 932.93,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T06:00:00Z',
++            'deliveryStart': '2024-11-06T05:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 641.47,
++              'SE4': 1284.69,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T07:00:00Z',
++            'deliveryStart': '2024-11-06T06:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1820.5,
++              'SE4': 2449.96,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T08:00:00Z',
++            'deliveryStart': '2024-11-06T07:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1723.0,
++              'SE4': 2244.22,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T09:00:00Z',
++            'deliveryStart': '2024-11-06T08:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1298.57,
++              'SE4': 1643.45,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T10:00:00Z',
++            'deliveryStart': '2024-11-06T09:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1099.25,
++              'SE4': 1507.23,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T11:00:00Z',
++            'deliveryStart': '2024-11-06T10:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 903.31,
++              'SE4': 1362.84,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T12:00:00Z',
++            'deliveryStart': '2024-11-06T11:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 959.99,
++              'SE4': 1376.13,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T13:00:00Z',
++            'deliveryStart': '2024-11-06T12:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1186.61,
++              'SE4': 1449.96,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T14:00:00Z',
++            'deliveryStart': '2024-11-06T13:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1307.67,
++              'SE4': 1608.35,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T15:00:00Z',
++            'deliveryStart': '2024-11-06T14:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1385.46,
++              'SE4': 2110.8,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T16:00:00Z',
++            'deliveryStart': '2024-11-06T15:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1366.8,
++              'SE4': 3031.25,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T17:00:00Z',
++            'deliveryStart': '2024-11-06T16:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 2366.57,
++              'SE4': 5511.77,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T18:00:00Z',
++            'deliveryStart': '2024-11-06T17:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1481.92,
++              'SE4': 3351.64,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T19:00:00Z',
++            'deliveryStart': '2024-11-06T18:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 1082.69,
++              'SE4': 2484.95,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T20:00:00Z',
++            'deliveryStart': '2024-11-06T19:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 716.82,
++              'SE4': 1624.33,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T21:00:00Z',
++            'deliveryStart': '2024-11-06T20:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 583.16,
++              'SE4': 1306.27,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T22:00:00Z',
++            'deliveryStart': '2024-11-06T21:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 523.09,
++              'SE4': 1142.99,
++            }),
++          }),
++          dict({
++            'deliveryEnd': '2024-11-06T23:00:00Z',
++            'deliveryStart': '2024-11-06T22:00:00Z',
++            'entryPerArea': dict({
++              'SE3': 250.64,
++              'SE4': 539.42,
++            }),
++          }),
++        ]),
++        'updatedAt': '2024-11-05T12:12:51.9853434Z',
++        'version': 3,
++      }),
+     }),
+   })
+ # ---
+diff --git a/tests/components/nordpool/test_config_flow.py b/tests/components/nordpool/test_config_flow.py
+index cfdfc63aca769..1f0e99b65ff97 100644
+--- a/tests/components/nordpool/test_config_flow.py
++++ b/tests/components/nordpool/test_config_flow.py
+@@ -2,10 +2,11 @@
+ 
+ from __future__ import annotations
+ 
++from typing import Any
+ from unittest.mock import patch
+ 
+ from pynordpool import (
+-    DeliveryPeriodData,
++    NordPoolClient,
+     NordPoolConnectionError,
+     NordPoolEmptyResponseError,
+     NordPoolError,
+@@ -22,10 +23,11 @@
+ from . import ENTRY_CONFIG
+ 
+ from tests.common import MockConfigEntry
++from tests.test_util.aiohttp import AiohttpClientMocker
+ 
+ 
+ @pytest.mark.freeze_time("2024-11-05T18:00:00+00:00")
+-async def test_form(hass: HomeAssistant, get_data: DeliveryPeriodData) -> None:
++async def test_form(hass: HomeAssistant, get_client: NordPoolClient) -> None:
+     """Test we get the form."""
+ 
+     result = await hass.config_entries.flow.async_init(
+@@ -34,17 +36,11 @@ async def test_form(hass: HomeAssistant, get_data: DeliveryPeriodData) -> None:
+     assert result["step_id"] == "user"
+     assert result["type"] is FlowResultType.FORM
+ 
+-    with (
+-        patch(
+-            "homeassistant.components.nordpool.coordinator.NordPoolClient.async_get_delivery_period",
+-            return_value=get_data,
+-        ),
+-    ):
+-        result = await hass.config_entries.flow.async_configure(
+-            result["flow_id"],
+-            ENTRY_CONFIG,
+-        )
+-        await hass.async_block_till_done()
++    result = await hass.config_entries.flow.async_configure(
++        result["flow_id"],
++        ENTRY_CONFIG,
++    )
++    await hass.async_block_till_done()
+ 
+     assert result["type"] is FlowResultType.CREATE_ENTRY
+     assert result["version"] == 1
+@@ -54,7 +50,7 @@ async def test_form(hass: HomeAssistant, get_data: DeliveryPeriodData) -> None:
+ 
+ @pytest.mark.freeze_time("2024-11-05T18:00:00+00:00")
+ async def test_single_config_entry(
+-    hass: HomeAssistant, load_int: None, get_data: DeliveryPeriodData
++    hass: HomeAssistant, load_int: None, get_client: NordPoolClient
+ ) -> None:
+     """Test abort for single config entry."""
+ 
+@@ -77,7 +73,7 @@ async def test_single_config_entry(
+ )
+ async def test_cannot_connect(
+     hass: HomeAssistant,
+-    get_data: DeliveryPeriodData,
++    get_client: NordPoolClient,
+     error_message: Exception,
+     p_error: str,
+ ) -> None:
+@@ -101,14 +97,10 @@ async def test_cannot_connect(
+ 
+     assert result["errors"] == {"base": p_error}
+ 
+-    with patch(
+-        "homeassistant.components.nordpool.coordinator.NordPoolClient.async_get_delivery_period",
+-        return_value=get_data,
+-    ):
+-        result = await hass.config_entries.flow.async_configure(
+-            result["flow_id"],
+-            user_input=ENTRY_CONFIG,
+-        )
++    result = await hass.config_entries.flow.async_configure(
++        result["flow_id"],
++        user_input=ENTRY_CONFIG,
++    )
+ 
+     assert result["type"] is FlowResultType.CREATE_ENTRY
+     assert result["title"] == "Nord Pool"
+@@ -119,25 +111,18 @@ async def test_cannot_connect(
+ async def test_reconfigure(
+     hass: HomeAssistant,
+     load_int: MockConfigEntry,
+-    get_data: DeliveryPeriodData,
+ ) -> None:
+     """Test reconfiguration."""
+ 
+     result = await load_int.start_reconfigure_flow(hass)
+ 
+-    with (
+-        patch(
+-            "homeassistant.components.nordpool.coordinator.NordPoolClient.async_get_delivery_period",
+-            return_value=get_data,
+-        ),
+-    ):
+-        result = await hass.config_entries.flow.async_configure(
+-            result["flow_id"],
+-            {
+-                CONF_AREAS: ["SE3"],
+-                CONF_CURRENCY: "EUR",
+-            },
+-        )
++    result = await hass.config_entries.flow.async_configure(
++        result["flow_id"],
++        {
++            CONF_AREAS: ["SE3"],
++            CONF_CURRENCY: "EUR",
++        },
++    )
+ 
+     assert result["type"] is FlowResultType.ABORT
+     assert result["reason"] == "reconfigure_successful"
+@@ -162,7 +147,8 @@ async def test_reconfigure(
+ async def test_reconfigure_cannot_connect(
+     hass: HomeAssistant,
+     load_int: MockConfigEntry,
+-    get_data: DeliveryPeriodData,
++    aioclient_mock: AiohttpClientMocker,
++    load_json: list[dict[str, Any]],
+     error_message: Exception,
+     p_error: str,
+ ) -> None:
+@@ -184,17 +170,13 @@ async def test_reconfigure_cannot_connect(
+ 
+     assert result["errors"] == {"base": p_error}
+ 
+-    with patch(
+-        "homeassistant.components.nordpool.coordinator.NordPoolClient.async_get_delivery_period",
+-        return_value=get_data,
+-    ):
+-        result = await hass.config_entries.flow.async_configure(
+-            result["flow_id"],
+-            user_input={
+-                CONF_AREAS: ["SE3"],
+-                CONF_CURRENCY: "EUR",
+-            },
+-        )
++    result = await hass.config_entries.flow.async_configure(
++        result["flow_id"],
++        user_input={
++            CONF_AREAS: ["SE3"],
++            CONF_CURRENCY: "EUR",
++        },
++    )
+ 
+     assert result["type"] is FlowResultType.ABORT
+     assert result["reason"] == "reconfigure_successful"
+diff --git a/tests/components/nordpool/test_coordinator.py b/tests/components/nordpool/test_coordinator.py
+index 68534237dee73..7647fe4bdfe1f 100644
+--- a/tests/components/nordpool/test_coordinator.py
++++ b/tests/components/nordpool/test_coordinator.py
+@@ -7,8 +7,8 @@
+ 
+ from freezegun.api import FrozenDateTimeFactory
+ from pynordpool import (
+-    DeliveryPeriodData,
+     NordPoolAuthenticationError,
++    NordPoolClient,
+     NordPoolEmptyResponseError,
+     NordPoolError,
+     NordPoolResponseError,
+@@ -28,7 +28,7 @@
+ @pytest.mark.freeze_time("2024-11-05T10:00:00+00:00")
+ async def test_coordinator(
+     hass: HomeAssistant,
+-    get_data: DeliveryPeriodData,
++    get_client: NordPoolClient,
+     freezer: FrozenDateTimeFactory,
+     caplog: pytest.LogCaptureFixture,
+ ) -> None:
+@@ -41,30 +41,31 @@ async def test_coordinator(
+ 
+     config_entry.add_to_hass(hass)
+ 
++    await hass.config_entries.async_setup(config_entry.entry_id)
++    await hass.async_block_till_done()
++    state = hass.states.get("sensor.nord_pool_se3_current_price")
++    assert state.state == "0.92737"
++
+     with (
+         patch(
+             "homeassistant.components.nordpool.coordinator.NordPoolClient.async_get_delivery_period",
++            side_effect=NordPoolError("error"),
+         ) as mock_data,
+     ):
+-        mock_data.return_value = get_data
+-        await hass.config_entries.async_setup(config_entry.entry_id)
+-        await hass.async_block_till_done()
+-        mock_data.assert_called_once()
+-        state = hass.states.get("sensor.nord_pool_se3_current_price")
+-        assert state.state == "0.92737"
+-        mock_data.reset_mock()
+-
+-        mock_data.side_effect = NordPoolError("error")
+         freezer.tick(timedelta(hours=1))
+         async_fire_time_changed(hass)
+         await hass.async_block_till_done(wait_background_tasks=True)
+         assert mock_data.call_count == 4
+         state = hass.states.get("sensor.nord_pool_se3_current_price")
+         assert state.state == STATE_UNAVAILABLE
+-        mock_data.reset_mock()
+ 
++    with (
++        patch(
++            "homeassistant.components.nordpool.coordinator.NordPoolClient.async_get_delivery_period",
++            side_effect=NordPoolAuthenticationError("Authentication error"),
++        ) as mock_data,
++    ):
+         assert "Authentication error" not in caplog.text
+-        mock_data.side_effect = NordPoolAuthenticationError("Authentication error")
+         freezer.tick(timedelta(hours=1))
+         async_fire_time_changed(hass)
+         await hass.async_block_till_done(wait_background_tasks=True)
+@@ -72,10 +73,14 @@ async def test_coordinator(
+         state = hass.states.get("sensor.nord_pool_se3_current_price")
+         assert state.state == STATE_UNAVAILABLE
+         assert "Authentication error" in caplog.text
+-        mock_data.reset_mock()
+ 
++    with (
++        patch(
++            "homeassistant.components.nordpool.coordinator.NordPoolClient.async_get_delivery_period",
++            side_effect=NordPoolEmptyResponseError("Empty response"),
++        ) as mock_data,
++    ):
+         assert "Empty response" not in caplog.text
+-        mock_data.side_effect = NordPoolEmptyResponseError("Empty response")
+         freezer.tick(timedelta(hours=1))
+         async_fire_time_changed(hass)
+         await hass.async_block_till_done(wait_background_tasks=True)
+@@ -83,10 +88,14 @@ async def test_coordinator(
+         state = hass.states.get("sensor.nord_pool_se3_current_price")
+         assert state.state == STATE_UNAVAILABLE
+         assert "Empty response" in caplog.text
+-        mock_data.reset_mock()
+ 
++    with (
++        patch(
++            "homeassistant.components.nordpool.coordinator.NordPoolClient.async_get_delivery_period",
++            side_effect=NordPoolResponseError("Response error"),
++        ) as mock_data,
++    ):
+         assert "Response error" not in caplog.text
+-        mock_data.side_effect = NordPoolResponseError("Response error")
+         freezer.tick(timedelta(hours=1))
+         async_fire_time_changed(hass)
+         await hass.async_block_till_done(wait_background_tasks=True)
+@@ -94,13 +103,9 @@ async def test_coordinator(
+         state = hass.states.get("sensor.nord_pool_se3_current_price")
+         assert state.state == STATE_UNAVAILABLE
+         assert "Response error" in caplog.text
+-        mock_data.reset_mock()
+ 
+-        mock_data.return_value = get_data
+-        mock_data.side_effect = None
+-        freezer.tick(timedelta(hours=1))
+-        async_fire_time_changed(hass)
+-        await hass.async_block_till_done()
+-        mock_data.assert_called_once()
+-        state = hass.states.get("sensor.nord_pool_se3_current_price")
+-        assert state.state == "1.81645"
++    freezer.tick(timedelta(hours=1))
++    async_fire_time_changed(hass)
++    await hass.async_block_till_done()
++    state = hass.states.get("sensor.nord_pool_se3_current_price")
++    assert state.state == "1.81645"
+diff --git a/tests/components/nordpool/test_diagnostics.py b/tests/components/nordpool/test_diagnostics.py
+index 4639186ecf1e8..a9dfdd5eca587 100644
+--- a/tests/components/nordpool/test_diagnostics.py
++++ b/tests/components/nordpool/test_diagnostics.py
+@@ -2,19 +2,21 @@
+ 
+ from __future__ import annotations
+ 
++import pytest
+ from syrupy.assertion import SnapshotAssertion
+ 
+-from homeassistant.config_entries import ConfigEntry
+ from homeassistant.core import HomeAssistant
+ 
++from tests.common import MockConfigEntry
+ from tests.components.diagnostics import get_diagnostics_for_config_entry
+ from tests.typing import ClientSessionGenerator
+ 
+ 
++@pytest.mark.freeze_time("2024-11-05T10:00:00+00:00")
+ async def test_diagnostics(
+     hass: HomeAssistant,
+     hass_client: ClientSessionGenerator,
+-    load_int: ConfigEntry,
++    load_int: MockConfigEntry,
+     snapshot: SnapshotAssertion,
+ ) -> None:
+     """Test generating diagnostics for a config entry."""
+diff --git a/tests/components/nordpool/test_init.py b/tests/components/nordpool/test_init.py
+index ebebb8b60c1da..3b1fc1fd8eca3 100644
+--- a/tests/components/nordpool/test_init.py
++++ b/tests/components/nordpool/test_init.py
+@@ -5,7 +5,7 @@
+ from unittest.mock import patch
+ 
+ from pynordpool import (
+-    DeliveryPeriodData,
++    NordPoolClient,
+     NordPoolConnectionError,
+     NordPoolEmptyResponseError,
+     NordPoolError,
+@@ -22,7 +22,8 @@
+ from tests.common import MockConfigEntry
+ 
+ 
+-async def test_unload_entry(hass: HomeAssistant, get_data: DeliveryPeriodData) -> None:
++@pytest.mark.freeze_time("2024-11-05T10:00:00+00:00")
++async def test_unload_entry(hass: HomeAssistant, get_client: NordPoolClient) -> None:
+     """Test load and unload an entry."""
+     entry = MockConfigEntry(
+         domain=DOMAIN,
+@@ -31,13 +32,7 @@ async def test_unload_entry(hass: HomeAssistant, get_data: DeliveryPeriodData) -
+     )
+     entry.add_to_hass(hass)
+ 
+-    with (
+-        patch(
+-            "homeassistant.components.nordpool.coordinator.NordPoolClient.async_get_delivery_period",
+-            return_value=get_data,
+-        ),
+-    ):
+-        await hass.config_entries.async_setup(entry.entry_id)
++    await hass.config_entries.async_setup(entry.entry_id)
+     await hass.async_block_till_done(wait_background_tasks=True)
+ 
+     assert entry.state is ConfigEntryState.LOADED
+@@ -56,7 +51,7 @@ async def test_unload_entry(hass: HomeAssistant, get_data: DeliveryPeriodData) -
+     ],
+ )
+ async def test_initial_startup_fails(
+-    hass: HomeAssistant, get_data: DeliveryPeriodData, error: Exception
++    hass: HomeAssistant, get_client: NordPoolClient, error: Exception
+ ) -> None:
+     """Test load and unload an entry."""
+     entry = MockConfigEntry(
+diff --git a/tests/components/nordpool/test_sensor.py b/tests/components/nordpool/test_sensor.py
+index 5c2d138cb34a7..a1a27b5feec74 100644
+--- a/tests/components/nordpool/test_sensor.py
++++ b/tests/components/nordpool/test_sensor.py
+@@ -6,7 +6,6 @@
+ from syrupy.assertion import SnapshotAssertion
+ 
+ from homeassistant.config_entries import ConfigEntry
+-from homeassistant.const import STATE_UNKNOWN
+ from homeassistant.core import HomeAssistant
+ from homeassistant.helpers import entity_registry as er
+ 
+@@ -38,12 +37,12 @@ async def test_sensor_no_next_price(hass: HomeAssistant, load_int: ConfigEntry)
+     assert current_price is not None
+     assert last_price is not None
+     assert next_price is not None
+-    assert current_price.state == "0.28914"
+-    assert last_price.state == "0.28914"
+-    assert next_price.state == STATE_UNKNOWN
++    assert current_price.state == "0.12666"  # SE3 2024-11-05T23:00:00Z
++    assert last_price.state == "0.28914"  # SE3 2024-11-05T22:00:00Z
++    assert next_price.state == "0.07406"  # SE3 2024-11-06T00:00:00Z"
+ 
+ 
+-@pytest.mark.freeze_time("2024-11-05T00:00:00+01:00")
++@pytest.mark.freeze_time("2024-11-06T00:00:00+01:00")
+ @pytest.mark.usefixtures("entity_registry_enabled_by_default")
+ async def test_sensor_no_previous_price(
+     hass: HomeAssistant, load_int: ConfigEntry
+@@ -57,6 +56,6 @@ async def test_sensor_no_previous_price(
+     assert current_price is not None
+     assert last_price is not None
+     assert next_price is not None
+-    assert current_price.state == "0.25073"
+-    assert last_price.state == STATE_UNKNOWN
+-    assert next_price.state == "0.07636"
++    assert current_price.state == "0.12666"  # SE3 2024-11-05T23:00:00Z
++    assert last_price.state == "0.28914"  # SE3 2024-11-05T22:00:00Z
++    assert next_price.state == "0.07406"  # SE3 2024-11-06T00:00:00Z

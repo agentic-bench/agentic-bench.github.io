@@ -1,0 +1,13 @@
+[
+  {
+    "id": 32666,
+    "full_name": "systemd/systemd",
+    "lang": "c",
+    "issue_number": 19285,
+    "pr_number": 19533,
+    "diff_hunk": "@@ -73,7 +73,13 @@ int in_addr_prefix_range(\n                 union in_addr_union *ret_start,\n                 union in_addr_union *ret_end);\n int in_addr_to_string(int family, const union in_addr_union *u, char **ret);\n+static inline int in6_addr_to_string(const struct in6_addr *u, char **ret) {\n+        return in_addr_to_string(AF_INET6, (const union in_addr_union*) u, ret);\n+}\n int in_addr_prefix_to_string(int family, const union in_addr_union *u, unsigned prefixlen, char **ret);\n+static inline int in6_addr_prefix_to_string(const struct in6_addr *u, unsigned prefixlen, char **ret) {\n+        return in_addr_prefix_to_string(AF_INET6, (const union in_addr_union*) u, prefixlen, ret);\n+}\n int in_addr_port_ifindex_name_to_string(int family, const union in_addr_union *u, uint16_t port, int ifindex, const char *server_name, char **ret);\n static inline int in_addr_ifindex_to_string(int family, const union in_addr_union *u, int ifindex, char **ret) {\n         return in_addr_port_ifindex_name_to_string(family, u, 0, ifindex, NULL, ret);",
+    "diff_hunk_content_with_line_number": "[73][73]                  union in_addr_union *ret_start,\n[74][74]                  union in_addr_union *ret_end);\n[75][75]  int in_addr_to_string(int family, const union in_addr_union *u, char **ret);\n[][76] +static inline int in6_addr_to_string(const struct in6_addr *u, char **ret) {\n[][77] +        return in_addr_to_string(AF_INET6, (const union in_addr_union*) u, ret);\n[][78] +}\n[76][79]  int in_addr_prefix_to_string(int family, const union in_addr_union *u, unsigned prefixlen, char **ret);\n[][80] +static inline int in6_addr_prefix_to_string(const struct in6_addr *u, unsigned prefixlen, char **ret) {\n[][81] +        return in_addr_prefix_to_string(AF_INET6, (const union in_addr_union*) u, prefixlen, ret);\n[][82] +}\n[77][83]  int in_addr_port_ifindex_name_to_string(int family, const union in_addr_union *u, uint16_t port, int ifindex, const char *server_name, char **ret);\n[78][84]  static inline int in_addr_ifindex_to_string(int family, const union in_addr_union *u, int ifindex, char **ret) {\n[79][85]          return in_addr_port_ifindex_name_to_string(family, u, 0, ifindex, NULL, ret);",
+    "checked_commit_id": "5141ff192352a53fa2183c17c4c405184ec20659",
+    "pr_size": "xl"
+  }
+]

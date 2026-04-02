@@ -1,0 +1,15 @@
+[
+  {
+    "path": "src/element/textWysiwyg.tsx",
+    "line": 73,
+    "original_line": 73,
+    "review_comment": [
+      "```suggestion\r\n          ((appState.offsetLeft + viewportX) * appState.zoom.value +\r\n```\r\n\r\nIt shouldn't use `scrollX` because we're in viewport coords, not in scene coords. Same for `updatedElement.x`.\r\n\r\nSolves this bug:\r\n\r\n![wysiwyg_width](https://user-images.githubusercontent.com/5153846/139879429-99fdcfd9-6aa9-46c4-ae63-d201bf54fa6d.gif)\r\n\r\nBut, breaks other things at the same time.",
+      "What things does it break?",
+      "`maxWidth` of the wysiwyg (when zoomed). I've been trying to figure it out and it led me to a rabbit of hole of trying to get rid of the `zoom.translation` thing \u2014 I think it's the wrong way to do zooming. We should just update `scrollX/scrollY` when zooming on a cursor.",
+      "That I understand. This is why I change the original to `appState.scrollX + updatedElement.x` because `appState.offsetLeft + viewportX` leads to the wrong `maxWidth`.  \r\n\r\nWhat does using `appState.scrollX + updatedElement.x` here break? As apparently that results in the right `maxwidth` value.",
+      "> What does using `appState.scrollX + updatedElement.x` here break? As apparently that results in the right `maxwidth` value.\r\n\r\nApparently not \u2014 see gif above. I'm surprised it works at all since it's in the wrong coord system (scene vs viewport).",
+      "I think the reason it works is it is not positioning the text, merely calculating available width. `(appState.scrollX + updatedElement.x) * appState.zoom.value` will first calculate the viewport width, then convert it to scene width by applying the zoom value.\r\n\r\nAs I mention it [here](https://github.com/excalidraw/excalidraw/issues/4098#issuecomment-951280727): comparing `viewportCoordsToSceneCoords` to `sceneCoordsToViewportCoords` the math does not seem to work out.  The two should transform into each other... but they don't. Since everything else works in Excalidraw, and the sceneCoordsToViewportCoords and vice versa are at play in other places as well... I have a hard time believing that this part of the code is wrong... though I still have my doubts."
+    ]
+  }
+]

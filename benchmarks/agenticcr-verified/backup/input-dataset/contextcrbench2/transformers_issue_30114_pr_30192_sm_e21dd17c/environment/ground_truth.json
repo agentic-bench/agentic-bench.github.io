@@ -1,0 +1,10 @@
+[
+  {
+    "path": "src/transformers/image_utils.py",
+    "line": 323,
+    "original_line": 323,
+    "review_comment": [
+      "Could you explain a bit why `b64decode` here can't handle the data encoded by `encodebytes`?"
+    ]
+  }
+]

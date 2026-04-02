@@ -1,0 +1,62 @@
+diff --git a/crates/swc_ecma_transforms_optimization/src/const_modules.rs b/crates/swc_ecma_transforms_optimization/src/const_modules.rs
+index a47500cacfc4..763cd5ebb247 100644
+--- a/crates/swc_ecma_transforms_optimization/src/const_modules.rs
++++ b/crates/swc_ecma_transforms_optimization/src/const_modules.rs
+@@ -161,11 +161,11 @@ impl VisitMut for ConstModules {
+                 }
+             }
+             Expr::Member(MemberExpr { obj, prop, .. }) if obj.is_ident() => {
+-                let member_obj = obj.as_ident().unwrap();
+-
+-                if self.scope.namespace.contains(&member_obj.to_id()) {
+-                    let module_name = &member_obj.sym;
+-
++                if let Some(module_name) = obj
++                    .as_ident()
++                    .filter(|member_obj| self.scope.namespace.contains(&member_obj.to_id()))
++                    .map(|member_obj| &member_obj.sym)
++                {
+                     let imported_name = match prop {
+                         MemberProp::Ident(ref id) => &id.sym,
+                         MemberProp::Computed(ref p) => match &*p.expr {
+@@ -188,10 +188,12 @@ impl VisitMut for ConstModules {
+                         });
+ 
+                     *n = (**value).clone();
++                } else {
++                    n.visit_mut_children_with(self);
+                 }
+             }
+-            e => {
+-                e.visit_mut_children_with(self);
++            _ => {
++                n.visit_mut_children_with(self);
+             }
+         };
+     }
+diff --git a/crates/swc_ecma_transforms_optimization/tests/const_modules.rs b/crates/swc_ecma_transforms_optimization/tests/const_modules.rs
+index 0b6d12763b7c..7951ae0131e9 100644
+--- a/crates/swc_ecma_transforms_optimization/tests/const_modules.rs
++++ b/crates/swc_ecma_transforms_optimization/tests/const_modules.rs
+@@ -116,3 +116,21 @@ console.log(foo["bar"])
+ console.log(true);
+ "#
+ );
++
++test!(
++    ::swc_ecma_parser::Syntax::default(),
++    |tester| tr(
++        tester,
++        &[("testModule", &[("testMap", "{ 'var': 'value' }")])]
++    ),
++    issue_7025,
++    r#"
++    import { testMap } from "testModule";
++    testMap['var'];
++"#,
++    r#"
++    ({
++        'var': 'value'
++    })['var'];
++    "#
++);

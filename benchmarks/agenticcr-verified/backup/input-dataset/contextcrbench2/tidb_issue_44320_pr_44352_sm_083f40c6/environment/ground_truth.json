@@ -1,0 +1,20 @@
+[
+  {
+    "path": "util/memory/tracker.go",
+    "line": 94,
+    "original_line": 94,
+    "review_comment": [
+      "This change is to fix race. cc @XuHuaiyu "
+    ]
+  },
+  {
+    "path": "util/memory/tracker.go",
+    "line": 95,
+    "original_line": 95,
+    "review_comment": [
+      "Here use ```sync/atomic``` and ```go.uber.org/atomic```. I think We can unify this.",
+      "This is for an urgent hotfix. What about doing it in another PR, including atomic in other files?",
+      "OK"
+    ]
+  }
+]

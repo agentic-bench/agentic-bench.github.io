@@ -1,0 +1,2511 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index a6c18b383f618..569fcb18cfcf2 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -2812,6 +2812,7 @@ version = "0.0.1"
+ dependencies = [
+  "anyhow",
+  "chrono",
++ "distribution-filename",
+  "indexmap",
+  "itertools 0.13.0",
+  "mailparse",
+@@ -4816,6 +4817,7 @@ version = "0.0.1"
+ dependencies = [
+  "async-compression",
+  "async_zip",
++ "distribution-filename",
+  "fs-err",
+  "futures",
+  "md-5",
+@@ -4945,6 +4947,7 @@ dependencies = [
+  "cache-key",
+  "clap",
+  "configparser",
++ "distribution-filename",
+  "fs-err",
+  "futures",
+  "indoc",
+diff --git a/crates/distribution-filename/src/extension.rs b/crates/distribution-filename/src/extension.rs
+new file mode 100644
+index 0000000000000..5c06cff994179
+--- /dev/null
++++ b/crates/distribution-filename/src/extension.rs
+@@ -0,0 +1,99 @@
++use std::fmt::{Display, Formatter};
++use std::path::Path;
++
++use serde::{Deserialize, Serialize};
++use thiserror::Error;
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
++pub enum DistExtension {
++    Wheel,
++    Source(SourceDistExtension),
++}
++
++#[derive(
++    Clone,
++    Copy,
++    Debug,
++    PartialEq,
++    Eq,
++    PartialOrd,
++    Ord,
++    Hash,
++    Serialize,
++    Deserialize,
++    rkyv::Archive,
++    rkyv::Deserialize,
++    rkyv::Serialize,
++)]
++#[archive(check_bytes)]
++#[archive_attr(derive(Debug))]
++pub enum SourceDistExtension {
++    Zip,
++    TarGz,
++    TarBz2,
++    TarXz,
++    TarZst,
++}
++
++impl DistExtension {
++    /// Extract the [`DistExtension`] from a path.
++    pub fn from_path(path: impl AsRef<Path>) -> Result<Self, ExtensionError> {
++        let Some(extension) = path.as_ref().extension().and_then(|ext| ext.to_str()) else {
++            return Err(ExtensionError::Dist);
++        };
++
++        match extension {
++            "whl" => Ok(Self::Wheel),
++            _ => SourceDistExtension::from_path(path)
++                .map(Self::Source)
++                .map_err(|_| ExtensionError::Dist),
++        }
++    }
++}
++
++impl SourceDistExtension {
++    /// Extract the [`SourceDistExtension`] from a path.
++    pub fn from_path(path: impl AsRef<Path>) -> Result<Self, ExtensionError> {
++        /// Returns true if the path is a tar file (e.g., `.tar.gz`).
++        fn is_tar(path: &Path) -> bool {
++            path.file_stem().is_some_and(|stem| {
++                Path::new(stem)
++                    .extension()
++                    .is_some_and(|ext| ext.eq_ignore_ascii_case("tar"))
++            })
++        }
++
++        let Some(extension) = path.as_ref().extension().and_then(|ext| ext.to_str()) else {
++            return Err(ExtensionError::SourceDist);
++        };
++
++        match extension {
++            "zip" => Ok(Self::Zip),
++            "gz" if is_tar(path.as_ref()) => Ok(Self::TarGz),
++            "bz2" if is_tar(path.as_ref()) => Ok(Self::TarBz2),
++            "xz" if is_tar(path.as_ref()) => Ok(Self::TarXz),
++            "zst" if is_tar(path.as_ref()) => Ok(Self::TarZst),
++            _ => Err(ExtensionError::SourceDist),
++        }
++    }
++}
++
++impl Display for SourceDistExtension {
++    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
++        match self {
++            Self::Zip => f.write_str("zip"),
++            Self::TarGz => f.write_str("tar.gz"),
++            Self::TarBz2 => f.write_str("tar.bz2"),
++            Self::TarXz => f.write_str("tar.xz"),
++            Self::TarZst => f.write_str("tar.zst"),
++        }
++    }
++}
++
++#[derive(Error, Debug)]
++pub enum ExtensionError {
++    #[error("`.whl`, `.zip`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, or `.tar.zst`")]
++    Dist,
++    #[error("`.zip`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, or `.tar.zst`")]
++    SourceDist,
++}
+diff --git a/crates/distribution-filename/src/lib.rs b/crates/distribution-filename/src/lib.rs
+index 0736e5914658e..dd06a89363b83 100644
+--- a/crates/distribution-filename/src/lib.rs
++++ b/crates/distribution-filename/src/lib.rs
+@@ -5,11 +5,13 @@ use uv_normalize::PackageName;
+ 
+ pub use build_tag::{BuildTag, BuildTagError};
+ pub use egg::{EggInfoFilename, EggInfoFilenameError};
+-pub use source_dist::{SourceDistExtension, SourceDistFilename, SourceDistFilenameError};
++pub use extension::{DistExtension, ExtensionError, SourceDistExtension};
++pub use source_dist::SourceDistFilename;
+ pub use wheel::{WheelFilename, WheelFilenameError};
+ 
+ mod build_tag;
+ mod egg;
++mod extension;
+ mod source_dist;
+ mod wheel;
+ 
+@@ -22,13 +24,20 @@ pub enum DistFilename {
+ impl DistFilename {
+     /// Parse a filename as wheel or source dist name.
+     pub fn try_from_filename(filename: &str, package_name: &PackageName) -> Option<Self> {
+-        if let Ok(filename) = WheelFilename::from_str(filename) {
+-            Some(Self::WheelFilename(filename))
+-        } else if let Ok(filename) = SourceDistFilename::parse(filename, package_name) {
+-            Some(Self::SourceDistFilename(filename))
+-        } else {
+-            None
++        match DistExtension::from_path(filename) {
++            Ok(DistExtension::Wheel) => {
++                if let Ok(filename) = WheelFilename::from_str(filename) {
++                    return Some(Self::WheelFilename(filename));
++                }
++            }
++            Ok(DistExtension::Source(extension)) => {
++                if let Ok(filename) = SourceDistFilename::parse(filename, extension, package_name) {
++                    return Some(Self::SourceDistFilename(filename));
++                }
++            }
++            Err(_) => {}
+         }
++        None
+     }
+ 
+     /// Like [`DistFilename::try_from_normalized_filename`], but without knowing the package name.
+diff --git a/crates/distribution-filename/src/source_dist.rs b/crates/distribution-filename/src/source_dist.rs
+index 635216c3b24c9..99fecbb4fc38a 100644
+--- a/crates/distribution-filename/src/source_dist.rs
++++ b/crates/distribution-filename/src/source_dist.rs
+@@ -1,75 +1,12 @@
+ use std::fmt::{Display, Formatter};
+ use std::str::FromStr;
+ 
++use crate::SourceDistExtension;
++use pep440_rs::{Version, VersionParseError};
+ use serde::{Deserialize, Serialize};
+ use thiserror::Error;
+-
+-use pep440_rs::{Version, VersionParseError};
+ use uv_normalize::{InvalidNameError, PackageName};
+ 
+-#[derive(
+-    Clone,
+-    Debug,
+-    PartialEq,
+-    Eq,
+-    Serialize,
+-    Deserialize,
+-    rkyv::Archive,
+-    rkyv::Deserialize,
+-    rkyv::Serialize,
+-)]
+-#[archive(check_bytes)]
+-#[archive_attr(derive(Debug))]
+-pub enum SourceDistExtension {
+-    Zip,
+-    TarGz,
+-    TarBz2,
+-    TarZstd,
+-}
+-
+-impl FromStr for SourceDistExtension {
+-    type Err = String;
+-
+-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+-        Ok(match s {
+-            "zip" => Self::Zip,
+-            "tar.gz" => Self::TarGz,
+-            "tar.bz2" => Self::TarBz2,
+-            "tar.zstd" => Self::TarZstd,
+-            other => return Err(other.to_string()),
+-        })
+-    }
+-}
+-
+-impl Display for SourceDistExtension {
+-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+-        match self {
+-            Self::Zip => f.write_str("zip"),
+-            Self::TarGz => f.write_str("tar.gz"),
+-            Self::TarBz2 => f.write_str("tar.bz2"),
+-            Self::TarZstd => f.write_str("tar.zstd"),
+-        }
+-    }
+-}
+-
+-impl SourceDistExtension {
+-    pub fn from_filename(filename: &str) -> Option<(&str, Self)> {
+-        if let Some(stem) = filename.strip_suffix(".zip") {
+-            return Some((stem, Self::Zip));
+-        }
+-        if let Some(stem) = filename.strip_suffix(".tar.gz") {
+-            return Some((stem, Self::TarGz));
+-        }
+-        if let Some(stem) = filename.strip_suffix(".tar.bz2") {
+-            return Some((stem, Self::TarBz2));
+-        }
+-        if let Some(stem) = filename.strip_suffix(".tar.zstd") {
+-            return Some((stem, Self::TarZstd));
+-        }
+-        None
+-    }
+-}
+-
+ /// Note that this is a normalized and not an exact representation, keep the original string if you
+ /// need the latter.
+ #[derive(
+@@ -96,14 +33,18 @@ impl SourceDistFilename {
+     /// these (consider e.g. `a-1-1.zip`)
+     pub fn parse(
+         filename: &str,
++        extension: SourceDistExtension,
+         package_name: &PackageName,
+     ) -> Result<Self, SourceDistFilenameError> {
+-        let Some((stem, extension)) = SourceDistExtension::from_filename(filename) else {
++        // Drop the extension (e.g., given `tar.gz`, drop `.tar.gz`).
++        if filename.len() <= extension.to_string().len() + 1 {
+             return Err(SourceDistFilenameError {
+                 filename: filename.to_string(),
+                 kind: SourceDistFilenameErrorKind::Extension,
+             });
+-        };
++        }
++
++        let stem = &filename[..(filename.len() - (extension.to_string().len() + 1))];
+ 
+         if stem.len() <= package_name.as_ref().len() + "-".len() {
+             return Err(SourceDistFilenameError {
+@@ -144,13 +85,23 @@ impl SourceDistFilename {
+     /// Source dist filenames can be ambiguous, e.g. `a-1-1.tar.gz`. Without knowing the package name, we assume that
+     /// source dist filename version doesn't contain minus (the version is normalized).
+     pub fn parsed_normalized_filename(filename: &str) -> Result<Self, SourceDistFilenameError> {
+-        let Some((stem, extension)) = SourceDistExtension::from_filename(filename) else {
++        let Ok(extension) = SourceDistExtension::from_path(filename) else {
+             return Err(SourceDistFilenameError {
+                 filename: filename.to_string(),
+                 kind: SourceDistFilenameErrorKind::Extension,
+             });
+         };
+ 
++        // Drop the extension (e.g., given `tar.gz`, drop `.tar.gz`).
++        if filename.len() <= extension.to_string().len() + 1 {
++            return Err(SourceDistFilenameError {
++                filename: filename.to_string(),
++                kind: SourceDistFilenameErrorKind::Extension,
++            });
++        }
++
++        let stem = &filename[..(filename.len() - (extension.to_string().len() + 1))];
++
+         let Some((package_name, version)) = stem.rsplit_once('-') else {
+             return Err(SourceDistFilenameError {
+                 filename: filename.to_string(),
+@@ -203,7 +154,7 @@ impl Display for SourceDistFilenameError {
+ enum SourceDistFilenameErrorKind {
+     #[error("Name doesn't start with package name {0}")]
+     Filename(PackageName),
+-    #[error("Source distributions filenames must end with .zip, .tar.gz, or .tar.bz2")]
++    #[error("File extension is invalid")]
+     Extension,
+     #[error("Version section is invalid")]
+     Version(#[from] VersionParseError),
+@@ -219,7 +170,7 @@ mod tests {
+ 
+     use uv_normalize::PackageName;
+ 
+-    use crate::SourceDistFilename;
++    use crate::{SourceDistExtension, SourceDistFilename};
+ 
+     /// Only test already normalized names since the parsing is lossy
+     #[test]
+@@ -229,11 +180,17 @@ mod tests {
+             "foo-lib-1.2.3a3.zip",
+             "foo-lib-1.2.3.tar.gz",
+             "foo-lib-1.2.3.tar.bz2",
++            "foo-lib-1.2.3.tar.zst",
+         ] {
++            let ext = SourceDistExtension::from_path(normalized).unwrap();
+             assert_eq!(
+-                SourceDistFilename::parse(normalized, &PackageName::from_str("foo_lib").unwrap())
+-                    .unwrap()
+-                    .to_string(),
++                SourceDistFilename::parse(
++                    normalized,
++                    ext,
++                    &PackageName::from_str("foo_lib").unwrap()
++                )
++                .unwrap()
++                .to_string(),
+                 normalized
+             );
+         }
+@@ -241,18 +198,22 @@ mod tests {
+ 
+     #[test]
+     fn errors() {
+-        for invalid in ["b-1.2.3.zip", "a-1.2.3-gamma.3.zip", "a-1.2.3.tar.zstd"] {
++        for invalid in ["b-1.2.3.zip", "a-1.2.3-gamma.3.zip"] {
++            let ext = SourceDistExtension::from_path(invalid).unwrap();
+             assert!(
+-                SourceDistFilename::parse(invalid, &PackageName::from_str("a").unwrap()).is_err()
++                SourceDistFilename::parse(invalid, ext, &PackageName::from_str("a").unwrap())
++                    .is_err()
+             );
+         }
+     }
+ 
+     #[test]
+-    fn name_to_long() {
+-        assert!(
+-            SourceDistFilename::parse("foo.zip", &PackageName::from_str("foo-lib").unwrap())
+-                .is_err()
+-        );
++    fn name_too_long() {
++        assert!(SourceDistFilename::parse(
++            "foo.zip",
++            SourceDistExtension::Zip,
++            &PackageName::from_str("foo-lib").unwrap()
++        )
++        .is_err());
+     }
+ }
+diff --git a/crates/distribution-types/src/buildable.rs b/crates/distribution-types/src/buildable.rs
+index 9e55612a91f5a..61a37407e9225 100644
+--- a/crates/distribution-types/src/buildable.rs
++++ b/crates/distribution-types/src/buildable.rs
+@@ -1,9 +1,9 @@
+ use std::borrow::Cow;
+ use std::path::Path;
+ 
++use distribution_filename::SourceDistExtension;
+ use pep440_rs::Version;
+ use pep508_rs::VerbatimUrl;
+-use pypi_types::FileKind;
+ use url::Url;
+ use uv_git::GitUrl;
+ 
+@@ -111,7 +111,7 @@ impl std::fmt::Display for SourceUrl<'_> {
+ pub struct DirectSourceUrl<'a> {
+     pub url: &'a Url,
+     pub subdirectory: Option<&'a Path>,
+-    pub kind: FileKind,
++    pub ext: SourceDistExtension,
+ }
+ 
+ impl std::fmt::Display for DirectSourceUrl<'_> {
+@@ -149,7 +149,7 @@ impl<'a> From<&'a GitSourceDist> for GitSourceUrl<'a> {
+ pub struct PathSourceUrl<'a> {
+     pub url: &'a Url,
+     pub path: Cow<'a, Path>,
+-    pub kind: FileKind,
++    pub ext: SourceDistExtension,
+ }
+ 
+ impl std::fmt::Display for PathSourceUrl<'_> {
+@@ -163,7 +163,7 @@ impl<'a> From<&'a PathSourceDist> for PathSourceUrl<'a> {
+         Self {
+             url: &dist.url,
+             path: Cow::Borrowed(&dist.install_path),
+-            kind: dist.kind,
++            ext: dist.ext,
+         }
+     }
+ }
+diff --git a/crates/distribution-types/src/error.rs b/crates/distribution-types/src/error.rs
+index 22bd11369ea64..f0472d94a3db5 100644
+--- a/crates/distribution-types/src/error.rs
++++ b/crates/distribution-types/src/error.rs
+@@ -21,7 +21,4 @@ pub enum Error {
+ 
+     #[error("Requested package name `{0}` does not match `{1}` in the distribution filename: {2}")]
+     PackageNameMismatch(PackageName, PackageName, String),
+-
+-    #[error("Unknown file kind: {0}")]
+-    UnknownFileKind(Url),
+ }
+diff --git a/crates/distribution-types/src/lib.rs b/crates/distribution-types/src/lib.rs
+index 689b30926caa6..5ef1567b8c7e8 100644
+--- a/crates/distribution-types/src/lib.rs
++++ b/crates/distribution-types/src/lib.rs
+@@ -38,10 +38,10 @@ use std::str::FromStr;
+ 
+ use url::Url;
+ 
+-use distribution_filename::WheelFilename;
++use distribution_filename::{DistExtension, SourceDistExtension, WheelFilename};
+ use pep440_rs::Version;
+ use pep508_rs::{Pep508Url, VerbatimUrl};
+-use pypi_types::{FileKind, ParsedUrl, VerbatimParsedUrl};
++use pypi_types::{ParsedUrl, VerbatimParsedUrl};
+ use uv_git::GitUrl;
+ use uv_normalize::PackageName;
+ 
+@@ -228,8 +228,8 @@ pub struct RegistrySourceDist {
+     pub name: PackageName,
+     pub version: Version,
+     pub file: Box<File>,
+-    /// The kind of the file, e.g. `tar.gz`, `zip`, etc.
+-    pub kind: FileKind,
++    /// The file extension, e.g. `tar.gz`, `zip`, etc.
++    pub ext: SourceDistExtension,
+     pub index: IndexUrl,
+     /// When an sdist is selected, it may be the case that there were
+     /// available wheels too. There are many reasons why a wheel might not
+@@ -251,8 +251,8 @@ pub struct DirectUrlSourceDist {
+     pub location: Url,
+     /// The subdirectory within the archive in which the source distribution is located.
+     pub subdirectory: Option<PathBuf>,
+-    /// The kind of the file, e.g. `tar.gz`, `zip`, etc.
+-    pub kind: FileKind,
++    /// The file extension, e.g. `tar.gz`, `zip`, etc.
++    pub ext: SourceDistExtension,
+     /// The URL as it was provided by the user, including the subdirectory fragment.
+     pub url: VerbatimUrl,
+ }
+@@ -279,8 +279,8 @@ pub struct PathSourceDist {
+     /// which we use for locking. Unlike `given` on the verbatim URL all environment variables
+     /// are resolved, and unlike the install path, we did not yet join it on the base directory.
+     pub lock_path: PathBuf,
+-    /// The kind of the file, e.g. `tar.gz`, `zip`, etc.
+-    pub kind: FileKind,
++    /// The file extension, e.g. `tar.gz`, `zip`, etc.
++    pub ext: SourceDistExtension,
+     /// The URL as it was provided by the user.
+     pub url: VerbatimUrl,
+ }
+@@ -309,10 +309,10 @@ impl Dist {
+         url: VerbatimUrl,
+         location: Url,
+         subdirectory: Option<PathBuf>,
+-        kind: FileKind,
++        ext: DistExtension,
+     ) -> Result<Dist, Error> {
+-        match kind {
+-            FileKind::Wheel => {
++        match ext {
++            DistExtension::Wheel => {
+                 // Validate that the name in the wheel matches that of the requirement.
+                 let filename = WheelFilename::from_str(&url.filename()?)?;
+                 if filename.name != name {
+@@ -329,13 +329,15 @@ impl Dist {
+                     url,
+                 })))
+             }
+-            kind => Ok(Self::Source(SourceDist::DirectUrl(DirectUrlSourceDist {
+-                name,
+-                location,
+-                subdirectory,
+-                kind,
+-                url,
+-            }))),
++            DistExtension::Source(ext) => {
++                Ok(Self::Source(SourceDist::DirectUrl(DirectUrlSourceDist {
++                    name,
++                    location,
++                    subdirectory,
++                    ext,
++                    url,
++                })))
++            }
+         }
+     }
+ 
+@@ -345,7 +347,7 @@ impl Dist {
+         url: VerbatimUrl,
+         install_path: &Path,
+         lock_path: &Path,
+-        kind: FileKind,
++        ext: DistExtension,
+     ) -> Result<Dist, Error> {
+         // Store the canonicalized path, which also serves to validate that it exists.
+         let canonicalized_path = match install_path.canonicalize() {
+@@ -357,8 +359,8 @@ impl Dist {
+         };
+ 
+         // Determine whether the path represents a built or source distribution.
+-        match kind {
+-            FileKind::Wheel => {
++        match ext {
++            DistExtension::Wheel => {
+                 // Validate that the name in the wheel matches that of the requirement.
+                 let filename = WheelFilename::from_str(&url.filename()?)?;
+                 if filename.name != name {
+@@ -374,11 +376,11 @@ impl Dist {
+                     url,
+                 })))
+             }
+-            kind => Ok(Self::Source(SourceDist::Path(PathSourceDist {
++            DistExtension::Source(ext) => Ok(Self::Source(SourceDist::Path(PathSourceDist {
+                 name,
+                 install_path: canonicalized_path.clone(),
+                 lock_path: lock_path.to_path_buf(),
+-                kind,
++                ext,
+                 url,
+             }))),
+         }
+@@ -434,14 +436,14 @@ impl Dist {
+                 url.verbatim,
+                 archive.url,
+                 archive.subdirectory,
+-                archive.kind,
++                archive.ext,
+             ),
+             ParsedUrl::Path(file) => Self::from_file_url(
+                 name,
+                 url.verbatim,
+                 &file.install_path,
+                 &file.lock_path,
+-                file.kind,
++                file.ext,
+             ),
+             ParsedUrl::Directory(directory) => Self::from_directory_url(
+                 name,
+@@ -1276,7 +1278,7 @@ mod test {
+             std::mem::size_of::<BuiltDist>()
+         );
+         assert!(
+-            std::mem::size_of::<SourceDist>() <= 256,
++            std::mem::size_of::<SourceDist>() <= 264,
+             "{}",
+             std::mem::size_of::<SourceDist>()
+         );
+diff --git a/crates/distribution-types/src/resolution.rs b/crates/distribution-types/src/resolution.rs
+index 558636cfeb59f..9ff450ee86f14 100644
+--- a/crates/distribution-types/src/resolution.rs
++++ b/crates/distribution-types/src/resolution.rs
+@@ -1,6 +1,6 @@
++use distribution_filename::DistExtension;
++use pypi_types::{HashDigest, Requirement, RequirementSource};
+ use std::collections::BTreeMap;
+-
+-use pypi_types::{FileKind, HashDigest, Requirement, RequirementSource};
+ use uv_normalize::{ExtraName, GroupName, PackageName};
+ 
+ use crate::{BuiltDist, Diagnostic, Dist, Name, ResolvedDist, SourceDist};
+@@ -143,14 +143,14 @@ impl From<&ResolvedDist> for Requirement {
+                         url: wheel.url.clone(),
+                         location,
+                         subdirectory: None,
+-                        kind: FileKind::Wheel,
++                        ext: DistExtension::Wheel,
+                     }
+                 }
+                 Dist::Built(BuiltDist::Path(wheel)) => RequirementSource::Path {
+                     install_path: wheel.path.clone(),
+                     lock_path: wheel.path.clone(),
+                     url: wheel.url.clone(),
+-                    kind: FileKind::Wheel,
++                    ext: DistExtension::Wheel,
+                 },
+                 Dist::Source(SourceDist::Registry(sdist)) => RequirementSource::Registry {
+                     specifier: pep440_rs::VersionSpecifiers::from(
+@@ -165,7 +165,7 @@ impl From<&ResolvedDist> for Requirement {
+                         url: sdist.url.clone(),
+                         location,
+                         subdirectory: sdist.subdirectory.clone(),
+-                        kind: sdist.kind,
++                        ext: DistExtension::Source(sdist.ext),
+                     }
+                 }
+                 Dist::Source(SourceDist::Git(sdist)) => RequirementSource::Git {
+@@ -179,7 +179,7 @@ impl From<&ResolvedDist> for Requirement {
+                     install_path: sdist.install_path.clone(),
+                     lock_path: sdist.lock_path.clone(),
+                     url: sdist.url.clone(),
+-                    kind: sdist.kind,
++                    ext: DistExtension::Source(sdist.ext),
+                 },
+                 Dist::Source(SourceDist::Directory(sdist)) => RequirementSource::Directory {
+                     install_path: sdist.install_path.clone(),
+diff --git a/crates/pep508-rs/src/lib.rs b/crates/pep508-rs/src/lib.rs
+index 79135804cf0c2..0d5b2c5c3f0e0 100644
+--- a/crates/pep508-rs/src/lib.rs
++++ b/crates/pep508-rs/src/lib.rs
+@@ -693,6 +693,11 @@ fn looks_like_unnamed_requirement(cursor: &mut Cursor) -> bool {
+         return true;
+     }
+ 
++    // Ex) `foo/bar`
++    if expanded.contains('/') || expanded.contains('\\') {
++        return true;
++    }
++
+     false
+ }
+ 
+@@ -1010,7 +1015,7 @@ fn parse_pep508_requirement<T: Pep508Url>(
+             // a package name. pip supports this in `requirements.txt`, but it doesn't adhere to
+             // the PEP 508 grammar.
+             let mut clone = cursor.clone().at(start);
+-            return if parse_url::<T>(&mut clone, working_dir).is_ok() {
++            return if looks_like_unnamed_requirement(&mut clone) {
+                 Err(Pep508Error {
+                     message: Pep508ErrorSource::UnsupportedRequirement("URL requirement must be preceded by a package name. Add the name of the package before the URL (e.g., `package_name @ https://...`).".to_string()),
+                     start,
+diff --git a/crates/pypi-types/Cargo.toml b/crates/pypi-types/Cargo.toml
+index 547d313f43832..32ebce84f40c8 100644
+--- a/crates/pypi-types/Cargo.toml
++++ b/crates/pypi-types/Cargo.toml
+@@ -13,6 +13,7 @@ license = { workspace = true }
+ workspace = true
+ 
+ [dependencies]
++distribution-filename = { workspace = true }
+ pep440_rs = { workspace = true }
+ pep508_rs = { workspace = true }
+ uv-fs = { workspace = true, features = ["serde"] }
+diff --git a/crates/pypi-types/src/file_type.rs b/crates/pypi-types/src/file_type.rs
+deleted file mode 100644
+index 1d1601c25ed05..0000000000000
+--- a/crates/pypi-types/src/file_type.rs
++++ /dev/null
+@@ -1,56 +0,0 @@
+-use std::path::Path;
+-
+-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+-pub enum FileKind {
+-    Wheel,
+-    Zip,
+-    TarGz,
+-    TarBz2,
+-    TarXz,
+-    TarZstd,
+-}
+-
+-impl FileKind {
+-    pub fn from_path(path: impl AsRef<Path>) -> Option<Self> {
+-        let extension = path.as_ref().extension()?.to_str()?;
+-        match extension {
+-            "whl" => Some(Self::Wheel),
+-            "zip" => Some(Self::Zip),
+-            "gz" if path.as_ref().file_stem().is_some_and(|stem| {
+-                Path::new(stem)
+-                    .extension()
+-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("tar"))
+-            }) =>
+-            {
+-                Some(Self::TarGz)
+-            }
+-            "bz2"
+-                if path.as_ref().file_stem().is_some_and(|stem| {
+-                    Path::new(stem)
+-                        .extension()
+-                        .is_some_and(|ext| ext.eq_ignore_ascii_case("tar"))
+-                }) =>
+-            {
+-                Some(Self::TarBz2)
+-            }
+-            "xz" if path.as_ref().file_stem().is_some_and(|stem| {
+-                Path::new(stem)
+-                    .extension()
+-                    .is_some_and(|ext| ext.eq_ignore_ascii_case("tar"))
+-            }) =>
+-            {
+-                Some(Self::TarXz)
+-            }
+-            "zst"
+-                if path.as_ref().file_stem().is_some_and(|stem| {
+-                    Path::new(stem)
+-                        .extension()
+-                        .is_some_and(|ext| ext.eq_ignore_ascii_case("tar"))
+-                }) =>
+-            {
+-                Some(Self::TarZstd)
+-            }
+-            _ => None,
+-        }
+-    }
+-}
+diff --git a/crates/pypi-types/src/lib.rs b/crates/pypi-types/src/lib.rs
+index a968c93f07f68..73efeba948889 100644
+--- a/crates/pypi-types/src/lib.rs
++++ b/crates/pypi-types/src/lib.rs
+@@ -1,6 +1,5 @@
+ pub use base_url::*;
+ pub use direct_url::*;
+-pub use file_type::*;
+ pub use lenient_requirement::*;
+ pub use metadata::*;
+ pub use parsed_url::*;
+@@ -10,7 +9,6 @@ pub use simple_json::*;
+ 
+ mod base_url;
+ mod direct_url;
+-mod file_type;
+ mod lenient_requirement;
+ mod metadata;
+ mod parsed_url;
+diff --git a/crates/pypi-types/src/parsed_url.rs b/crates/pypi-types/src/parsed_url.rs
+index 37a1caaa8e02a..0915750658958 100644
+--- a/crates/pypi-types/src/parsed_url.rs
++++ b/crates/pypi-types/src/parsed_url.rs
+@@ -1,34 +1,33 @@
++use distribution_filename::{DistExtension, ExtensionError};
++use pep508_rs::{Pep508Url, UnnamedRequirementUrl, VerbatimUrl, VerbatimUrlError};
+ use std::fmt::{Display, Formatter};
+ use std::path::{Path, PathBuf};
+ use thiserror::Error;
+ use url::{ParseError, Url};
+-
+-use pep508_rs::{Pep508Url, UnnamedRequirementUrl, VerbatimUrl, VerbatimUrlError};
+ use uv_git::{GitReference, GitSha, GitUrl, OidParseError};
+ 
+-use crate::{ArchiveInfo, DirInfo, DirectUrl, FileKind, VcsInfo, VcsKind};
++use crate::{ArchiveInfo, DirInfo, DirectUrl, VcsInfo, VcsKind};
+ 
+ #[derive(Debug, Error)]
+ pub enum ParsedUrlError {
+     #[error("Unsupported URL prefix `{prefix}` in URL: `{url}` ({message})")]
+     UnsupportedUrlPrefix {
+         prefix: String,
+-        url: Url,
++        url: String,
+         message: &'static str,
+     },
+     #[error("Invalid path in file URL: `{0}`")]
+-    InvalidFileUrl(Url),
++    InvalidFileUrl(String),
+     #[error("Failed to parse Git reference from URL: `{0}`")]
+-    GitShaParse(Url, #[source] OidParseError),
++    GitShaParse(String, #[source] OidParseError),
+     #[error("Not a valid URL: `{0}`")]
+     UrlParse(String, #[source] ParseError),
+     #[error(transparent)]
+     VerbatimUrl(#[from] VerbatimUrlError),
+-
+-    #[error("Expected direct URL dependency to include an extension: `{0}`")]
+-    MissingExtension(Url),
+-    #[error("Expected path dependency to include an extension: `{0}`")]
+-    MissingExtensionPath(PathBuf),
++    #[error("Expected direct URL (`{0}`) to end in a supported file extension: {1}")]
++    MissingExtensionUrl(String, ExtensionError),
++    #[error("Expected path (`{0}`) to end in a supported file extension: {1}")]
++    MissingExtensionPath(PathBuf, ExtensionError),
+ }
+ 
+ #[derive(Debug, Clone, Hash, PartialEq, PartialOrd, Eq, Ord)]
+@@ -80,8 +79,9 @@ impl UnnamedRequirementUrl for VerbatimParsedUrl {
+                 url: verbatim.to_url(),
+                 install_path: verbatim.as_path()?,
+                 lock_path: path.as_ref().to_path_buf(),
+-                kind: FileKind::from_path(path)
+-                    .ok_or(ParsedUrlError::MissingExtension(verbatim.to_url()))?,
++                ext: DistExtension::from_path(&path).map_err(|err| {
++                    ParsedUrlError::MissingExtensionPath(path.as_ref().to_path_buf(), err)
++                })?,
+             })
+         };
+         Ok(Self {
+@@ -110,8 +110,9 @@ impl UnnamedRequirementUrl for VerbatimParsedUrl {
+                 url: verbatim.to_url(),
+                 install_path: verbatim.as_path()?,
+                 lock_path: path.as_ref().to_path_buf(),
+-                kind: FileKind::from_path(path)
+-                    .ok_or(ParsedUrlError::MissingExtension(verbatim.to_url()))?,
++                ext: DistExtension::from_path(&path).map_err(|err| {
++                    ParsedUrlError::MissingExtensionPath(path.as_ref().to_path_buf(), err)
++                })?,
+             })
+         };
+         Ok(Self {
+@@ -190,8 +191,8 @@ pub struct ParsedPathUrl {
+     /// which we use for locking. Unlike `given` on the verbatim URL all environment variables
+     /// are resolved, and unlike the install path, we did not yet join it on the base directory.
+     pub lock_path: PathBuf,
+-    /// The type of file (e.g., `.zip` or `.tar.gz`).
+-    pub kind: FileKind,
++    /// The file extension, e.g. `tar.gz`, `zip`, etc.
++    pub ext: DistExtension,
+ }
+ 
+ impl ParsedPathUrl {
+@@ -199,14 +200,14 @@ impl ParsedPathUrl {
+     pub fn from_source(
+         install_path: PathBuf,
+         lock_path: PathBuf,
+-        kind: FileKind,
++        ext: DistExtension,
+         url: Url,
+     ) -> Self {
+         Self {
+             url,
+             install_path,
+             lock_path,
+-            kind,
++            ext,
+         }
+     }
+ }
+@@ -275,7 +276,7 @@ impl ParsedGitUrl {
+ impl TryFrom<Url> for ParsedGitUrl {
+     type Error = ParsedUrlError;
+ 
+-    /// Supports URLS with and without the `git+` prefix.
++    /// Supports URLs with and without the `git+` prefix.
+     ///
+     /// When the URL includes a prefix, it's presumed to come from a PEP 508 requirement; when it's
+     /// excluded, it's presumed to come from `tool.uv.sources`.
+@@ -288,7 +289,7 @@ impl TryFrom<Url> for ParsedGitUrl {
+             .unwrap_or(url_in.as_str());
+         let url = Url::parse(url).map_err(|err| ParsedUrlError::UrlParse(url.to_string(), err))?;
+         let url = GitUrl::try_from(url)
+-            .map_err(|err| ParsedUrlError::GitShaParse(url_in.clone(), err))?;
++            .map_err(|err| ParsedUrlError::GitShaParse(url_in.to_string(), err))?;
+         Ok(Self { url, subdirectory })
+     }
+ }
+@@ -303,16 +304,16 @@ impl TryFrom<Url> for ParsedGitUrl {
+ pub struct ParsedArchiveUrl {
+     pub url: Url,
+     pub subdirectory: Option<PathBuf>,
+-    pub kind: FileKind,
++    pub ext: DistExtension,
+ }
+ 
+ impl ParsedArchiveUrl {
+     /// Construct a [`ParsedArchiveUrl`] from a URL requirement source.
+-    pub fn from_source(location: Url, subdirectory: Option<PathBuf>, kind: FileKind) -> Self {
++    pub fn from_source(location: Url, subdirectory: Option<PathBuf>, ext: DistExtension) -> Self {
+         Self {
+             url: location,
+             subdirectory,
+-            kind,
++            ext,
+         }
+     }
+ }
+@@ -320,18 +321,14 @@ impl ParsedArchiveUrl {
+ impl TryFrom<Url> for ParsedArchiveUrl {
+     type Error = ParsedUrlError;
+ 
+-    /// Supports URLS with and without the `git+` prefix.
+-    ///
+-    /// When the URL includes a prefix, it's presumed to come from a PEP 508 requirement; when it's
+-    /// excluded, it's presumed to come from `tool.uv.sources`.
+     fn try_from(url: Url) -> Result<Self, Self::Error> {
+         let subdirectory = get_subdirectory(&url);
+-        let kind =
+-            FileKind::from_path(url.path()).ok_or(ParsedUrlError::MissingExtension(url.clone()))?;
++        let ext = DistExtension::from_path(url.path())
++            .map_err(|err| ParsedUrlError::MissingExtensionUrl(url.to_string(), err))?;
+         Ok(Self {
+             url,
+             subdirectory,
+-            kind,
++            ext,
+         })
+     }
+ }
+@@ -359,22 +356,22 @@ impl TryFrom<Url> for ParsedUrl {
+                 "git" => Ok(Self::Git(ParsedGitUrl::try_from(url)?)),
+                 "bzr" => Err(ParsedUrlError::UnsupportedUrlPrefix {
+                     prefix: prefix.to_string(),
+-                    url: url.clone(),
++                    url: url.to_string(),
+                     message: "Bazaar is not supported",
+                 }),
+                 "hg" => Err(ParsedUrlError::UnsupportedUrlPrefix {
+                     prefix: prefix.to_string(),
+-                    url: url.clone(),
++                    url: url.to_string(),
+                     message: "Mercurial is not supported",
+                 }),
+                 "svn" => Err(ParsedUrlError::UnsupportedUrlPrefix {
+                     prefix: prefix.to_string(),
+-                    url: url.clone(),
++                    url: url.to_string(),
+                     message: "Subversion is not supported",
+                 }),
+                 _ => Err(ParsedUrlError::UnsupportedUrlPrefix {
+                     prefix: prefix.to_string(),
+-                    url: url.clone(),
++                    url: url.to_string(),
+                     message: "Unknown scheme",
+                 }),
+             }
+@@ -386,7 +383,7 @@ impl TryFrom<Url> for ParsedUrl {
+         } else if url.scheme().eq_ignore_ascii_case("file") {
+             let path = url
+                 .to_file_path()
+-                .map_err(|()| ParsedUrlError::InvalidFileUrl(url.clone()))?;
++                .map_err(|()| ParsedUrlError::InvalidFileUrl(url.to_string()))?;
+             let is_dir = if let Ok(metadata) = path.metadata() {
+                 metadata.is_dir()
+             } else {
+@@ -402,8 +399,8 @@ impl TryFrom<Url> for ParsedUrl {
+             } else {
+                 Ok(Self::Path(ParsedPathUrl {
+                     url,
+-                    kind: FileKind::from_path(&path)
+-                        .ok_or_else(|| ParsedUrlError::MissingExtensionPath(path.clone()))?,
++                    ext: DistExtension::from_path(&path)
++                        .map_err(|err| ParsedUrlError::MissingExtensionPath(path.clone(), err))?,
+                     install_path: path.clone(),
+                     lock_path: path,
+                 }))
+diff --git a/crates/pypi-types/src/requirement.rs b/crates/pypi-types/src/requirement.rs
+index ac3b5b9f05d0f..23162631b9384 100644
+--- a/crates/pypi-types/src/requirement.rs
++++ b/crates/pypi-types/src/requirement.rs
+@@ -2,18 +2,18 @@ use std::fmt::{Display, Formatter};
+ use std::path::{Path, PathBuf};
+ use std::str::FromStr;
+ 
+-use thiserror::Error;
+-use url::Url;
+-
++use distribution_filename::DistExtension;
+ use pep440_rs::VersionSpecifiers;
+ use pep508_rs::{MarkerEnvironment, MarkerTree, RequirementOrigin, VerbatimUrl, VersionOrUrl};
++use thiserror::Error;
++use url::Url;
+ use uv_fs::PortablePathBuf;
+ use uv_git::{GitReference, GitSha, GitUrl};
+ use uv_normalize::{ExtraName, PackageName};
+ 
+ use crate::{
+-    FileKind, ParsedArchiveUrl, ParsedDirectoryUrl, ParsedGitUrl, ParsedPathUrl, ParsedUrl,
+-    ParsedUrlError, VerbatimParsedUrl,
++    ParsedArchiveUrl, ParsedDirectoryUrl, ParsedGitUrl, ParsedPathUrl, ParsedUrl, ParsedUrlError,
++    VerbatimParsedUrl,
+ };
+ 
+ #[derive(Debug, Error)]
+@@ -100,13 +100,13 @@ impl From<Requirement> for pep508_rs::Requirement<VerbatimParsedUrl> {
+                 RequirementSource::Url {
+                     location,
+                     subdirectory,
+-                    kind,
++                    ext,
+                     url,
+                 } => Some(VersionOrUrl::Url(VerbatimParsedUrl {
+                     parsed_url: ParsedUrl::Archive(ParsedArchiveUrl {
+                         url: location,
+                         subdirectory,
+-                        kind,
++                        ext,
+                     }),
+                     verbatim: url,
+                 })),
+@@ -133,14 +133,14 @@ impl From<Requirement> for pep508_rs::Requirement<VerbatimParsedUrl> {
+                 RequirementSource::Path {
+                     install_path,
+                     lock_path,
+-                    kind,
++                    ext,
+                     url,
+                 } => Some(VersionOrUrl::Url(VerbatimParsedUrl {
+                     parsed_url: ParsedUrl::Path(ParsedPathUrl {
+                         url: url.to_url(),
+                         install_path,
+                         lock_path,
+-                        kind,
++                        ext,
+                     }),
+                     verbatim: url,
+                 })),
+@@ -271,8 +271,8 @@ pub enum RequirementSource {
+         /// For source distributions, the path to the distribution if it is not in the archive
+         /// root.
+         subdirectory: Option<PathBuf>,
+-        /// The type of file (e.g., `.zip` or `.tar.gz`).
+-        kind: FileKind,
++        /// The file extension, e.g. `tar.gz`, `zip`, etc.
++        ext: DistExtension,
+         /// The PEP 508 style URL in the format
+         /// `<scheme>://<domain>/<path>#subdirectory=<subdirectory>`.
+         url: VerbatimUrl,
+@@ -301,8 +301,8 @@ pub enum RequirementSource {
+         /// which we use for locking. Unlike `given` on the verbatim URL all environment variables
+         /// are resolved, and unlike the install path, we did not yet join it on the base directory.
+         lock_path: PathBuf,
+-        /// The type of file (e.g., `.zip` or `.tar.gz`).
+-        kind: FileKind,
++        /// The file extension, e.g. `tar.gz`, `zip`, etc.
++        ext: DistExtension,
+         /// The PEP 508 style URL in the format
+         /// `file:///<path>#subdirectory=<subdirectory>`.
+         url: VerbatimUrl,
+@@ -332,7 +332,7 @@ impl RequirementSource {
+             ParsedUrl::Path(local_file) => RequirementSource::Path {
+                 install_path: local_file.install_path.clone(),
+                 lock_path: local_file.lock_path.clone(),
+-                kind: local_file.kind,
++                ext: local_file.ext,
+                 url,
+             },
+             ParsedUrl::Directory(directory) => RequirementSource::Directory {
+@@ -352,7 +352,7 @@ impl RequirementSource {
+                 url,
+                 location: archive.url,
+                 subdirectory: archive.subdirectory,
+-                kind: archive.kind,
++                ext: archive.ext,
+             },
+         }
+     }
+@@ -370,26 +370,26 @@ impl RequirementSource {
+             Self::Url {
+                 location,
+                 subdirectory,
+-                kind,
++                ext,
+                 url,
+             } => Some(VerbatimParsedUrl {
+                 parsed_url: ParsedUrl::Archive(ParsedArchiveUrl::from_source(
+                     location.clone(),
+                     subdirectory.clone(),
+-                    *kind,
++                    *ext,
+                 )),
+                 verbatim: url.clone(),
+             }),
+             Self::Path {
+                 install_path,
+                 lock_path,
+-                kind,
++                ext,
+                 url,
+             } => Some(VerbatimParsedUrl {
+                 parsed_url: ParsedUrl::Path(ParsedPathUrl::from_source(
+                     install_path.clone(),
+                     lock_path.clone(),
+-                    *kind,
++                    *ext,
+                     url.to_url(),
+                 )),
+                 verbatim: url.clone(),
+@@ -521,7 +521,7 @@ impl From<RequirementSource> for RequirementSourceWire {
+             RequirementSource::Url {
+                 subdirectory,
+                 location,
+-                kind: _,
++                ext: _,
+                 url: _,
+             } => Self::Direct {
+                 url: location,
+@@ -582,7 +582,7 @@ impl From<RequirementSource> for RequirementSourceWire {
+             RequirementSource::Path {
+                 install_path,
+                 lock_path: _,
+-                kind: _,
++                ext: _,
+                 url: _,
+             } => Self::Path {
+                 path: PortablePathBuf::from(install_path),
+@@ -647,15 +647,15 @@ impl TryFrom<RequirementSourceWire> for RequirementSource {
+                 url: VerbatimUrl::from_url(url.clone()),
+                 location: url.clone(),
+                 subdirectory: subdirectory.map(PathBuf::from),
+-                kind: FileKind::from_path(url.path())
+-                    .ok_or_else(|| ParsedUrlError::MissingExtension(url))?,
++                ext: DistExtension::from_path(url.path())
++                    .map_err(|err| ParsedUrlError::MissingExtensionUrl(url.to_string(), err))?,
+             }),
+             RequirementSourceWire::Path { path } => {
+                 let path = PathBuf::from(path);
+                 Ok(Self::Path {
+                     url: VerbatimUrl::from_path(path.as_path())?,
+-                    kind: FileKind::from_path(path.as_path())
+-                        .ok_or_else(|| ParsedUrlError::MissingExtensionPath(path.clone()))?,
++                    ext: DistExtension::from_path(path.as_path())
++                        .map_err(|err| ParsedUrlError::MissingExtensionPath(path.clone(), err))?,
+                     install_path: path.clone(),
+                     lock_path: path,
+                 })
+diff --git a/crates/requirements-txt/src/lib.rs b/crates/requirements-txt/src/lib.rs
+index 4fe254dfa77ba..7c5a17716847d 100644
+--- a/crates/requirements-txt/src/lib.rs
++++ b/crates/requirements-txt/src/lib.rs
+@@ -1459,7 +1459,40 @@ mod test {
+         let temp_dir = assert_fs::TempDir::new()?;
+         let requirements_txt = temp_dir.child("requirements.txt");
+         requirements_txt.write_str(indoc! {"
+-            -e http://localhost:8080/
++            -e https://localhost:8080/
++        "})?;
++
++        let error = RequirementsTxt::parse(
++            requirements_txt.path(),
++            temp_dir.path(),
++            &BaseClientBuilder::new(),
++        )
++        .await
++        .unwrap_err();
++        let errors = anyhow::Error::new(error).chain().join("\n");
++
++        let requirement_txt = regex::escape(&requirements_txt.path().user_display().to_string());
++        let filters = vec![(requirement_txt.as_str(), "<REQUIREMENTS_TXT>")];
++        insta::with_settings!({
++            filters => filters
++        }, {
++            insta::assert_snapshot!(errors, @r###"
++            Couldn't parse requirement in `<REQUIREMENTS_TXT>` at position 3
++            Expected direct URL (`https://localhost:8080/`) to end in a supported file extension: `.whl`, `.zip`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, or `.tar.zst`
++            https://localhost:8080/
++            ^^^^^^^^^^^^^^^^^^^^^^^
++            "###);
++        });
++
++        Ok(())
++    }
++
++    #[tokio::test]
++    async fn unsupported_editable_extension() -> Result<()> {
++        let temp_dir = assert_fs::TempDir::new()?;
++        let requirements_txt = temp_dir.child("requirements.txt");
++        requirements_txt.write_str(indoc! {"
++            -e https://files.pythonhosted.org/packages/f7/69/96766da2cdb5605e6a31ef2734aff0be17901cefb385b885c2ab88896d76/ruff-0.5.6.tar.gz
+         "})?;
+ 
+         let error = RequirementsTxt::parse(
+@@ -1478,7 +1511,7 @@ mod test {
+         }, {
+             insta::assert_snapshot!(errors, @r###"
+             Unsupported editable requirement in `<REQUIREMENTS_TXT>`
+-            Editable must refer to a local directory, not an HTTPS URL: `http://localhost:8080/`
++            Editable must refer to a local directory, not an HTTPS URL: `https://files.pythonhosted.org/packages/f7/69/96766da2cdb5605e6a31ef2734aff0be17901cefb385b885c2ab88896d76/ruff-0.5.6.tar.gz`
+             "###);
+         });
+ 
+diff --git a/crates/requirements-txt/src/snapshots/requirements_txt__test__line-endings-whitespace.txt.snap b/crates/requirements-txt/src/snapshots/requirements_txt__test__line-endings-whitespace.txt.snap
+index 81071f2364d59..181e74dbe6e51 100644
+--- a/crates/requirements-txt/src/snapshots/requirements_txt__test__line-endings-whitespace.txt.snap
++++ b/crates/requirements-txt/src/snapshots/requirements_txt__test__line-endings-whitespace.txt.snap
+@@ -36,29 +36,33 @@ RequirementsTxt {
+                     version_or_url: Some(
+                         Url(
+                             VerbatimParsedUrl {
+-                                parsed_url: Archive(
+-                                    ParsedArchiveUrl {
+-                                        url: Url {
+-                                            scheme: "https",
+-                                            cannot_be_a_base: false,
+-                                            username: "",
+-                                            password: None,
+-                                            host: Some(
+-                                                Domain(
+-                                                    "github.com",
++                                parsed_url: Git(
++                                    ParsedGitUrl {
++                                        url: GitUrl {
++                                            repository: Url {
++                                                scheme: "https",
++                                                cannot_be_a_base: false,
++                                                username: "",
++                                                password: None,
++                                                host: Some(
++                                                    Domain(
++                                                        "github.com",
++                                                    ),
+                                                 ),
+-                                            ),
+-                                            port: None,
+-                                            path: "/pandas-dev/pandas",
+-                                            query: None,
+-                                            fragment: None,
++                                                port: None,
++                                                path: "/pandas-dev/pandas.git",
++                                                query: None,
++                                                fragment: None,
++                                            },
++                                            reference: DefaultBranch,
++                                            precise: None,
+                                         },
+                                         subdirectory: None,
+                                     },
+                                 ),
+                                 verbatim: VerbatimUrl {
+                                     url: Url {
+-                                        scheme: "https",
++                                        scheme: "git+https",
+                                         cannot_be_a_base: false,
+                                         username: "",
+                                         password: None,
+@@ -68,12 +72,12 @@ RequirementsTxt {
+                                             ),
+                                         ),
+                                         port: None,
+-                                        path: "/pandas-dev/pandas",
++                                        path: "/pandas-dev/pandas.git",
+                                         query: None,
+                                         fragment: None,
+                                     },
+                                     given: Some(
+-                                        "https://github.com/pandas-dev/pandas",
++                                        "git+https://github.com/pandas-dev/pandas.git",
+                                     ),
+                                 },
+                             },
+diff --git a/crates/requirements-txt/src/snapshots/requirements_txt__test__parse-whitespace.txt.snap b/crates/requirements-txt/src/snapshots/requirements_txt__test__parse-whitespace.txt.snap
+index 81071f2364d59..181e74dbe6e51 100644
+--- a/crates/requirements-txt/src/snapshots/requirements_txt__test__parse-whitespace.txt.snap
++++ b/crates/requirements-txt/src/snapshots/requirements_txt__test__parse-whitespace.txt.snap
+@@ -36,29 +36,33 @@ RequirementsTxt {
+                     version_or_url: Some(
+                         Url(
+                             VerbatimParsedUrl {
+-                                parsed_url: Archive(
+-                                    ParsedArchiveUrl {
+-                                        url: Url {
+-                                            scheme: "https",
+-                                            cannot_be_a_base: false,
+-                                            username: "",
+-                                            password: None,
+-                                            host: Some(
+-                                                Domain(
+-                                                    "github.com",
++                                parsed_url: Git(
++                                    ParsedGitUrl {
++                                        url: GitUrl {
++                                            repository: Url {
++                                                scheme: "https",
++                                                cannot_be_a_base: false,
++                                                username: "",
++                                                password: None,
++                                                host: Some(
++                                                    Domain(
++                                                        "github.com",
++                                                    ),
+                                                 ),
+-                                            ),
+-                                            port: None,
+-                                            path: "/pandas-dev/pandas",
+-                                            query: None,
+-                                            fragment: None,
++                                                port: None,
++                                                path: "/pandas-dev/pandas.git",
++                                                query: None,
++                                                fragment: None,
++                                            },
++                                            reference: DefaultBranch,
++                                            precise: None,
+                                         },
+                                         subdirectory: None,
+                                     },
+                                 ),
+                                 verbatim: VerbatimUrl {
+                                     url: Url {
+-                                        scheme: "https",
++                                        scheme: "git+https",
+                                         cannot_be_a_base: false,
+                                         username: "",
+                                         password: None,
+@@ -68,12 +72,12 @@ RequirementsTxt {
+                                             ),
+                                         ),
+                                         port: None,
+-                                        path: "/pandas-dev/pandas",
++                                        path: "/pandas-dev/pandas.git",
+                                         query: None,
+                                         fragment: None,
+                                     },
+                                     given: Some(
+-                                        "https://github.com/pandas-dev/pandas",
++                                        "git+https://github.com/pandas-dev/pandas.git",
+                                     ),
+                                 },
+                             },
+diff --git a/crates/requirements-txt/test-data/requirements-txt/whitespace.txt b/crates/requirements-txt/test-data/requirements-txt/whitespace.txt
+index c1e99017e28a7..63a4a8ba5c1d0 100644
+--- a/crates/requirements-txt/test-data/requirements-txt/whitespace.txt
++++ b/crates/requirements-txt/test-data/requirements-txt/whitespace.txt
+@@ -16,7 +16,7 @@
+ 
+ \
+ 
+-pandas  [tabulate]  @  https://github.com/pandas-dev/pandas \
++pandas  [tabulate]  @  git+https://github.com/pandas-dev/pandas.git \
+  # üh
+ 
+ 
+diff --git a/crates/uv-cache/src/lib.rs b/crates/uv-cache/src/lib.rs
+index f34035b9a293b..9c73b866d29e8 100644
+--- a/crates/uv-cache/src/lib.rs
++++ b/crates/uv-cache/src/lib.rs
+@@ -711,7 +711,7 @@ impl CacheBucket {
+             Self::Interpreter => "interpreter-v2",
+             // Note that when bumping this, you'll also need to bump it
+             // in crates/uv/tests/cache_clean.rs.
+-            Self::Simple => "simple-v11",
++            Self::Simple => "simple-v12",
+             Self::Wheels => "wheels-v1",
+             Self::Archive => "archive-v0",
+             Self::Builds => "builds-v0",
+diff --git a/crates/uv-client/src/registry_client.rs b/crates/uv-client/src/registry_client.rs
+index bb6da9c5d02c5..8eb16f8d05f8d 100644
+--- a/crates/uv-client/src/registry_client.rs
++++ b/crates/uv-client/src/registry_client.rs
+@@ -718,30 +718,32 @@ impl SimpleMetadata {
+ 
+         // Group the distributions by version and kind
+         for file in files {
+-            if let Some(filename) =
++            let Some(filename) =
+                 DistFilename::try_from_filename(file.filename.as_str(), package_name)
+-            {
+-                let version = match filename {
+-                    DistFilename::SourceDistFilename(ref inner) => &inner.version,
+-                    DistFilename::WheelFilename(ref inner) => &inner.version,
+-                };
+-                let file = match File::try_from(file, base) {
+-                    Ok(file) => file,
+-                    Err(err) => {
+-                        // Ignore files with unparsable version specifiers.
+-                        warn!("Skipping file for {package_name}: {err}");
+-                        continue;
+-                    }
+-                };
+-                match map.entry(version.clone()) {
+-                    std::collections::btree_map::Entry::Occupied(mut entry) => {
+-                        entry.get_mut().push(filename, file);
+-                    }
+-                    std::collections::btree_map::Entry::Vacant(entry) => {
+-                        let mut files = VersionFiles::default();
+-                        files.push(filename, file);
+-                        entry.insert(files);
+-                    }
++            else {
++                warn!("Skipping file for {package_name}: {}", file.filename);
++                continue;
++            };
++            let version = match filename {
++                DistFilename::SourceDistFilename(ref inner) => &inner.version,
++                DistFilename::WheelFilename(ref inner) => &inner.version,
++            };
++            let file = match File::try_from(file, base) {
++                Ok(file) => file,
++                Err(err) => {
++                    // Ignore files with unparsable version specifiers.
++                    warn!("Skipping file for {package_name}: {err}");
++                    continue;
++                }
++            };
++            match map.entry(version.clone()) {
++                std::collections::btree_map::Entry::Occupied(mut entry) => {
++                    entry.get_mut().push(filename, file);
++                }
++                std::collections::btree_map::Entry::Vacant(entry) => {
++                    let mut files = VersionFiles::default();
++                    files.push(filename, file);
++                    entry.insert(files);
+                 }
+             }
+         }
+diff --git a/crates/uv-distribution/src/metadata/lowering.rs b/crates/uv-distribution/src/metadata/lowering.rs
+index e3a5dbfa41126..99fe85cde2b55 100644
+--- a/crates/uv-distribution/src/metadata/lowering.rs
++++ b/crates/uv-distribution/src/metadata/lowering.rs
+@@ -2,13 +2,13 @@ use std::collections::BTreeMap;
+ use std::io;
+ use std::path::{Path, PathBuf};
+ 
++use distribution_filename::DistExtension;
+ use path_absolutize::Absolutize;
+-use thiserror::Error;
+-use url::Url;
+-
+ use pep440_rs::VersionSpecifiers;
+ use pep508_rs::{VerbatimUrl, VersionOrUrl};
+-use pypi_types::{FileKind, Requirement, RequirementSource, VerbatimParsedUrl};
++use pypi_types::{ParsedUrlError, Requirement, RequirementSource, VerbatimParsedUrl};
++use thiserror::Error;
++use url::Url;
+ use uv_configuration::PreviewMode;
+ use uv_fs::{relative_to, Simplified};
+ use uv_git::GitReference;
+@@ -41,6 +41,8 @@ pub enum LoweringError {
+     WorkspaceFalse,
+     #[error("Editable must refer to a local directory, not a file: `{0}`")]
+     EditableFile(String),
++    #[error(transparent)]
++    ParsedUrl(#[from] ParsedUrlError),
+     #[error(transparent)] // Function attaches the context
+     RelativeTo(io::Error),
+ }
+@@ -155,13 +157,14 @@ pub(crate) fn lower_requirement(
+                 verbatim_url.set_fragment(Some(subdirectory));
+             }
+ 
+-            let kind = FileKind::from_path(url.path()).expect("URLs are always valid paths");
++            let ext = DistExtension::from_path(url.path())
++                .map_err(|err| ParsedUrlError::MissingExtensionUrl(url.to_string(), err))?;
+ 
+             let verbatim_url = VerbatimUrl::from_url(verbatim_url);
+             RequirementSource::Url {
+                 location: url,
+                 subdirectory: subdirectory.map(PathBuf::from),
+-                kind,
++                ext,
+                 url: verbatim_url,
+             }
+         }
+@@ -293,7 +296,8 @@ fn path_source(
+         Ok(RequirementSource::Path {
+             install_path: absolute_path,
+             lock_path: relative_to_workspace,
+-            kind: FileKind::from_path(path).expect("STOPSHIP"),
++            ext: DistExtension::from_path(path)
++                .map_err(|err| ParsedUrlError::MissingExtensionPath(path.to_path_buf(), err))?,
+             url,
+         })
+     }
+diff --git a/crates/uv-distribution/src/source/mod.rs b/crates/uv-distribution/src/source/mod.rs
+index 4d80843cc8228..77ecab8d71eaf 100644
+--- a/crates/uv-distribution/src/source/mod.rs
++++ b/crates/uv-distribution/src/source/mod.rs
+@@ -13,14 +13,14 @@ use tracing::{debug, info_span, instrument, Instrument};
+ use url::Url;
+ use zip::ZipArchive;
+ 
+-use distribution_filename::WheelFilename;
++use distribution_filename::{SourceDistExtension, WheelFilename};
+ use distribution_types::{
+     BuildableSource, DirectorySourceUrl, FileLocation, GitSourceUrl, HashPolicy, Hashed,
+     PathSourceUrl, RemoteSource, SourceDist, SourceUrl,
+ };
+ use install_wheel_rs::metadata::read_archive_metadata;
+ use platform_tags::Tags;
+-use pypi_types::{FileKind, HashDigest, Metadata23, ParsedArchiveUrl};
++use pypi_types::{HashDigest, Metadata23};
+ use uv_cache::{
+     ArchiveTimestamp, CacheBucket, CacheEntry, CacheShard, CachedByTimestamp, Timestamp, WheelCache,
+ };
+@@ -111,7 +111,7 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+                                 &PathSourceUrl {
+                                     url: &url,
+                                     path: Cow::Borrowed(path),
+-                                    kind: dist.kind,
++                                    ext: dist.ext,
+                                 },
+                                 &cache_shard,
+                                 tags,
+@@ -133,7 +133,7 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+                             &PathSourceUrl {
+                                 url: &url,
+                                 path: Cow::Owned(path),
+-                                kind: dist.kind,
++                                ext: dist.ext,
+                             },
+                             &cache_shard,
+                             tags,
+@@ -149,7 +149,7 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+                     &url,
+                     &cache_shard,
+                     None,
+-                    dist.kind,
++                    dist.ext,
+                     tags,
+                     hashes,
+                     client,
+@@ -159,25 +159,20 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+             }
+             BuildableSource::Dist(SourceDist::DirectUrl(dist)) => {
+                 let filename = dist.filename().expect("Distribution must have a filename");
+-                let ParsedArchiveUrl {
+-                    url,
+-                    subdirectory,
+-                    kind,
+-                } = ParsedArchiveUrl::try_from(dist.url.to_url())?;
+ 
+                 // For direct URLs, cache directly under the hash of the URL itself.
+                 let cache_shard = self.build_context.cache().shard(
+                     CacheBucket::SourceDistributions,
+-                    WheelCache::Url(&url).root(),
++                    WheelCache::Url(&dist.url).root(),
+                 );
+ 
+                 self.url(
+                     source,
+                     &filename,
+-                    &url,
++                    &dist.url,
+                     &cache_shard,
+-                    subdirectory.as_deref(),
+-                    kind,
++                    dist.subdirectory.as_deref(),
++                    dist.ext,
+                     tags,
+                     hashes,
+                     client,
+@@ -215,25 +210,20 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+                     .url
+                     .filename()
+                     .expect("Distribution must have a filename");
+-                let ParsedArchiveUrl {
+-                    url,
+-                    subdirectory,
+-                    kind,
+-                } = ParsedArchiveUrl::try_from(resource.url.clone())?;
+ 
+                 // For direct URLs, cache directly under the hash of the URL itself.
+                 let cache_shard = self.build_context.cache().shard(
+                     CacheBucket::SourceDistributions,
+-                    WheelCache::Url(&url).root(),
++                    WheelCache::Url(resource.url).root(),
+                 );
+ 
+                 self.url(
+                     source,
+                     &filename,
+-                    &url,
++                    resource.url,
+                     &cache_shard,
+-                    subdirectory.as_deref(),
+-                    kind,
++                    resource.subdirectory,
++                    resource.ext,
+                     tags,
+                     hashes,
+                     client,
+@@ -298,7 +288,7 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+                                 &PathSourceUrl {
+                                     url: &url,
+                                     path: Cow::Borrowed(path),
+-                                    kind: dist.kind,
++                                    ext: dist.ext,
+                                 },
+                                 &cache_shard,
+                                 hashes,
+@@ -319,7 +309,7 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+                             &PathSourceUrl {
+                                 url: &url,
+                                 path: Cow::Owned(path),
+-                                kind: dist.kind,
++                                ext: dist.ext,
+                             },
+                             &cache_shard,
+                             hashes,
+@@ -334,7 +324,7 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+                     &url,
+                     &cache_shard,
+                     None,
+-                    dist.kind,
++                    dist.ext,
+                     hashes,
+                     client,
+                 )
+@@ -356,7 +346,7 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+                     &dist.url,
+                     &cache_shard,
+                     dist.subdirectory.as_deref(),
+-                    dist.kind,
++                    dist.ext,
+                     hashes,
+                     client,
+                 )
+@@ -400,7 +390,7 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+                     resource.url,
+                     &cache_shard,
+                     resource.subdirectory,
+-                    resource.kind,
++                    resource.ext,
+                     hashes,
+                     client,
+                 )
+@@ -453,7 +443,7 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+         url: &'data Url,
+         cache_shard: &CacheShard,
+         subdirectory: Option<&'data Path>,
+-        kind: FileKind,
++        ext: SourceDistExtension,
+         tags: &Tags,
+         hashes: HashPolicy<'_>,
+         client: &ManagedClient<'_>,
+@@ -462,7 +452,7 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+ 
+         // Fetch the revision for the source distribution.
+         let revision = self
+-            .url_revision(source, filename, kind, url, cache_shard, hashes, client)
++            .url_revision(source, filename, ext, url, cache_shard, hashes, client)
+             .await?;
+ 
+         // Before running the build, check that the hashes match.
+@@ -525,7 +515,7 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+         url: &'data Url,
+         cache_shard: &CacheShard,
+         subdirectory: Option<&'data Path>,
+-        kind: FileKind,
++        ext: SourceDistExtension,
+         hashes: HashPolicy<'_>,
+         client: &ManagedClient<'_>,
+     ) -> Result<ArchiveMetadata, Error> {
+@@ -533,7 +523,7 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+ 
+         // Fetch the revision for the source distribution.
+         let revision = self
+-            .url_revision(source, filename, kind, url, cache_shard, hashes, client)
++            .url_revision(source, filename, ext, url, cache_shard, hashes, client)
+             .await?;
+ 
+         // Before running the build, check that the hashes match.
+@@ -614,7 +604,7 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+         &self,
+         source: &BuildableSource<'_>,
+         filename: &str,
+-        kind: FileKind,
++        ext: SourceDistExtension,
+         url: &Url,
+         cache_shard: &CacheShard,
+         hashes: HashPolicy<'_>,
+@@ -641,7 +631,7 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+                 debug!("Downloading source distribution: {source}");
+                 let entry = cache_shard.shard(revision.id()).entry(filename);
+                 let hashes = self
+-                    .download_archive(response, source, filename, kind, entry.path(), hashes)
++                    .download_archive(response, source, filename, ext, entry.path(), hashes)
+                     .await?;
+ 
+                 Ok(revision.with_hashes(hashes))
+@@ -874,7 +864,7 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+         debug!("Unpacking source distribution: {source}");
+         let entry = cache_shard.shard(revision.id()).entry("source");
+         let hashes = self
+-            .persist_archive(&resource.path, resource.kind, entry.path(), hashes)
++            .persist_archive(&resource.path, resource.ext, entry.path(), hashes)
+             .await?;
+         let revision = revision.with_hashes(hashes);
+ 
+@@ -1315,7 +1305,7 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+         response: Response,
+         source: &BuildableSource<'_>,
+         filename: &str,
+-        kind: FileKind,
++        ext: SourceDistExtension,
+         target: &Path,
+         hashes: HashPolicy<'_>,
+     ) -> Result<Vec<HashDigest>, Error> {
+@@ -1337,7 +1327,7 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+ 
+         // Download and unzip the source distribution into a temporary directory.
+         let span = info_span!("download_source_dist", filename = filename, source_dist = %source);
+-        uv_extract::stream::archive(&mut hasher, kind, temp_dir.path()).await?;
++        uv_extract::stream::archive(&mut hasher, ext, temp_dir.path()).await?;
+         drop(span);
+ 
+         // If necessary, exhaust the reader to compute the hash.
+@@ -1369,7 +1359,7 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+     async fn persist_archive(
+         &self,
+         path: &Path,
+-        kind: FileKind,
++        ext: SourceDistExtension,
+         target: &Path,
+         hashes: HashPolicy<'_>,
+     ) -> Result<Vec<HashDigest>, Error> {
+@@ -1391,7 +1381,7 @@ impl<'a, T: BuildContext> SourceDistributionBuilder<'a, T> {
+         let mut hasher = uv_extract::hash::HashReader::new(reader, &mut hashers);
+ 
+         // Unzip the archive into a temporary directory.
+-        uv_extract::stream::archive(&mut hasher, kind, &temp_dir.path()).await?;
++        uv_extract::stream::archive(&mut hasher, ext, &temp_dir.path()).await?;
+ 
+         // If necessary, exhaust the reader to compute the hash.
+         if !hashes.is_none() {
+diff --git a/crates/uv-extract/Cargo.toml b/crates/uv-extract/Cargo.toml
+index baf86ffd621c2..70bbb825fc2a7 100644
+--- a/crates/uv-extract/Cargo.toml
++++ b/crates/uv-extract/Cargo.toml
+@@ -13,6 +13,7 @@ license = { workspace = true }
+ workspace = true
+ 
+ [dependencies]
++distribution-filename = { workspace = true }
+ pypi-types = { workspace = true }
+ 
+ async-compression = { workspace = true, features = ["bzip2", "gzip", "zstd", "xz"] }
+diff --git a/crates/uv-extract/src/stream.rs b/crates/uv-extract/src/stream.rs
+index 5ca0a0d582716..b3886beadb6f7 100644
+--- a/crates/uv-extract/src/stream.rs
++++ b/crates/uv-extract/src/stream.rs
+@@ -2,8 +2,8 @@ use std::path::Path;
+ use std::pin::Pin;
+ 
+ use crate::Error;
++use distribution_filename::SourceDistExtension;
+ use futures::StreamExt;
+-use pypi_types::FileKind;
+ use rustc_hash::FxHashSet;
+ use tokio_util::compat::{FuturesAsyncReadCompatExt, TokioAsyncReadCompatExt};
+ use tracing::warn;
+@@ -231,26 +231,23 @@ pub async fn untar_xz<R: tokio::io::AsyncRead + Unpin>(
+ /// without requiring `Seek`.
+ pub async fn archive<R: tokio::io::AsyncRead + Unpin>(
+     reader: R,
+-    kind: FileKind,
++    ext: SourceDistExtension,
+     target: impl AsRef<Path>,
+ ) -> Result<(), Error> {
+-    match kind {
+-        FileKind::Wheel => {
++    match ext {
++        SourceDistExtension::Zip => {
+             unzip(reader, target).await?;
+         }
+-        FileKind::Zip => {
+-            unzip(reader, target).await?;
+-        }
+-        FileKind::TarGz => {
++        SourceDistExtension::TarGz => {
+             untar_gz(reader, target).await?;
+         }
+-        FileKind::TarBz2 => {
++        SourceDistExtension::TarBz2 => {
+             untar_bz2(reader, target).await?;
+         }
+-        FileKind::TarXz => {
++        SourceDistExtension::TarXz => {
+             untar_xz(reader, target).await?;
+         }
+-        FileKind::TarZstd => {
++        SourceDistExtension::TarZst => {
+             untar_zst(reader, target).await?;
+         }
+     }
+diff --git a/crates/uv-installer/src/plan.rs b/crates/uv-installer/src/plan.rs
+index 993b5b60d9236..e02274edd9a39 100644
+--- a/crates/uv-installer/src/plan.rs
++++ b/crates/uv-installer/src/plan.rs
+@@ -5,14 +5,14 @@ use anyhow::{bail, Result};
+ use rustc_hash::{FxBuildHasher, FxHashMap};
+ use tracing::debug;
+ 
+-use distribution_filename::WheelFilename;
++use distribution_filename::{DistExtension, WheelFilename};
+ use distribution_types::{
+     CachedDirectUrlDist, CachedDist, DirectUrlBuiltDist, DirectUrlSourceDist, DirectorySourceDist,
+     Error, GitSourceDist, Hashed, IndexLocations, InstalledDist, Name, PathBuiltDist,
+     PathSourceDist, RemoteSource, Verbatim,
+ };
+ use platform_tags::Tags;
+-use pypi_types::{FileKind, Requirement, RequirementSource};
++use pypi_types::{Requirement, RequirementSource};
+ use uv_cache::{ArchiveTimestamp, Cache, CacheBucket, WheelCache};
+ use uv_configuration::{BuildOptions, Reinstall};
+ use uv_distribution::{
+@@ -153,11 +153,11 @@ impl<'a> Planner<'a> {
+                 RequirementSource::Url {
+                     location,
+                     subdirectory,
+-                    kind,
++                    ext,
+                     url,
+                 } => {
+-                    match kind {
+-                        FileKind::Wheel => {
++                    match ext {
++                        DistExtension::Wheel => {
+                             // Validate that the name in the wheel matches that of the requirement.
+                             let filename = WheelFilename::from_str(&url.filename()?)?;
+                             if filename.name != requirement.name {
+@@ -215,16 +215,12 @@ impl<'a> Planner<'a> {
+                                 }
+                             }
+                         }
+-                        FileKind::Zip
+-                        | FileKind::TarGz
+-                        | FileKind::TarBz2
+-                        | FileKind::TarXz
+-                        | FileKind::TarZstd => {
++                        DistExtension::Source(ext) => {
+                             let sdist = DirectUrlSourceDist {
+                                 name: requirement.name.clone(),
+                                 location: location.clone(),
+                                 subdirectory: subdirectory.clone(),
+-                                kind: *kind,
++                                ext: *ext,
+                                 url: url.clone(),
+                             };
+                             // Find the most-compatible wheel from the cache, since we don't know
+@@ -304,7 +300,7 @@ impl<'a> Planner<'a> {
+                 }
+ 
+                 RequirementSource::Path {
+-                    kind,
++                    ext,
+                     url,
+                     install_path,
+                     lock_path,
+@@ -318,8 +314,8 @@ impl<'a> Planner<'a> {
+                         Err(err) => return Err(err.into()),
+                     };
+ 
+-                    match kind {
+-                        FileKind::Wheel => {
++                    match ext {
++                        DistExtension::Wheel => {
+                             // Validate that the name in the wheel matches that of the requirement.
+                             let filename = WheelFilename::from_str(&url.filename()?)?;
+                             if filename.name != requirement.name {
+@@ -381,13 +377,13 @@ impl<'a> Planner<'a> {
+                                 }
+                             }
+                         }
+-                        kind => {
++                        DistExtension::Source(ext) => {
+                             let sdist = PathSourceDist {
+                                 name: requirement.name.clone(),
+                                 url: url.clone(),
+                                 install_path: path,
+                                 lock_path: lock_path.clone(),
+-                                kind: *kind,
++                                ext: *ext,
+                             };
+ 
+                             // Find the most-compatible wheel from the cache, since we don't know
+diff --git a/crates/uv-installer/src/satisfies.rs b/crates/uv-installer/src/satisfies.rs
+index a66804adec677..1a5aac961fbdc 100644
+--- a/crates/uv-installer/src/satisfies.rs
++++ b/crates/uv-installer/src/satisfies.rs
+@@ -44,7 +44,7 @@ impl RequirementSatisfaction {
+                 // records `"url": "https://github.com/tqdm/tqdm"` in `direct_url.json`.
+                 location: requested_url,
+                 subdirectory: requested_subdirectory,
+-                kind: _,
++                ext: _,
+                 url: _,
+             } => {
+                 let InstalledDist::Url(InstalledDirectUrlDist {
+@@ -151,7 +151,7 @@ impl RequirementSatisfaction {
+             RequirementSource::Path {
+                 install_path: requested_path,
+                 lock_path: _,
+-                kind: _,
++                ext: _,
+                 url: _,
+             } => {
+                 let InstalledDist::Url(InstalledDirectUrlDist { direct_url, .. }) = &distribution
+diff --git a/crates/uv-python/Cargo.toml b/crates/uv-python/Cargo.toml
+index 7aeb7727c6d45..90d3496ed6e1a 100644
+--- a/crates/uv-python/Cargo.toml
++++ b/crates/uv-python/Cargo.toml
+@@ -14,14 +14,15 @@ workspace = true
+ 
+ [dependencies]
+ cache-key = { workspace = true }
++distribution-filename = { workspace = true }
+ install-wheel-rs = { workspace = true }
+ pep440_rs = { workspace = true }
+ pep508_rs = { workspace = true }
+ platform-tags = { workspace = true }
+ pypi-types = { workspace = true }
+ uv-cache = { workspace = true }
+-uv-configuration = { workspace = true }
+ uv-client = { workspace = true }
++uv-configuration = { workspace = true }
+ uv-extract = { workspace = true }
+ uv-fs = { workspace = true }
+ uv-state = { workspace = true }
+diff --git a/crates/uv-python/src/downloads.rs b/crates/uv-python/src/downloads.rs
+index 039e5204fc7e3..eb6a0bff74bf4 100644
+--- a/crates/uv-python/src/downloads.rs
++++ b/crates/uv-python/src/downloads.rs
+@@ -5,15 +5,15 @@ use std::pin::Pin;
+ use std::str::FromStr;
+ use std::task::{Context, Poll};
+ 
++use distribution_filename::{ExtensionError, SourceDistExtension};
+ use futures::TryStreamExt;
+ use owo_colors::OwoColorize;
++use pypi_types::{HashAlgorithm, HashDigest};
+ use thiserror::Error;
+ use tokio::io::{AsyncRead, ReadBuf};
+ use tokio_util::compat::FuturesAsyncReadCompatExt;
+ use tracing::{debug, instrument};
+ use url::Url;
+-
+-use pypi_types::{FileKind, HashAlgorithm, HashDigest};
+ use uv_cache::Cache;
+ use uv_client::WrappedReqwestError;
+ use uv_extract::hash::Hasher;
+@@ -32,6 +32,8 @@ pub enum Error {
+     Io(#[from] io::Error),
+     #[error(transparent)]
+     ImplementationError(#[from] ImplementationError),
++    #[error("Expected download URL (`{0}`) to end in a supported file extension: {1}")]
++    MissingExtension(String, ExtensionError),
+     #[error("Invalid Python version: {0}")]
+     InvalidPythonVersion(String),
+     #[error("Invalid request key (too many parts): {0}")]
+@@ -423,6 +425,8 @@ impl ManagedPythonDownload {
+         }
+ 
+         let filename = url.path_segments().unwrap().last().unwrap();
++        let ext = SourceDistExtension::from_path(filename)
++            .map_err(|err| Error::MissingExtension(url.to_string(), err))?;
+         let response = client.get(url.clone()).send().await?;
+ 
+         // Ensure the request was successful.
+@@ -458,13 +462,12 @@ impl ManagedPythonDownload {
+         match progress {
+             Some((&reporter, progress)) => {
+                 let mut reader = ProgressReader::new(&mut hasher, progress, reporter);
+-                // STOPSHIP(charlie): Compute kind.
+-                uv_extract::stream::archive(&mut reader, FileKind::TarGz, temp_dir.path())
++                uv_extract::stream::archive(&mut reader, ext, temp_dir.path())
+                     .await
+                     .map_err(|err| Error::ExtractError(filename.to_string(), err))?;
+             }
+             None => {
+-                uv_extract::stream::archive(&mut hasher, FileKind::TarGz, temp_dir.path())
++                uv_extract::stream::archive(&mut hasher, ext, temp_dir.path())
+                     .await
+                     .map_err(|err| Error::ExtractError(filename.to_string(), err))?;
+             }
+diff --git a/crates/uv-requirements/src/lookahead.rs b/crates/uv-requirements/src/lookahead.rs
+index 28917de6ebf14..ad171433b411d 100644
+--- a/crates/uv-requirements/src/lookahead.rs
++++ b/crates/uv-requirements/src/lookahead.rs
+@@ -247,14 +247,14 @@ fn required_dist(requirement: &Requirement) -> Result<Option<Dist>, distribution
+         RequirementSource::Url {
+             subdirectory,
+             location,
+-            kind,
++            ext,
+             url,
+         } => Dist::from_http_url(
+             requirement.name.clone(),
+             url.clone(),
+             location.clone(),
+             subdirectory.clone(),
+-            *kind,
++            *ext,
+         )?,
+         RequirementSource::Git {
+             repository,
+@@ -278,14 +278,14 @@ fn required_dist(requirement: &Requirement) -> Result<Option<Dist>, distribution
+         RequirementSource::Path {
+             install_path,
+             lock_path,
+-            kind,
++            ext,
+             url,
+         } => Dist::from_file_url(
+             requirement.name.clone(),
+             url.clone(),
+             install_path,
+             lock_path,
+-            *kind,
++            *ext,
+         )?,
+         RequirementSource::Directory {
+             install_path,
+diff --git a/crates/uv-requirements/src/unnamed.rs b/crates/uv-requirements/src/unnamed.rs
+index 05c00b7486090..0cc2a994c0054 100644
+--- a/crates/uv-requirements/src/unnamed.rs
++++ b/crates/uv-requirements/src/unnamed.rs
+@@ -9,7 +9,7 @@ use serde::Deserialize;
+ use tracing::debug;
+ use url::Host;
+ 
+-use distribution_filename::{SourceDistFilename, WheelFilename};
++use distribution_filename::{DistExtension, SourceDistFilename, WheelFilename};
+ use distribution_types::{
+     BuildableSource, DirectSourceUrl, DirectorySourceUrl, GitSourceUrl, PathSourceUrl,
+     RemoteSource, SourceUrl, UnresolvedRequirement, UnresolvedRequirementSpecification, VersionId,
+@@ -260,16 +260,28 @@ impl<'a, Context: BuildContext> NamedRequirementsResolver<'a, Context> {
+                     editable: parsed_directory_url.editable,
+                 })
+             }
+-            ParsedUrl::Path(parsed_path_url) => SourceUrl::Path(PathSourceUrl {
+-                url: &requirement.url.verbatim,
+-                path: Cow::Borrowed(&parsed_path_url.install_path),
+-                kind: parsed_path_url.kind,
+-            }),
+-            ParsedUrl::Archive(parsed_archive_url) => SourceUrl::Direct(DirectSourceUrl {
+-                url: &parsed_archive_url.url,
+-                subdirectory: parsed_archive_url.subdirectory.as_deref(),
+-                kind: parsed_archive_url.kind,
+-            }),
++            ParsedUrl::Path(parsed_path_url) => {
++                let ext = match parsed_path_url.ext {
++                    DistExtension::Source(ext) => ext,
++                    DistExtension::Wheel => unreachable!(),
++                };
++                SourceUrl::Path(PathSourceUrl {
++                    url: &requirement.url.verbatim,
++                    path: Cow::Borrowed(&parsed_path_url.install_path),
++                    ext,
++                })
++            }
++            ParsedUrl::Archive(parsed_archive_url) => {
++                let ext = match parsed_archive_url.ext {
++                    DistExtension::Source(ext) => ext,
++                    DistExtension::Wheel => unreachable!(),
++                };
++                SourceUrl::Direct(DirectSourceUrl {
++                    url: &parsed_archive_url.url,
++                    subdirectory: parsed_archive_url.subdirectory.as_deref(),
++                    ext,
++                })
++            }
+             ParsedUrl::Git(parsed_git_url) => SourceUrl::Git(GitSourceUrl {
+                 url: &requirement.url.verbatim,
+                 git: &parsed_git_url.url,
+diff --git a/crates/uv-resolver/src/flat_index.rs b/crates/uv-resolver/src/flat_index.rs
+index 5305206de3043..2025b37d24ebb 100644
+--- a/crates/uv-resolver/src/flat_index.rs
++++ b/crates/uv-resolver/src/flat_index.rs
+@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
+ use rustc_hash::FxHashMap;
+ use tracing::instrument;
+ 
+-use distribution_filename::{DistFilename, SourceDistExtension, SourceDistFilename, WheelFilename};
++use distribution_filename::{DistFilename, SourceDistFilename, WheelFilename};
+ use distribution_types::{
+     File, HashComparison, HashPolicy, IncompatibleSource, IncompatibleWheel, IndexUrl,
+     PrioritizedDist, RegistryBuiltWheel, RegistrySourceDist, SourceDistCompatibility,
+@@ -12,7 +12,7 @@ use distribution_types::{
+ };
+ use pep440_rs::Version;
+ use platform_tags::{TagCompatibility, Tags};
+-use pypi_types::{FileKind, HashDigest};
++use pypi_types::HashDigest;
+ use uv_client::FlatIndexEntries;
+ use uv_configuration::BuildOptions;
+ use uv_normalize::PackageName;
+@@ -93,17 +93,11 @@ impl FlatIndex {
+             DistFilename::SourceDistFilename(filename) => {
+                 let compatibility =
+                     Self::source_dist_compatibility(&filename, &file.hashes, hasher, build_options);
+-                let kind = match filename.extension {
+-                    SourceDistExtension::Zip => FileKind::Zip,
+-                    SourceDistExtension::TarGz => FileKind::TarGz,
+-                    SourceDistExtension::TarBz2 => FileKind::TarBz2,
+-                    SourceDistExtension::TarZstd => FileKind::TarZstd,
+-                };
+                 let dist = RegistrySourceDist {
+                     name: filename.name.clone(),
+                     version: filename.version.clone(),
++                    ext: filename.extension,
+                     file: Box::new(file),
+-                    kind,
+                     index,
+                     wheels: vec![],
+                 };
+diff --git a/crates/uv-resolver/src/lock.rs b/crates/uv-resolver/src/lock.rs
+index ad35a4a619498..82ae1a7b1376f 100644
+--- a/crates/uv-resolver/src/lock.rs
++++ b/crates/uv-resolver/src/lock.rs
+@@ -15,7 +15,7 @@ use toml_edit::{value, Array, ArrayOfTables, InlineTable, Item, Table, Value};
+ use url::Url;
+ 
+ use cache_key::RepositoryUrl;
+-use distribution_filename::WheelFilename;
++use distribution_filename::{DistExtension, ExtensionError, SourceDistExtension, WheelFilename};
+ use distribution_types::{
+     BuiltDist, DirectUrlBuiltDist, DirectUrlSourceDist, DirectorySourceDist, Dist,
+     DistributionMetadata, FileLocation, GitSourceDist, HashComparison, IndexUrl, Name,
+@@ -29,7 +29,7 @@ use pep508_rs::{
+ };
+ use platform_tags::{TagCompatibility, TagPriority, Tags};
+ use pypi_types::{
+-    FileKind, HashDigest, ParsedArchiveUrl, ParsedGitUrl, ParsedUrl, Requirement, RequirementSource,
++    HashDigest, ParsedArchiveUrl, ParsedGitUrl, ParsedUrl, Requirement, RequirementSource,
+ };
+ use uv_configuration::{ExtrasSpecification, Upgrade};
+ use uv_distribution::{ArchiveMetadata, Metadata};
+@@ -787,12 +787,11 @@ impl Package {
+                     Ok(Dist::Built(built_dist))
+                 }
+                 Source::Direct(url, direct) => {
+-                    let kind = FileKind::from_path(url.as_ref()).expect("STOPSHIP");
+                     let filename: WheelFilename = self.wheels[best_wheel_index].filename.clone();
+                     let url = Url::from(ParsedArchiveUrl {
+                         url: url.to_url(),
+                         subdirectory: direct.subdirectory.as_ref().map(PathBuf::from),
+-                        kind,
++                        ext: DistExtension::Wheel,
+                     });
+                     let direct_dist = DirectUrlBuiltDist {
+                         filename,
+@@ -840,13 +839,12 @@ impl Package {
+     ) -> Result<Option<distribution_types::SourceDist>, LockError> {
+         let sdist = match &self.id.source {
+             Source::Path(path) => {
+-                let kind = FileKind::from_path(workspace_root.join(path)).expect("STOPSHIP");
+                 let path_dist = PathSourceDist {
+                     name: self.id.name.clone(),
+                     url: verbatim_url(workspace_root.join(path), &self.id)?,
+                     install_path: workspace_root.join(path),
+                     lock_path: path.clone(),
+-                    kind,
++                    ext: SourceDistExtension::from_path(path)?,
+                 };
+                 distribution_types::SourceDist::Path(path_dist)
+             }
+@@ -899,17 +897,18 @@ impl Package {
+                 distribution_types::SourceDist::Git(git_dist)
+             }
+             Source::Direct(url, direct) => {
+-                let kind = FileKind::from_path(url.as_ref()).expect("STOPSHIP");
++                let ext = SourceDistExtension::from_path(url.as_ref())?;
++                let subdirectory = direct.subdirectory.as_ref().map(PathBuf::from);
+                 let url = Url::from(ParsedArchiveUrl {
+                     url: url.to_url(),
+-                    subdirectory: direct.subdirectory.as_ref().map(PathBuf::from),
+-                    kind,
++                    subdirectory: subdirectory.clone(),
++                    ext: DistExtension::Source(ext),
+                 });
+                 let direct_dist = DirectUrlSourceDist {
+                     name: self.id.name.clone(),
+                     location: url.clone(),
+-                    subdirectory: direct.subdirectory.as_ref().map(PathBuf::from),
+-                    kind,
++                    subdirectory: subdirectory.clone(),
++                    ext,
+                     url: VerbatimUrl::from_url(url),
+                 };
+                 distribution_types::SourceDist::DirectUrl(direct_dist)
+@@ -927,7 +926,7 @@ impl Package {
+                     .ok_or_else(|| LockErrorKind::MissingFilename {
+                         id: self.id.clone(),
+                     })?;
+-                let kind = FileKind::from_path(filename.as_ref()).expect("STOPSHIP");
++                let ext = SourceDistExtension::from_path(filename.as_ref())?;
+                 let file = Box::new(distribution_types::File {
+                     dist_info_metadata: false,
+                     filename: filename.to_string(),
+@@ -947,7 +946,7 @@ impl Package {
+                     name: self.id.name.clone(),
+                     version: self.id.version.clone(),
+                     file,
+-                    kind,
++                    ext,
+                     index,
+                     wheels: vec![],
+                 };
+@@ -2238,11 +2237,10 @@ impl Dependency {
+                 RequirementSource::from_verbatim_parsed_url(parsed_url)
+             }
+             Source::Direct(url, direct) => {
+-                let kind = FileKind::from_path(url.as_ref()).expect("STOPSHIP");
+                 let parsed_url = ParsedUrl::Archive(ParsedArchiveUrl {
+                     url: url.to_url(),
+                     subdirectory: direct.subdirectory.as_ref().map(PathBuf::from),
+-                    kind,
++                    ext: DistExtension::from_path(url.as_ref())?,
+                 });
+                 RequirementSource::from_verbatim_parsed_url(parsed_url)
+             }
+@@ -2250,7 +2248,7 @@ impl Dependency {
+                 lock_path: path.clone(),
+                 install_path: workspace_root.join(path),
+                 url: verbatim_url(workspace_root.join(path), &self.package_id)?,
+-                kind: FileKind::from_path(workspace_root.join(path)).expect("STOPSHIP"),
++                ext: DistExtension::from_path(path)?,
+             },
+             Source::Directory(ref path) => RequirementSource::Directory {
+                 editable: false,
+@@ -2471,6 +2469,10 @@ enum LockErrorKind {
+         #[source]
+         ToUrlError,
+     ),
++    /// An error that occurs when the extension can't be determined
++    /// for a given wheel or source distribution.
++    #[error("failed to parse file extension; expected one of: {0}")]
++    MissingExtension(#[from] ExtensionError),
+     /// Failed to parse a git source URL.
+     #[error("failed to parse source git URL")]
+     InvalidGitSourceUrl(
+diff --git a/crates/uv-resolver/src/pubgrub/dependencies.rs b/crates/uv-resolver/src/pubgrub/dependencies.rs
+index c56dd5bcb1b24..ae59ac98ff7ac 100644
+--- a/crates/uv-resolver/src/pubgrub/dependencies.rs
++++ b/crates/uv-resolver/src/pubgrub/dependencies.rs
+@@ -106,13 +106,13 @@ impl PubGrubRequirement {
+             RequirementSource::Url {
+                 subdirectory,
+                 location,
+-                kind,
++                ext,
+                 url,
+             } => {
+                 let parsed_url = ParsedUrl::Archive(ParsedArchiveUrl::from_source(
+                     location.clone(),
+                     subdirectory.clone(),
+-                    *kind,
++                    *ext,
+                 ));
+                 (url, parsed_url)
+             }
+@@ -132,7 +132,7 @@ impl PubGrubRequirement {
+                 (url, parsed_url)
+             }
+             RequirementSource::Path {
+-                kind,
++                ext,
+                 url,
+                 install_path,
+                 lock_path,
+@@ -140,7 +140,7 @@ impl PubGrubRequirement {
+                 let parsed_url = ParsedUrl::Path(ParsedPathUrl::from_source(
+                     install_path.clone(),
+                     lock_path.clone(),
+-                    *kind,
++                    *ext,
+                     url.to_url(),
+                 ));
+                 (url, parsed_url)
+diff --git a/crates/uv-resolver/src/version_map.rs b/crates/uv-resolver/src/version_map.rs
+index 96952c3767677..990e353f444c2 100644
+--- a/crates/uv-resolver/src/version_map.rs
++++ b/crates/uv-resolver/src/version_map.rs
+@@ -4,14 +4,14 @@ use std::sync::OnceLock;
+ use rkyv::{de::deserializers::SharedDeserializeMap, Deserialize};
+ use tracing::instrument;
+ 
+-use distribution_filename::{DistFilename, SourceDistExtension, WheelFilename};
++use distribution_filename::{DistFilename, WheelFilename};
+ use distribution_types::{
+     HashComparison, IncompatibleSource, IncompatibleWheel, IndexUrl, PrioritizedDist,
+     RegistryBuiltWheel, RegistrySourceDist, SourceDistCompatibility, WheelCompatibility,
+ };
+ use pep440_rs::Version;
+ use platform_tags::{IncompatibleTag, TagCompatibility, Tags};
+-use pypi_types::{FileKind, HashDigest, Yanked};
++use pypi_types::{HashDigest, Yanked};
+ use uv_client::{OwnedArchive, SimpleMetadata, VersionFiles};
+ use uv_configuration::BuildOptions;
+ use uv_normalize::PackageName;
+@@ -388,17 +388,11 @@ impl VersionMapLazy {
+                             excluded,
+                             upload_time,
+                         );
+-                        let kind = match filename.extension {
+-                            SourceDistExtension::Zip => FileKind::Zip,
+-                            SourceDistExtension::TarGz => FileKind::TarGz,
+-                            SourceDistExtension::TarBz2 => FileKind::TarBz2,
+-                            SourceDistExtension::TarZstd => FileKind::TarZstd,
+-                        };
+                         let dist = RegistrySourceDist {
+                             name: filename.name.clone(),
+                             version: filename.version.clone(),
++                            ext: filename.extension,
+                             file: Box::new(file),
+-                            kind,
+                             index: self.index.clone(),
+                             wheels: vec![],
+                         };
+diff --git a/crates/uv/tests/cache_clean.rs b/crates/uv/tests/cache_clean.rs
+index fea96cb60c009..ca3da3741265d 100644
+--- a/crates/uv/tests/cache_clean.rs
++++ b/crates/uv/tests/cache_clean.rs
+@@ -57,7 +57,7 @@ fn clean_package_pypi() -> Result<()> {
+     // Assert that the `.rkyv` file is created for `iniconfig`.
+     let rkyv = context
+         .cache_dir
+-        .child("simple-v11")
++        .child("simple-v12")
+         .child("pypi")
+         .child("iniconfig.rkyv");
+     assert!(
+@@ -104,7 +104,7 @@ fn clean_package_index() -> Result<()> {
+     // Assert that the `.rkyv` file is created for `iniconfig`.
+     let rkyv = context
+         .cache_dir
+-        .child("simple-v11")
++        .child("simple-v12")
+         .child("index")
+         .child("e8208120cae3ba69")
+         .child("iniconfig.rkyv");
+diff --git a/crates/uv/tests/pip_compile.rs b/crates/uv/tests/pip_compile.rs
+index e5b057d085b50..3df9e076edfed 100644
+--- a/crates/uv/tests/pip_compile.rs
++++ b/crates/uv/tests/pip_compile.rs
+@@ -11482,7 +11482,7 @@ fn tool_uv_sources() -> Result<()> {
+             "boltons==24.0.0"
+         ]
+         dont_install_me = [
+-            "broken @ https://example.org/does/not/exist"
++            "broken @ https://example.org/does/not/exist.tar.gz"
+         ]
+ 
+         [tool.uv.sources]
+@@ -11510,15 +11510,90 @@ fn tool_uv_sources() -> Result<()> {
+         .arg(require_path)
+         .arg("--extra")
+         .arg("utils"), @r###"
++    success: true
++    exit_code: 0
++    ----- stdout -----
++    # This file was autogenerated by uv via the following command:
++    #    uv pip compile --cache-dir [CACHE_DIR] --preview some_dir/pyproject.toml --extra utils
++    -e ../poetry_editable
++        # via project (some_dir/pyproject.toml)
++    anyio==4.3.0
++        # via poetry-editable
++    boltons @ git+https://github.com/mahmoud/boltons@57fbaa9b673ed85b32458b31baeeae230520e4a0
++        # via project (some_dir/pyproject.toml)
++    idna==3.6
++        # via anyio
++    packaging @ git+https://github.com/pypa/packaging@32deafe8668a2130a3366b98154914d188f3718e
++        # via project (some_dir/pyproject.toml)
++    sniffio==1.3.1
++        # via anyio
++    tqdm @ https://files.pythonhosted.org/packages/a5/d6/502a859bac4ad5e274255576cd3e15ca273cdb91731bc39fb840dd422ee9/tqdm-4.66.0-py3-none-any.whl
++        # via project (some_dir/pyproject.toml)
++    urllib3 @ https://files.pythonhosted.org/packages/a2/73/a68704750a7679d0b6d3ad7aa8d4da8e14e151ae82e6fee774e6e0d05ec8/urllib3-2.2.1-py3-none-any.whl
++        # via project (some_dir/pyproject.toml)
++
++    ----- stderr -----
++    Resolved 8 packages in [TIME]
++    "###
++    );
++
++    Ok(())
++}
++
++#[test]
++fn invalid_tool_uv_sources() -> Result<()> {
++    let context = TestContext::new("3.12");
++
++    // Write an invalid extension on a PEP 508 URL.
++    let pyproject_toml = context.temp_dir.child("pyproject.toml");
++    pyproject_toml.write_str(indoc! {r#"
++        [project]
++        name = "project"
++        version = "0.0.0"
++        dependencies = [
++          "urllib3 @ https://files.pythonhosted.org/packages/a2/73/a68704750a7679d0b6d3ad7aa8d4da8e14e151ae82e6fee774e6e0d05ec8/urllib3-2.2.1-py3-none-any.tar.baz",
++        ]
++    "#})?;
++
++    uv_snapshot!(context.filters(), context.pip_compile()
++        .arg("--preview")
++        .arg(context.temp_dir.join("pyproject.toml")), @r###"
+     success: false
+     exit_code: 2
+     ----- stdout -----
+ 
+     ----- stderr -----
+     error: Failed to parse metadata from built wheel
+-      Caused by: Expected direct URL dependency to include an extension: `https://example.org/does/not/exist`
+-    broken @ https://example.org/does/not/exist ; extra == 'dont_install_me'
+-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++      Caused by: Expected direct URL (`https://files.pythonhosted.org/packages/a2/73/a68704750a7679d0b6d3ad7aa8d4da8e14e151ae82e6fee774e6e0d05ec8/urllib3-2.2.1-py3-none-any.tar.baz`) to end in a supported file extension: `.whl`, `.zip`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, or `.tar.zst`
++    urllib3 @ https://files.pythonhosted.org/packages/a2/73/a68704750a7679d0b6d3ad7aa8d4da8e14e151ae82e6fee774e6e0d05ec8/urllib3-2.2.1-py3-none-any.tar.baz
++              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++    "###
++    );
++
++    // Write an invalid extension on a source.
++    let pyproject_toml = context.temp_dir.child("pyproject.toml");
++    pyproject_toml.write_str(indoc! {r#"
++        [project]
++        name = "project"
++        version = "0.0.0"
++        dependencies = [
++          "urllib3",
++        ]
++
++        [tool.uv.sources]
++        urllib3 = { url = "https://files.pythonhosted.org/packages/a2/73/a68704750a7679d0b6d3ad7aa8d4da8e14e151ae82e6fee774e6e0d05ec8/urllib3-2.2.1-py3-none-any.tar.baz" }
++    "#})?;
++
++    uv_snapshot!(context.filters(), context.pip_compile()
++        .arg("--preview")
++        .arg(context.temp_dir.join("pyproject.toml")), @r###"
++    success: false
++    exit_code: 2
++    ----- stdout -----
++
++    ----- stderr -----
++    error: Failed to parse entry for: `urllib3`
++      Caused by: Expected direct URL (`https://files.pythonhosted.org/packages/a2/73/a68704750a7679d0b6d3ad7aa8d4da8e14e151ae82e6fee774e6e0d05ec8/urllib3-2.2.1-py3-none-any.tar.baz`) to end in a supported file extension: `.whl`, `.zip`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, or `.tar.zst`
+     "###
+     );
+ 
+diff --git a/crates/uv/tests/pip_install.rs b/crates/uv/tests/pip_install.rs
+index 2a4f2c41d2078..fa7b4716e3b30 100644
+--- a/crates/uv/tests/pip_install.rs
++++ b/crates/uv/tests/pip_install.rs
+@@ -5676,7 +5676,7 @@ fn tool_uv_sources() -> Result<()> {
+             "boltons==24.0.0"
+         ]
+         dont_install_me = [
+-            "broken @ https://example.org/does/not/exist"
++            "broken @ https://example.org/does/not/exist.tar.gz"
+         ]
+ 
+         [tool.uv.sources]
+@@ -5705,15 +5705,23 @@ fn tool_uv_sources() -> Result<()> {
+         .arg(require_path)
+         .arg("--extra")
+         .arg("utils"), @r###"
+-    success: false
+-    exit_code: 2
++    success: true
++    exit_code: 0
+     ----- stdout -----
+ 
+     ----- stderr -----
+-    error: Failed to parse metadata from built wheel
+-      Caused by: Expected direct URL dependency to include an extension: `https://example.org/does/not/exist`
+-    broken @ https://example.org/does/not/exist ; extra == 'dont_install_me'
+-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++    Resolved 9 packages in [TIME]
++    Prepared 9 packages in [TIME]
++    Installed 9 packages in [TIME]
++     + anyio==4.3.0
++     + boltons==24.0.1.dev0 (from git+https://github.com/mahmoud/boltons@57fbaa9b673ed85b32458b31baeeae230520e4a0)
++     + colorama==0.4.6
++     + idna==3.6
++     + packaging==24.1.dev0 (from git+https://github.com/pypa/packaging@32deafe8668a2130a3366b98154914d188f3718e)
++     + poetry-editable==0.1.0 (from file://[TEMP_DIR]/poetry_editable)
++     + sniffio==1.3.1
++     + tqdm==4.66.0 (from https://files.pythonhosted.org/packages/a5/d6/502a859bac4ad5e274255576cd3e15ca273cdb91731bc39fb840dd422ee9/tqdm-4.66.0-py3-none-any.whl)
++     + urllib3==2.2.1 (from https://files.pythonhosted.org/packages/a2/73/a68704750a7679d0b6d3ad7aa8d4da8e14e151ae82e6fee774e6e0d05ec8/urllib3-2.2.1-py3-none-any.whl)
+     "###
+     );
+ 
+@@ -6409,3 +6417,43 @@ fn install_build_isolation_package() -> Result<()> {
+ 
+     Ok(())
+ }
++
++/// Install a package with an unsupported extension.
++#[test]
++fn invalid_extension() {
++    let context = TestContext::new("3.8");
++
++    uv_snapshot!(context.filters(), context.pip_install()
++        .arg("ruff @ https://files.pythonhosted.org/packages/f7/69/96766da2cdb5605e6a31ef2734aff0be17901cefb385b885c2ab88896d76/ruff-0.5.6.tar.baz")
++        , @r###"
++    success: false
++    exit_code: 2
++    ----- stdout -----
++
++    ----- stderr -----
++    error: Failed to parse: `ruff @ https://files.pythonhosted.org/packages/f7/69/96766da2cdb5605e6a31ef2734aff0be17901cefb385b885c2ab88896d76/ruff-0.5.6.tar.baz`
++      Caused by: Expected direct URL (`https://files.pythonhosted.org/packages/f7/69/96766da2cdb5605e6a31ef2734aff0be17901cefb385b885c2ab88896d76/ruff-0.5.6.tar.baz`) to end in a supported file extension: `.whl`, `.zip`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, or `.tar.zst`
++    ruff @ https://files.pythonhosted.org/packages/f7/69/96766da2cdb5605e6a31ef2734aff0be17901cefb385b885c2ab88896d76/ruff-0.5.6.tar.baz
++           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++    "###);
++}
++
++/// Install a package without unsupported extension.
++#[test]
++fn no_extension() {
++    let context = TestContext::new("3.8");
++
++    uv_snapshot!(context.filters(), context.pip_install()
++        .arg("ruff @ https://files.pythonhosted.org/packages/f7/69/96766da2cdb5605e6a31ef2734aff0be17901cefb385b885c2ab88896d76/ruff-0.5.6")
++        , @r###"
++    success: false
++    exit_code: 2
++    ----- stdout -----
++
++    ----- stderr -----
++    error: Failed to parse: `ruff @ https://files.pythonhosted.org/packages/f7/69/96766da2cdb5605e6a31ef2734aff0be17901cefb385b885c2ab88896d76/ruff-0.5.6`
++      Caused by: Expected direct URL (`https://files.pythonhosted.org/packages/f7/69/96766da2cdb5605e6a31ef2734aff0be17901cefb385b885c2ab88896d76/ruff-0.5.6`) to end in a supported file extension: `.whl`, `.zip`, `.tar.gz`, `.tar.bz2`, `.tar.xz`, or `.tar.zst`
++    ruff @ https://files.pythonhosted.org/packages/f7/69/96766da2cdb5605e6a31ef2734aff0be17901cefb385b885c2ab88896d76/ruff-0.5.6
++           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
++    "###);
++}

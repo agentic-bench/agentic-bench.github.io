@@ -1,0 +1,19 @@
+[
+  {
+    "path": "ecmascript/parser/src/parser/pat.rs",
+    "line": 114,
+    "original_line": 114,
+    "review_comment": [
+      "Does around line 162 need to be updated to get rid of the syntax error? I think same in parser/expr.rs around 1230?",
+      "Oh.. Thanks. I added bunches of validation logic, but I completely forgot about it."
+    ]
+  },
+  {
+    "path": "ecmascript/parser/src/parser/object.rs",
+    "line": 376,
+    "original_line": 376,
+    "review_comment": [
+      "+1. Thanks! \ud83d\ude42"
+    ]
+  }
+]

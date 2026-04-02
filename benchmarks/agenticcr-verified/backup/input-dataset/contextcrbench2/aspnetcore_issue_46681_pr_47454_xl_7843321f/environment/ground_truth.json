@@ -1,0 +1,19 @@
+[
+  {
+    "path": "src/Servers/Kestrel/Core/src/HttpsConnectionAdapterOptions.cs",
+    "line": 61,
+    "original_line": 61,
+    "review_comment": [
+      "This is unrelated, it just tidied up a bunch of checks."
+    ]
+  },
+  {
+    "path": "src/Servers/Kestrel/Core/src/KestrelServer.cs",
+    "line": 117,
+    "original_line": 117,
+    "review_comment": [
+      "I feel like I'm missing something. This is saying that these methods aren't called when KestrelServer is newed up manually?",
+      "Correct, `KestrelServer` and `KestrelServerImpl` only pass the `IHttpsConfigurationService` to `TransportManager` and `AddressBinder`, so they don't need the parts of the interface that are exclusively for `KestrelConfigurationLoader`."
+    ]
+  }
+]

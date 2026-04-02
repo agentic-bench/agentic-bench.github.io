@@ -1,0 +1,13 @@
+[
+  {
+    "id": 49735,
+    "full_name": "prometheus/prometheus",
+    "lang": "go",
+    "issue_number": 13940,
+    "pr_number": 13941,
+    "diff_hunk": "@@ -174,20 +174,25 @@ func (d *instanceDiscovery) refresh(ctx context.Context) ([]*targetgroup.Group,\n \t\t\tlabels[instanceTagsLabel] = model.LabelValue(tags)\n \t\t}\n \n+\t\taddr := \"\"\n \t\tif server.IPv6 != nil {\n \t\t\tlabels[instancePublicIPv6Label] = model.LabelValue(server.IPv6.Address.String())\n+\t\t\taddr = server.IPv6.Address.String()\n \t\t}\n \n \t\tif server.PublicIP != nil {\n \t\t\tlabels[instancePublicIPv4Label] = model.LabelValue(server.PublicIP.Address.String())\n+\t\t\taddr = server.PublicIP.Address.String()\n \t\t}\n \n \t\tif server.PrivateIP != nil {\n \t\t\tlabels[instancePrivateIPv4Label] = model.LabelValue(*server.PrivateIP)\n+\t\t\taddr = *server.PrivateIP\n+\t\t}\n \n-\t\t\taddr := net.JoinHostPort(*server.PrivateIP, strconv.FormatUint(uint64(d.port), 10))\n+\t\tif addr != \"\" {\n+\t\t\taddr := net.JoinHostPort(addr, strconv.FormatUint(uint64(d.port), 10))\n \t\t\tlabels[model.AddressLabel] = model.LabelValue(addr)\n-\n \t\t\ttargets = append(targets, labels)\n \t\t}\n \t}\n",
+    "diff_hunk_content_with_line_number": "[174][174]  \t\t\tlabels[instanceTagsLabel] = model.LabelValue(tags)\n[175][175]  \t\t}\n[176][176]  \n[][177] +\t\taddr := \"\"\n[177][178]  \t\tif server.IPv6 != nil {\n[178][179]  \t\t\tlabels[instancePublicIPv6Label] = model.LabelValue(server.IPv6.Address.String())\n[][180] +\t\t\taddr = server.IPv6.Address.String()\n[179][181]  \t\t}\n[180][182]  \n[181][183]  \t\tif server.PublicIP != nil {\n[182][184]  \t\t\tlabels[instancePublicIPv4Label] = model.LabelValue(server.PublicIP.Address.String())\n[][185] +\t\t\taddr = server.PublicIP.Address.String()\n[183][186]  \t\t}\n[184][187]  \n[185][188]  \t\tif server.PrivateIP != nil {\n[186][189]  \t\t\tlabels[instancePrivateIPv4Label] = model.LabelValue(*server.PrivateIP)\n[][190] +\t\t\taddr = *server.PrivateIP\n[][191] +\t\t}\n[187][192]  \n[188][] -\t\t\taddr := net.JoinHostPort(*server.PrivateIP, strconv.FormatUint(uint64(d.port), 10))\n[][193] +\t\tif addr != \"\" {\n[][194] +\t\t\taddr := net.JoinHostPort(addr, strconv.FormatUint(uint64(d.port), 10))\n[189][195]  \t\t\tlabels[model.AddressLabel] = model.LabelValue(addr)\n[190][] -\n[191][196]  \t\t\ttargets = append(targets, labels)\n[192][197]  \t\t}\n[193][198]  \t}",
+    "checked_commit_id": "57b6f31a2c36c925da6ca62a36949186e461c6a7",
+    "pr_size": "l"
+  }
+]

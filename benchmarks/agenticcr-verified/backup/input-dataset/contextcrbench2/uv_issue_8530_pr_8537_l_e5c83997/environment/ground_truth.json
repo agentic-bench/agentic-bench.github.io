@@ -1,0 +1,11 @@
+[
+  {
+    "path": "crates/uv/src/commands/build_frontend.rs",
+    "line": 198,
+    "original_line": 198,
+    "review_comment": [
+      "Should I syntax-highlight the code...?",
+      "I'd offset the part of the code you need to copy.\r\n\r\nCould you wrap the line? I like indoc for multiline strings.\r\n\r\nShould we be recommending setuptools here when we're using hatchling in uv init?"
+    ]
+  }
+]

@@ -1,0 +1,13 @@
+[
+  {
+    "id": 13038,
+    "full_name": "dotnet/aspnetcore",
+    "lang": "c_sharp",
+    "issue_number": 47228,
+    "pr_number": 48595,
+    "diff_hunk": "@@ -0,0 +1,28 @@\n+// Licensed to the .NET Foundation under one or more agreements.\n+// The .NET Foundation licenses this file to you under the MIT license.\n+\n+using Microsoft.AspNetCore.DataProtection;\n+using Microsoft.Extensions.Options;\n+\n+namespace Microsoft.AspNetCore.Authentication.BearerToken;\n+\n+internal sealed class BearerTokenConfigureOptions(IDataProtectionProvider dp) : IConfigureNamedOptions<BearerTokenOptions>\n+{\n+    private const string _primaryPurpose = \"Microsoft.AspNetCore.Authentication.BearerToken\";\n+\n+    public void Configure(string? schemeName, BearerTokenOptions options)\n+    {\n+        if (schemeName is null)\n+        {\n+            return;\n+        }\n+\n+        options.BearerTokenProtector = new TicketDataFormat(dp.CreateProtector(_primaryPurpose, schemeName, \"BearerToken\"));\n+        options.RefreshTokenProtector = new TicketDataFormat(dp.CreateProtector(_primaryPurpose, schemeName, \"RefreshToken\"));\n+    }\n+\n+    public void Configure(BearerTokenOptions options)\n+    {\n+        throw new NotImplementedException();\n+    }\n+}\n",
+    "diff_hunk_content_with_line_number": "[][1] +// Licensed to the .NET Foundation under one or more agreements.\n[][2] +// The .NET Foundation licenses this file to you under the MIT license.\n[][3] +\n[][4] +using Microsoft.AspNetCore.DataProtection;\n[][5] +using Microsoft.Extensions.Options;\n[][6] +\n[][7] +namespace Microsoft.AspNetCore.Authentication.BearerToken;\n[][8] +\n[][9] +internal sealed class BearerTokenConfigureOptions(IDataProtectionProvider dp) : IConfigureNamedOptions<BearerTokenOptions>\n[][10] +{\n[][11] +    private const string _primaryPurpose = \"Microsoft.AspNetCore.Authentication.BearerToken\";\n[][12] +\n[][13] +    public void Configure(string? schemeName, BearerTokenOptions options)\n[][14] +    {\n[][15] +        if (schemeName is null)\n[][16] +        {\n[][17] +            return;\n[][18] +        }\n[][19] +\n[][20] +        options.BearerTokenProtector = new TicketDataFormat(dp.CreateProtector(_primaryPurpose, schemeName, \"BearerToken\"));\n[][21] +        options.RefreshTokenProtector = new TicketDataFormat(dp.CreateProtector(_primaryPurpose, schemeName, \"RefreshToken\"));\n[][22] +    }\n[][23] +\n[][24] +    public void Configure(BearerTokenOptions options)\n[][25] +    {\n[][26] +        throw new NotImplementedException();\n[][27] +    }\n[][28] +}",
+    "checked_commit_id": "8ca9423c655f025f5cfc97d882dbb7dde88ad63c",
+    "pr_size": "xl"
+  }
+]

@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "bevy_issue_8506_pr_8508_sm_4d9b00fb"
+contextcrbench2_full_name = "bevyengine/bevy"
+contextcrbench2_lang = "rust"
+contextcrbench2_issue_number = "8506"
+contextcrbench2_issue_title = "Fog crashes on certain mobile devices in WASM"
+contextcrbench2_pr_number = "8508"
+contextcrbench2_pr_title = "Fix WebGL mode for Adreno GPUs"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "4d9b00fbd992166b3efd4df5e2d84f070128d96f"
+contextcrbench2_commit_id = "3943a51e6a29ee17a553e4695bbe72274f90dc13"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2023-04-28T17:12:05Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

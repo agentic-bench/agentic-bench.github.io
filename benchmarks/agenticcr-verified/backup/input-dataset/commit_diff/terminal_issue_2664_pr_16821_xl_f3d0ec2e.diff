@@ -1,0 +1,1910 @@
+diff --git a/.github/actions/spelling/expect/expect.txt b/.github/actions/spelling/expect/expect.txt
+index 9c3928d83cb..6e80d5dcca4 100644
+--- a/.github/actions/spelling/expect/expect.txt
++++ b/.github/actions/spelling/expect/expect.txt
+@@ -1122,8 +1122,8 @@ msix
+ msrc
+ MSVCRTD
+ MTSM
+-munges
+ Munged
++munges
+ murmurhash
+ muxes
+ myapplet
+@@ -1172,6 +1172,7 @@ NOCONTEXTHELP
+ NOCOPYBITS
+ NODUP
+ noexcepts
++NOFONT
+ NOINTEGRALHEIGHT
+ NOINTERFACE
+ NOLINKINFO
+@@ -1887,8 +1888,8 @@ UINTs
+ ul
+ ulcch
+ uld
+-uldb
+ uldash
++uldb
+ ulwave
+ Unadvise
+ unattend
+@@ -1911,8 +1912,8 @@ untextured
+ UPDATEDISPLAY
+ UPDOWN
+ UPKEY
+-UPSS
+ upss
++UPSS
+ uregex
+ URegular
+ usebackq
+diff --git a/src/cascadia/TerminalControl/ControlCore.cpp b/src/cascadia/TerminalControl/ControlCore.cpp
+index 8d3e692b114..3c0e3c53643 100644
+--- a/src/cascadia/TerminalControl/ControlCore.cpp
++++ b/src/cascadia/TerminalControl/ControlCore.cpp
+@@ -337,6 +337,11 @@ namespace winrt::Microsoft::Terminal::Control::implementation
+             _renderEngine = std::make_unique<::Microsoft::Console::Render::AtlasEngine>();
+             _renderer->AddRenderEngine(_renderEngine.get());
+ 
++            // Hook up the warnings callback as early as possible so that we catch everything.
++            _renderEngine->SetWarningCallback([this](HRESULT hr, wil::zwstring_view parameter) {
++                _rendererWarning(hr, parameter);
++            });
++
+             // Initialize our font with the renderer
+             // We don't have to care about DPI. We'll get a change message immediately if it's not 96
+             // and react accordingly.
+@@ -372,12 +377,6 @@ namespace winrt::Microsoft::Terminal::Control::implementation
+ 
+             _terminal->CreateFromSettings(*_settings, *_renderer);
+ 
+-            // IMPORTANT! Set this callback up sooner than later. If we do it
+-            // after Enable, then it'll be possible to paint the frame once
+-            // _before_ the warning handler is set up, and then warnings from
+-            // the first paint will be ignored!
+-            _renderEngine->SetWarningCallback(std::bind(&ControlCore::_rendererWarning, this, std::placeholders::_1));
+-
+             // Tell the render engine to notify us when the swap chain changes.
+             // We do this after we initially set the swapchain so as to avoid
+             // unnecessary callbacks (and locking problems)
+@@ -1007,18 +1006,6 @@ namespace winrt::Microsoft::Terminal::Control::implementation
+             LOG_IF_FAILED(_renderEngine->UpdateFont(_desiredFont, _actualFont, featureMap, axesMap));
+         }
+ 
+-        // If the actual font isn't what was requested...
+-        if (_actualFont.GetFaceName() != _desiredFont.GetFaceName())
+-        {
+-            // Then warn the user that we picked something because we couldn't find their font.
+-            // Format message with user's choice of font and the font that was chosen instead.
+-            const winrt::hstring message{ fmt::format(std::wstring_view{ RS_(L"NoticeFontNotFound") },
+-                                                      _desiredFont.GetFaceName(),
+-                                                      _actualFont.GetFaceName()) };
+-            auto noticeArgs = winrt::make<NoticeEventArgs>(NoticeLevel::Warning, message);
+-            _RaiseNoticeHandlers(*this, std::move(noticeArgs));
+-        }
+-
+         const auto actualNewSize = _actualFont.GetSize();
+         _FontSizeChangedHandlers(*this, winrt::make<FontSizeChangedArgs>(actualNewSize.width, actualNewSize.height));
+     }
+@@ -1706,9 +1693,9 @@ namespace winrt::Microsoft::Terminal::Control::implementation
+         }
+     }
+ 
+-    void ControlCore::_rendererWarning(const HRESULT hr)
++    void ControlCore::_rendererWarning(const HRESULT hr, wil::zwstring_view parameter)
+     {
+-        _RendererWarningHandlers(*this, winrt::make<RendererWarningArgs>(hr));
++        _RendererWarningHandlers(*this, winrt::make<RendererWarningArgs>(hr, winrt::hstring{ parameter }));
+     }
+ 
+     winrt::fire_and_forget ControlCore::_renderEngineSwapChainChanged(const HANDLE sourceHandle)
+diff --git a/src/cascadia/TerminalControl/ControlCore.h b/src/cascadia/TerminalControl/ControlCore.h
+index 6ab42cdbddb..ca557d5be0d 100644
+--- a/src/cascadia/TerminalControl/ControlCore.h
++++ b/src/cascadia/TerminalControl/ControlCore.h
+@@ -379,7 +379,7 @@ namespace winrt::Microsoft::Terminal::Control::implementation
+         winrt::Windows::System::DispatcherQueueTimer _midiAudioSkipTimer{ nullptr };
+ 
+ #pragma region RendererCallbacks
+-        void _rendererWarning(const HRESULT hr);
++        void _rendererWarning(const HRESULT hr, wil::zwstring_view parameter);
+         winrt::fire_and_forget _renderEngineSwapChainChanged(const HANDLE handle);
+         void _rendererBackgroundColorChanged();
+         void _rendererTabColorChanged();
+diff --git a/src/cascadia/TerminalControl/EventArgs.h b/src/cascadia/TerminalControl/EventArgs.h
+index 1c135cdf4f6..2ed2c2b828b 100644
+--- a/src/cascadia/TerminalControl/EventArgs.h
++++ b/src/cascadia/TerminalControl/EventArgs.h
+@@ -148,12 +148,14 @@ namespace winrt::Microsoft::Terminal::Control::implementation
+     struct RendererWarningArgs : public RendererWarningArgsT<RendererWarningArgs>
+     {
+     public:
+-        RendererWarningArgs(const uint64_t hr) :
+-            _Result(hr)
++        RendererWarningArgs(const HRESULT hr, winrt::hstring parameter) :
++            _Result{ hr },
++            _Parameter{ std::move(parameter) }
+         {
+         }
+ 
+-        WINRT_PROPERTY(uint64_t, Result);
++        WINRT_PROPERTY(HRESULT, Result);
++        WINRT_PROPERTY(winrt::hstring, Parameter);
+     };
+ 
+     struct TransparencyChangedEventArgs : public TransparencyChangedEventArgsT<TransparencyChangedEventArgs>
+diff --git a/src/cascadia/TerminalControl/EventArgs.idl b/src/cascadia/TerminalControl/EventArgs.idl
+index 3caea5a0f38..84d87132544 100644
+--- a/src/cascadia/TerminalControl/EventArgs.idl
++++ b/src/cascadia/TerminalControl/EventArgs.idl
+@@ -71,7 +71,8 @@ namespace Microsoft.Terminal.Control
+ 
+     runtimeclass RendererWarningArgs
+     {
+-        UInt64 Result { get; };
++        HRESULT Result { get; };
++        String Parameter { get; };
+     }
+ 
+     runtimeclass TransparencyChangedEventArgs
+@@ -90,7 +91,7 @@ namespace Microsoft.Terminal.Control
+     {
+         Boolean ShowOrHide { get; };
+     }
+-    
++
+     runtimeclass UpdateSelectionMarkersEventArgs
+     {
+         Boolean ClearMarkers { get; };
+diff --git a/src/cascadia/TerminalControl/Resources/en-US/Resources.resw b/src/cascadia/TerminalControl/Resources/en-US/Resources.resw
+index a604fc912e4..05cad3e01ee 100644
+--- a/src/cascadia/TerminalControl/Resources/en-US/Resources.resw
++++ b/src/cascadia/TerminalControl/Resources/en-US/Resources.resw
+@@ -195,12 +195,8 @@
+     <comment>Whenever we encounter an invalid URI or URL we show this string as a warning.</comment>
+   </data>
+   <data name="NoticeFontNotFound" xml:space="preserve">
+-    <value>Unable to find the selected font "{0}".
+-
+-"{1}" has been selected instead.
+-
+-Please either install the missing font or choose another one.</value>
+-    <comment>0 and 1 are names of fonts provided by the user and system respectively.</comment>
++    <value>Unable to find the following fonts: {0}. Please either install the missing or choose different fonts.</value>
++    <comment>This is a warning dialog shown when the user selects a font that isn't installed.</comment>
+   </data>
+   <data name="PixelShaderNotFound" xml:space="preserve">
+     <value>Unable to find the provided shader "{0}".</value>
+@@ -210,8 +206,8 @@ Please either install the missing font or choose another one.</value>
+     <value>Unable to compile the specified pixel shader.</value>
+   </data>
+   <data name="UnexpectedRendererError" xml:space="preserve">
+-    <value>Renderer encountered an unexpected error: {0}</value>
+-    <comment>{0} is an error code.</comment>
++    <value>Renderer encountered an unexpected error {0:#8x}: {1}</value>
++    <comment>{0:#8x} is a placeholder for a Windows error code (e.g. 0x88985002) and {1} is the corresponding message.</comment>
+   </data>
+   <data name="TermControlReadOnly" xml:space="preserve">
+     <value>Read-only mode is enabled.</value>
+diff --git a/src/cascadia/TerminalControl/TermControl.cpp b/src/cascadia/TerminalControl/TermControl.cpp
+index b9c81abe67a..0d593826f16 100644
+--- a/src/cascadia/TerminalControl/TermControl.cpp
++++ b/src/cascadia/TerminalControl/TermControl.cpp
+@@ -993,36 +993,45 @@ namespace winrt::Microsoft::Terminal::Control::implementation
+     // - hr: an  HRESULT describing the warning
+     // Return Value:
+     // - <none>
+-    winrt::fire_and_forget TermControl::_RendererWarning(IInspectable /*sender*/,
+-                                                         Control::RendererWarningArgs args)
++    winrt::fire_and_forget TermControl::_RendererWarning(IInspectable /*sender*/, Control::RendererWarningArgs args)
+     {
+-        const auto hr = static_cast<HRESULT>(args.Result());
+-
+         auto weakThis{ get_weak() };
+         co_await wil::resume_foreground(Dispatcher());
+ 
+-        if (auto control{ weakThis.get() })
++        const auto control = weakThis.get();
++        if (!control)
+         {
+-            winrt::hstring message;
+-            if (HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND) == hr ||
+-                HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND) == hr)
+-            {
+-                message = winrt::hstring{ fmt::format(std::wstring_view{ RS_(L"PixelShaderNotFound") },
+-                                                      (_focused ? _core.FocusedAppearance() : _core.UnfocusedAppearance()).PixelShaderPath()) };
+-            }
+-            else if (D2DERR_SHADER_COMPILE_FAILED == hr)
+-            {
+-                message = winrt::hstring{ fmt::format(std::wstring_view{ RS_(L"PixelShaderCompileFailed") }) };
+-            }
+-            else
+-            {
+-                message = winrt::hstring{ fmt::format(std::wstring_view{ RS_(L"UnexpectedRendererError") },
+-                                                      hr) };
+-            }
++            co_return;
++        }
+ 
+-            auto noticeArgs = winrt::make<NoticeEventArgs>(NoticeLevel::Warning, std::move(message));
+-            control->_RaiseNoticeHandlers(*control, std::move(noticeArgs));
++        const auto hr = args.Result();
++        const auto parameter = args.Parameter();
++        winrt::hstring message;
++
++        switch (hr)
++        {
++        case HRESULT_FROM_WIN32(ERROR_FILE_NOT_FOUND):
++        case HRESULT_FROM_WIN32(ERROR_PATH_NOT_FOUND):
++            message = winrt::hstring{ fmt::format(std::wstring_view{ RS_(L"PixelShaderNotFound") }, parameter) };
++            break;
++        case D2DERR_SHADER_COMPILE_FAILED:
++            message = winrt::hstring{ fmt::format(std::wstring_view{ RS_(L"PixelShaderCompileFailed") }) };
++            break;
++        case DWRITE_E_NOFONT:
++            message = winrt::hstring{ fmt::format(std::wstring_view{ RS_(L"NoticeFontNotFound") }, parameter) };
++            break;
++        default:
++        {
++            wchar_t buf[512];
++            const auto len = FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr, hr, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), &buf[0], ARRAYSIZE(buf), nullptr);
++            const std::wstring_view msg{ &buf[0], len };
++            message = winrt::hstring{ fmt::format(std::wstring_view{ RS_(L"UnexpectedRendererError") }, hr, msg) };
++            break;
+         }
++        }
++
++        auto noticeArgs = winrt::make<NoticeEventArgs>(NoticeLevel::Warning, std::move(message));
++        control->_RaiseNoticeHandlers(*control, std::move(noticeArgs));
+     }
+ 
+     void TermControl::_AttachDxgiSwapChainToXaml(HANDLE swapChainHandle)
+diff --git a/src/cascadia/TerminalSettingsEditor/Appearances.cpp b/src/cascadia/TerminalSettingsEditor/Appearances.cpp
+index d8dc5040de0..60aa55d88f8 100644
+--- a/src/cascadia/TerminalSettingsEditor/Appearances.cpp
++++ b/src/cascadia/TerminalSettingsEditor/Appearances.cpp
+@@ -6,8 +6,8 @@
+ #include "Appearances.g.cpp"
+ #include "AxisKeyValuePair.g.cpp"
+ #include "FeatureKeyValuePair.g.cpp"
+-#include "EnumEntry.h"
+ 
++#include "EnumEntry.h"
+ #include <LibraryResources.h>
+ #include "..\WinRTUtils\inc\Utils.h"
+ 
+@@ -36,28 +36,6 @@ static constexpr std::array<std::wstring_view, 11> DefaultFeatures{
+ 
+ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+ {
+-    bool Font::HasPowerlineCharacters()
+-    {
+-        if (!_hasPowerlineCharacters.has_value())
+-        {
+-            try
+-            {
+-                winrt::com_ptr<IDWriteFont> font;
+-                THROW_IF_FAILED(_family->GetFont(0, font.put()));
+-                BOOL exists{};
+-                // We're actually checking for the "Extended" PowerLine glyph set.
+-                // They're more fun.
+-                THROW_IF_FAILED(font->HasCharacter(0xE0B6, &exists));
+-                _hasPowerlineCharacters = (exists == TRUE);
+-            }
+-            catch (...)
+-            {
+-                _hasPowerlineCharacters = false;
+-            }
+-        }
+-        return _hasPowerlineCharacters.value_or(false);
+-    }
+-
+     Windows::Foundation::Collections::IMap<winrt::hstring, winrt::hstring> Font::FontAxesTagsAndNames()
+     {
+         if (!_fontAxesTagsAndNames)
+@@ -370,6 +348,7 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+             }
+         });
+ 
++        _refreshFontFaceDependents();
+         InitializeFontAxesVector();
+         InitializeFontFeaturesVector();
+ 
+@@ -382,7 +361,120 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         }
+     }
+ 
+-    double AppearanceViewModel::LineHeight() const noexcept
++    winrt::hstring AppearanceViewModel::FontFace() const
++    {
++        return _appearance.SourceProfile().FontInfo().FontFace();
++    }
++
++    void AppearanceViewModel::FontFace(const winrt::hstring& value)
++    {
++        const auto fontInfo = _appearance.SourceProfile().FontInfo();
++        if (fontInfo.FontFace() == value)
++        {
++            return;
++        }
++
++        fontInfo.FontFace(value);
++        _refreshFontFaceDependents();
++
++        _NotifyChanges(L"HasFontFace", L"FontFace");
++    }
++
++    bool AppearanceViewModel::HasFontFace() const
++    {
++        return _appearance.SourceProfile().FontInfo().HasFontFace();
++    }
++
++    void AppearanceViewModel::ClearFontFace()
++    {
++        const auto fontInfo = _appearance.SourceProfile().FontInfo();
++        const auto hadValue = fontInfo.HasFontFace();
++
++        fontInfo.ClearFontFace();
++        _refreshFontFaceDependents();
++
++        if (hadValue)
++        {
++            _NotifyChanges(L"HasFontFace", L"FontFace");
++        }
++    }
++
++    Model::FontConfig AppearanceViewModel::FontFaceOverrideSource() const
++    {
++        return _appearance.SourceProfile().FontInfo().FontFaceOverrideSource();
++    }
++
++    void AppearanceViewModel::_refreshFontFaceDependents()
++    {
++        wil::com_ptr<IDWriteFactory> factory;
++        THROW_IF_FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(factory), reinterpret_cast<::IUnknown**>(factory.addressof())));
++
++        wil::com_ptr<IDWriteFontCollection> fontCollection;
++        THROW_IF_FAILED(factory->GetSystemFontCollection(fontCollection.addressof(), FALSE));
++
++        const auto fontFace = FontFace();
++        std::wstring_view remainingFaceNames{ fontFace };
++        std::wstring primaryFontName;
++        std::wstring missingFonts;
++        std::wstring proportionalFonts;
++        BOOL hasPowerlineCharacters = FALSE;
++
++        til::iterate_font_families(remainingFaceNames, [&](wil::zwstring_view name) {
++            std::wstring* accumulator = nullptr;
++
++            UINT32 index = 0;
++            BOOL exists = FALSE;
++            THROW_IF_FAILED(fontCollection->FindFamilyName(name.c_str(), &index, &exists));
++
++            // Look ma, no goto!
++            do
++            {
++                if (!exists)
++                {
++                    accumulator = &missingFonts;
++                    break;
++                }
++
++                if (primaryFontName.empty())
++                {
++                    primaryFontName = name;
++                }
++
++                wil::com_ptr<IDWriteFontFamily> fontFamily;
++                THROW_IF_FAILED(fontCollection->GetFontFamily(index, fontFamily.addressof()));
++
++                wil::com_ptr<IDWriteFont> font;
++                THROW_IF_FAILED(fontFamily->GetFirstMatchingFont(DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, font.addressof()));
++
++                if (!font.query<IDWriteFont1>()->IsMonospacedFont())
++                {
++                    accumulator = &proportionalFonts;
++                }
++
++                // We're actually checking for the "Extended" PowerLine glyph set.
++                // They're more fun.
++                BOOL hasE0B6 = FALSE;
++                std::ignore = font->HasCharacter(0xE0B6, &hasE0B6);
++                hasPowerlineCharacters |= hasE0B6;
++            } while (false);
++
++            if (accumulator)
++            {
++                if (!accumulator->empty())
++                {
++                    accumulator->append(L", ");
++                }
++                accumulator->append(name);
++            }
++        });
++
++        _primaryFontName = std::move(primaryFontName);
++        MissingFontWarningMessage(winrt::hstring{ missingFonts });
++        ProportionalFontWarningMessage(winrt::hstring{ proportionalFonts });
++        HasPowerlineCharacters(hasPowerlineCharacters);
++    }
++
++    double AppearanceViewModel::LineHeight() const
+     {
+         const auto fontInfo = _appearance.SourceProfile().FontInfo();
+         const auto cellHeight = fontInfo.CellHeight();
+@@ -526,7 +618,7 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+ 
+         // find one axis that does not already exist, and add that
+         // if there are no more possible axes to add, the button is disabled so there shouldn't be a way to get here
+-        const auto possibleAxesTagsAndNames = ProfileViewModel::FindFontWithLocalizedName(FontFace()).FontAxesTagsAndNames();
++        const auto possibleAxesTagsAndNames = ProfileViewModel::FindFontWithLocalizedName(_primaryFontName).FontAxesTagsAndNames();
+         for (const auto tagAndName : possibleAxesTagsAndNames)
+         {
+             if (!fontAxesMap.HasKey(tagAndName.Key()))
+@@ -567,7 +659,7 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         _FontAxesVector.Clear();
+         if (const auto fontAxesMap = _appearance.SourceProfile().FontInfo().FontAxes())
+         {
+-            const auto fontAxesTagToNameMap = ProfileViewModel::FindFontWithLocalizedName(FontFace()).FontAxesTagsAndNames();
++            const auto fontAxesTagToNameMap = ProfileViewModel::FindFontWithLocalizedName(_primaryFontName).FontAxesTagsAndNames();
+             for (const auto axis : fontAxesMap)
+             {
+                 // only show the axes that the font supports
+@@ -585,14 +677,14 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+     // - Determines whether the currently selected font has any variable font axes
+     bool AppearanceViewModel::AreFontAxesAvailable()
+     {
+-        return ProfileViewModel::FindFontWithLocalizedName(FontFace()).FontAxesTagsAndNames().Size() > 0;
++        return ProfileViewModel::FindFontWithLocalizedName(_primaryFontName).FontAxesTagsAndNames().Size() > 0;
+     }
+ 
+     // Method Description:
+     // - Determines whether the currently selected font has any variable font axes that have not already been set
+     bool AppearanceViewModel::CanFontAxesBeAdded()
+     {
+-        if (const auto fontAxesTagToNameMap = ProfileViewModel::FindFontWithLocalizedName(FontFace()).FontAxesTagsAndNames(); fontAxesTagToNameMap.Size() > 0)
++        if (const auto fontAxesTagToNameMap = ProfileViewModel::FindFontWithLocalizedName(_primaryFontName).FontAxesTagsAndNames(); fontAxesTagToNameMap.Size() > 0)
+         {
+             if (const auto fontAxesMap = _appearance.SourceProfile().FontInfo().FontAxes())
+             {
+@@ -641,7 +733,7 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+ 
+         // find one feature that does not already exist, and add that
+         // if there are no more possible features to add, the button is disabled so there shouldn't be a way to get here
+-        const auto possibleFeaturesTagsAndNames = ProfileViewModel::FindFontWithLocalizedName(FontFace()).FontFeaturesTagsAndNames();
++        const auto possibleFeaturesTagsAndNames = ProfileViewModel::FindFontWithLocalizedName(_primaryFontName).FontFeaturesTagsAndNames();
+         for (const auto tagAndName : possibleFeaturesTagsAndNames)
+         {
+             const auto featureKey = tagAndName.Key();
+@@ -684,7 +776,7 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         _FontFeaturesVector.Clear();
+         if (const auto fontFeaturesMap = _appearance.SourceProfile().FontInfo().FontFeatures())
+         {
+-            const auto fontFeaturesTagToNameMap = ProfileViewModel::FindFontWithLocalizedName(FontFace()).FontFeaturesTagsAndNames();
++            const auto fontFeaturesTagToNameMap = ProfileViewModel::FindFontWithLocalizedName(_primaryFontName).FontFeaturesTagsAndNames();
+             for (const auto feature : fontFeaturesMap)
+             {
+                 const auto featureKey = feature.Key();
+@@ -703,14 +795,14 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+     // - Determines whether the currently selected font has any font features
+     bool AppearanceViewModel::AreFontFeaturesAvailable()
+     {
+-        return ProfileViewModel::FindFontWithLocalizedName(FontFace()).FontFeaturesTagsAndNames().Size() > 0;
++        return ProfileViewModel::FindFontWithLocalizedName(_primaryFontName).FontFeaturesTagsAndNames().Size() > 0;
+     }
+ 
+     // Method Description:
+     // - Determines whether the currently selected font has any font features that have not already been set
+     bool AppearanceViewModel::CanFontFeaturesBeAdded()
+     {
+-        if (const auto fontFeaturesTagToNameMap = ProfileViewModel::FindFontWithLocalizedName(FontFace()).FontFeaturesTagsAndNames(); fontFeaturesTagToNameMap.Size() > 0)
++        if (const auto fontFeaturesTagToNameMap = ProfileViewModel::FindFontWithLocalizedName(_primaryFontName).FontFeaturesTagsAndNames(); fontFeaturesTagToNameMap.Size() > 0)
+         {
+             if (const auto fontFeaturesMap = _appearance.SourceProfile().FontInfo().FontFeatures())
+             {
+@@ -775,9 +867,7 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+ 
+     DependencyProperty Appearances::_AppearanceProperty{ nullptr };
+ 
+-    Appearances::Appearances() :
+-        _ShowAllFonts{ false },
+-        _ShowProportionalFontWarning{ false }
++    Appearances::Appearances()
+     {
+         InitializeComponent();
+ 
+@@ -848,61 +938,58 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         INITIALIZE_BINDABLE_ENUM_SETTING(IntenseTextStyle, IntenseTextStyle, winrt::Microsoft::Terminal::Settings::Model::IntenseStyle, L"Appearance_IntenseTextStyle", L"Content");
+     }
+ 
+-    // Method Description:
+-    // - Searches through our list of monospace fonts to determine if the settings model's current font face is a monospace font
+-    bool Appearances::UsingMonospaceFont() const noexcept
++    IObservableVector<Editor::Font> Appearances::FilteredFontList()
+     {
+-        auto result{ false };
+-        const auto currentFont{ Appearance().FontFace() };
+-        for (const auto& font : ProfileViewModel::MonospaceFontList())
++        if (!_filteredFonts)
+         {
+-            if (font.LocalizedName() == currentFont)
+-            {
+-                result = true;
+-            }
++            _updateFilteredFontList();
+         }
+-        return result;
++        return _filteredFonts;
+     }
+ 
+     // Method Description:
+     // - Determines whether we should show the list of all the fonts, or we should just show monospace fonts
+     bool Appearances::ShowAllFonts() const noexcept
+     {
+-        // - _ShowAllFonts is directly bound to the checkbox. So this is the user set value.
+-        // - If we are not using a monospace font, show all of the fonts so that the ComboBox is still properly bound
+-        return _ShowAllFonts || !UsingMonospaceFont();
++        return _ShowAllFonts;
+     }
+ 
+-    void Appearances::ShowAllFonts(const bool& value)
++    void Appearances::ShowAllFonts(const bool value)
+     {
+         if (_ShowAllFonts != value)
+         {
+             _ShowAllFonts = value;
++            _filteredFonts = nullptr;
+             _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"ShowAllFonts" });
++            _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"FilteredFontList" });
+         }
+     }
+ 
+-    IInspectable Appearances::CurrentFontFace() const
++    void Appearances::FontFaceBox_GotFocus(const Windows::Foundation::IInspectable& sender, const RoutedEventArgs&)
+     {
+-        const auto& appearanceVM{ Appearance() };
+-        const auto appearanceFontFace{ appearanceVM.FontFace() };
+-        return box_value(ProfileViewModel::FindFontWithLocalizedName(appearanceFontFace));
++        _updateFontNameFilter({});
++        sender.as<AutoSuggestBox>().IsSuggestionListOpen(true);
+     }
+ 
+-    void Appearances::FontFace_SelectionChanged(const IInspectable& /*sender*/, const SelectionChangedEventArgs& e)
++    void Appearances::FontFaceBox_LostFocus(const IInspectable& sender, const RoutedEventArgs&)
+     {
+-        // NOTE: We need to hook up a selection changed event handler here instead of directly binding to the appearance view model.
+-        //       A two way binding to the view model causes an infinite loop because both combo boxes keep fighting over which one's right.
+-        const auto selectedItem{ e.AddedItems().GetAt(0) };
+-        const auto newFontFace{ unbox_value<Editor::Font>(selectedItem) };
+-        Appearance().FontFace(newFontFace.LocalizedName());
+-        if (!UsingMonospaceFont())
++        const auto appearance = Appearance();
++        const auto fontSpec = sender.as<AutoSuggestBox>().Text();
++
++        if (fontSpec.empty())
+         {
+-            ShowProportionalFontWarning(true);
++            appearance.ClearFontFace();
+         }
+         else
+         {
+-            ShowProportionalFontWarning(false);
++            appearance.FontFace(fontSpec);
++        }
++
++        // TODO: Any use of FindFontWithLocalizedName is broken and requires refactoring in time for version 1.21.
++        const auto newFontFace = ProfileViewModel::FindFontWithLocalizedName(fontSpec);
++        if (!newFontFace)
++        {
++            return;
+         }
+ 
+         _FontAxesNames.Clear();
+@@ -948,6 +1035,89 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         }
+     }
+ 
++    void Appearances::FontFaceBox_SuggestionChosen(const AutoSuggestBox& sender, const AutoSuggestBoxSuggestionChosenEventArgs& args)
++    {
++        const auto font = unbox_value<Editor::Font>(args.SelectedItem());
++        const auto fontName = font.Name();
++        auto fontSpec = sender.Text();
++
++        const std::wstring_view fontSpecView{ fontSpec };
++        if (const auto idx = fontSpecView.rfind(L','); idx != std::wstring_view::npos)
++        {
++            const auto prefix = fontSpecView.substr(0, idx);
++            const auto suffix = std::wstring_view{ fontName };
++            fontSpec = winrt::hstring{ fmt::format(FMT_COMPILE(L"{}, {}"), prefix, suffix) };
++        }
++        else
++        {
++            fontSpec = fontName;
++        }
++
++        sender.Text(fontSpec);
++    }
++
++    void Appearances::FontFaceBox_TextChanged(const AutoSuggestBox& sender, const AutoSuggestBoxTextChangedEventArgs& args)
++    {
++        if (args.Reason() != AutoSuggestionBoxTextChangeReason::UserInput)
++        {
++            return;
++        }
++
++        const auto fontSpec = sender.Text();
++        std::wstring_view filter{ fontSpec };
++
++        // Find the last font name in the font, spec, list.
++        if (const auto idx = filter.rfind(L','); idx != std::wstring_view::npos)
++        {
++            filter = filter.substr(idx + 1);
++        }
++
++        filter = til::trim(filter, L' ');
++        _updateFontNameFilter(filter);
++    }
++
++    void Appearances::_updateFontNameFilter(std::wstring_view filter)
++    {
++        if (_fontNameFilter != filter)
++        {
++            _filteredFonts = nullptr;
++            _fontNameFilter = filter;
++            _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"FilteredFontList" });
++        }
++    }
++
++    void Appearances::_updateFilteredFontList()
++    {
++        _filteredFonts = _ShowAllFonts ? ProfileViewModel::CompleteFontList() : ProfileViewModel::MonospaceFontList();
++
++        if (_fontNameFilter.empty())
++        {
++            return;
++        }
++
++        std::vector<Editor::Font> filtered;
++        filtered.reserve(_filteredFonts.Size());
++
++        for (const auto& font : _filteredFonts)
++        {
++            const auto name = font.Name();
++            bool match = til::contains_linguistic_insensitive(name, _fontNameFilter);
++
++            if (!match)
++            {
++                const auto localizedName = font.LocalizedName();
++                match = localizedName != name && til::contains_linguistic_insensitive(localizedName, _fontNameFilter);
++            }
++
++            if (match)
++            {
++                filtered.emplace_back(font);
++            }
++        }
++
++        _filteredFonts = winrt::single_threaded_observable_vector(std::move(filtered));
++    }
++
+     void Appearances::_ViewModelChanged(const DependencyObject& d, const DependencyPropertyChangedEventArgs& /*args*/)
+     {
+         const auto& obj{ d.as<Editor::Appearances>() };
+@@ -956,21 +1126,21 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+ 
+     void Appearances::_UpdateWithNewViewModel()
+     {
+-        if (Appearance())
++        if (const auto appearance = Appearance())
+         {
+-            const auto& biAlignmentVal{ static_cast<int32_t>(Appearance().BackgroundImageAlignment()) };
++            const auto& biAlignmentVal{ static_cast<int32_t>(appearance.BackgroundImageAlignment()) };
+             for (const auto& biButton : _BIAlignmentButtons)
+             {
+                 biButton.IsChecked(biButton.Tag().as<int32_t>() == biAlignmentVal);
+             }
+ 
+             FontAxesCVS().Source(Appearance().FontAxesVector());
+-            Appearance().AreFontAxesAvailable() ? FontAxesContainer().HelpText(RS_(L"Profile_FontAxesAvailable/Text")) : FontAxesContainer().HelpText(RS_(L"Profile_FontAxesUnavailable/Text"));
++            FontAxesContainer().HelpText(appearance.AreFontAxesAvailable() ? RS_(L"Profile_FontAxesAvailable/Text") : RS_(L"Profile_FontAxesUnavailable/Text"));
+ 
+             FontFeaturesCVS().Source(Appearance().FontFeaturesVector());
+-            Appearance().AreFontFeaturesAvailable() ? FontFeaturesContainer().HelpText(RS_(L"Profile_FontFeaturesAvailable/Text")) : FontFeaturesContainer().HelpText(RS_(L"Profile_FontFeaturesUnavailable/Text"));
++            FontFeaturesContainer().HelpText(appearance.AreFontFeaturesAvailable() ? RS_(L"Profile_FontFeaturesAvailable/Text") : RS_(L"Profile_FontFeaturesUnavailable/Text"));
+ 
+-            _ViewModelChangedRevoker = Appearance().PropertyChanged(winrt::auto_revoke, [=](auto&&, const PropertyChangedEventArgs& args) {
++            _ViewModelChangedRevoker = appearance.PropertyChanged(winrt::auto_revoke, [=](auto&&, const PropertyChangedEventArgs& args) {
+                 const auto settingName{ args.PropertyName() };
+                 if (settingName == L"CursorShape")
+                 {
+@@ -987,24 +1157,13 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+                 }
+                 else if (settingName == L"BackgroundImageAlignment")
+                 {
+-                    _UpdateBIAlignmentControl(static_cast<int32_t>(Appearance().BackgroundImageAlignment()));
++                    _UpdateBIAlignmentControl(static_cast<int32_t>(appearance.BackgroundImageAlignment()));
+                 }
+                 else if (settingName == L"FontWeight")
+                 {
+                     _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"CurrentFontWeight" });
+                     _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"IsCustomFontWeight" });
+                 }
+-                else if (settingName == L"FontFace" || settingName == L"CurrentFontList")
+-                {
+-                    // notify listener that all font face related values might have changed
+-                    if (!UsingMonospaceFont())
+-                    {
+-                        _ShowAllFonts = true;
+-                    }
+-                    _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"CurrentFontFace" });
+-                    _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"ShowAllFonts" });
+-                    _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"UsingMonospaceFont" });
+-                }
+                 else if (settingName == L"IntenseTextStyle")
+                 {
+                     _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"CurrentIntenseTextStyle" });
+@@ -1040,12 +1199,10 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+             _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"IsVintageCursor" });
+             _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"CurrentColorScheme" });
+             _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"CurrentBackgroundImageStretchMode" });
+-            _UpdateBIAlignmentControl(static_cast<int32_t>(Appearance().BackgroundImageAlignment()));
++            _UpdateBIAlignmentControl(static_cast<int32_t>(appearance.BackgroundImageAlignment()));
+             _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"CurrentFontWeight" });
+             _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"IsCustomFontWeight" });
+-            _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"CurrentFontFace" });
+             _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"ShowAllFonts" });
+-            _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"UsingMonospaceFont" });
+             _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"CurrentIntenseTextStyle" });
+             _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"CurrentAdjustIndistinguishableColors" });
+             _PropertyChangedHandlers(*this, PropertyChangedEventArgs{ L"ShowProportionalFontWarning" });
+diff --git a/src/cascadia/TerminalSettingsEditor/Appearances.h b/src/cascadia/TerminalSettingsEditor/Appearances.h
+index 651523b7a69..d39503b8407 100644
+--- a/src/cascadia/TerminalSettingsEditor/Appearances.h
++++ b/src/cascadia/TerminalSettingsEditor/Appearances.h
+@@ -31,15 +31,14 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+     struct Font : FontT<Font>
+     {
+     public:
+-        Font(winrt::hstring name, winrt::hstring localizedName, IDWriteFontFamily* family) :
++        Font(winrt::hstring name, winrt::hstring localizedName, wil::com_ptr<IDWriteFontFamily> family) :
+             _Name{ std::move(name) },
+-            _LocalizedName{ std::move(localizedName) }
++            _LocalizedName{ std::move(localizedName) },
++            _family{ std::move(family) }
+         {
+-            _family.copy_from(family);
+         }
+ 
+         hstring ToString() { return _LocalizedName; }
+-        bool HasPowerlineCharacters();
+         Windows::Foundation::Collections::IMap<winrt::hstring, winrt::hstring> FontAxesTagsAndNames();
+         Windows::Foundation::Collections::IMap<winrt::hstring, winrt::hstring> FontFeaturesTagsAndNames();
+ 
+@@ -47,14 +46,12 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         WINRT_PROPERTY(hstring, LocalizedName);
+ 
+     private:
+-        winrt::com_ptr<IDWriteFontFamily> _family;
+-        std::optional<bool> _hasPowerlineCharacters;
+-
+         winrt::hstring _tagToString(DWRITE_FONT_AXIS_TAG tag);
+         winrt::hstring _tagToString(DWRITE_FONT_FEATURE_TAG tag);
+ 
+         Windows::Foundation::Collections::IMap<winrt::hstring, winrt::hstring> _fontAxesTagsAndNames;
+         Windows::Foundation::Collections::IMap<winrt::hstring, winrt::hstring> _fontFeaturesTagsAndNames;
++        wil::com_ptr<IDWriteFontFamily> _family;
+     };
+ 
+     struct AxisKeyValuePair : AxisKeyValuePairT<AxisKeyValuePair>, ViewModelHelper<AxisKeyValuePair>
+@@ -108,11 +105,18 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+     public:
+         AppearanceViewModel(const Model::AppearanceConfig& appearance);
+ 
+-        double LineHeight() const noexcept;
++        winrt::hstring FontFace() const;
++        void FontFace(const winrt::hstring& value);
++        bool HasFontFace() const;
++        void ClearFontFace();
++        Model::FontConfig FontFaceOverrideSource() const;
++
++        double LineHeight() const;
+         void LineHeight(const double value);
+         bool HasLineHeight() const;
+         void ClearLineHeight();
+         Model::FontConfig LineHeightOverrideSource() const;
++
+         void SetFontWeightFromDouble(double fontWeight);
+         void SetBackgroundImageOpacityFromPercentageValue(double percentageValue);
+         void SetBackgroundImagePath(winrt::hstring path);
+@@ -139,13 +143,13 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         bool CanFontFeaturesBeAdded();
+ 
+         WINRT_PROPERTY(bool, IsDefault, false);
++        WINRT_PROPERTY(bool, HasPowerlineCharacters, false);
+ 
+         // These settings are not defined in AppearanceConfig, so we grab them
+         // from the source profile itself. The reason we still want them in the
+         // AppearanceViewModel is so we can continue to have the 'Text' grouping
+         // we currently have in xaml, since that grouping has some settings that
+         // are defined in AppearanceConfig and some that are not.
+-        OBSERVABLE_PROJECTED_SETTING(_appearance.SourceProfile().FontInfo(), FontFace);
+         OBSERVABLE_PROJECTED_SETTING(_appearance.SourceProfile().FontInfo(), FontSize);
+         OBSERVABLE_PROJECTED_SETTING(_appearance.SourceProfile().FontInfo(), FontWeight);
+         OBSERVABLE_PROJECTED_SETTING(_appearance.SourceProfile().FontInfo(), FontAxes);
+@@ -164,37 +168,43 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         OBSERVABLE_PROJECTED_SETTING(_appearance, IntenseTextStyle);
+         OBSERVABLE_PROJECTED_SETTING(_appearance, AdjustIndistinguishableColors);
+         WINRT_OBSERVABLE_PROPERTY(Windows::Foundation::Collections::IObservableVector<Editor::ColorSchemeViewModel>, SchemesList, _propertyChangedHandlers, nullptr);
++        WINRT_OBSERVABLE_PROPERTY(winrt::hstring, MissingFontWarningMessage, _propertyChangedHandlers);
++        WINRT_OBSERVABLE_PROPERTY(winrt::hstring, ProportionalFontWarningMessage, _propertyChangedHandlers);
+         WINRT_OBSERVABLE_PROPERTY(Windows::Foundation::Collections::IObservableVector<Editor::AxisKeyValuePair>, FontAxesVector, _propertyChangedHandlers, nullptr);
+         WINRT_OBSERVABLE_PROPERTY(Windows::Foundation::Collections::IObservableVector<Editor::FeatureKeyValuePair>, FontFeaturesVector, _propertyChangedHandlers, nullptr);
+ 
+     private:
+-        Model::AppearanceConfig _appearance;
+-        winrt::hstring _lastBgImagePath;
+-
++        void _refreshFontFaceDependents();
+         Editor::AxisKeyValuePair _CreateAxisKeyValuePairHelper(winrt::hstring axisKey, float axisValue, const Windows::Foundation::Collections::IMap<winrt::hstring, float>& baseMap, const Windows::Foundation::Collections::IMap<winrt::hstring, winrt::hstring>& tagToNameMap);
+         Editor::FeatureKeyValuePair _CreateFeatureKeyValuePairHelper(winrt::hstring axisKey, uint32_t axisValue, const Windows::Foundation::Collections::IMap<winrt::hstring, uint32_t>& baseMap, const Windows::Foundation::Collections::IMap<winrt::hstring, winrt::hstring>& tagToNameMap);
+-
+         bool _IsDefaultFeature(winrt::hstring featureTag);
++
++        Model::AppearanceConfig _appearance;
++        winrt::hstring _lastBgImagePath;
++        std::wstring _primaryFontName;
+     };
+ 
+     struct Appearances : AppearancesT<Appearances>
+     {
+     public:
+-        Appearances();
++        static winrt::hstring FontAxisName(const winrt::hstring& key);
++        static winrt::hstring FontFeatureName(const winrt::hstring& key);
+ 
+-        // font face
+-        Windows::Foundation::IInspectable CurrentFontFace() const;
++        Appearances();
+ 
+         // CursorShape visibility logic
+         bool IsVintageCursor() const;
+ 
+-        bool UsingMonospaceFont() const noexcept;
++        Windows::Foundation::Collections::IObservableVector<Editor::Font> FilteredFontList();
+         bool ShowAllFonts() const noexcept;
+-        void ShowAllFonts(const bool& value);
++        void ShowAllFonts(bool value);
+ 
++        void FontFaceBox_GotFocus(const Windows::Foundation::IInspectable& sender, const Windows::UI::Xaml::RoutedEventArgs& e);
++        void FontFaceBox_LostFocus(const Windows::Foundation::IInspectable& sender, const Windows::UI::Xaml::RoutedEventArgs& e);
++        void FontFaceBox_SuggestionChosen(const winrt::Windows::UI::Xaml::Controls::AutoSuggestBox&, const winrt::Windows::UI::Xaml::Controls::AutoSuggestBoxSuggestionChosenEventArgs&);
++        void FontFaceBox_TextChanged(const winrt::Windows::UI::Xaml::Controls::AutoSuggestBox&, const winrt::Windows::UI::Xaml::Controls::AutoSuggestBoxTextChangedEventArgs&);
+         fire_and_forget BackgroundImage_Click(const Windows::Foundation::IInspectable& sender, const Windows::UI::Xaml::RoutedEventArgs& e);
+         void BIAlignment_Click(const Windows::Foundation::IInspectable& sender, const Windows::UI::Xaml::RoutedEventArgs& e);
+-        void FontFace_SelectionChanged(const Windows::Foundation::IInspectable& sender, const Windows::UI::Xaml::Controls::SelectionChangedEventArgs& e);
+         void DeleteAxisKeyValuePair_Click(const Windows::Foundation::IInspectable& sender, const Windows::UI::Xaml::RoutedEventArgs& e);
+         void AddNewAxisKeyValuePair_Click(const Windows::Foundation::IInspectable& sender, const Windows::UI::Xaml::RoutedEventArgs& e);
+         void DeleteFeatureKeyValuePair_Click(const Windows::Foundation::IInspectable& sender, const Windows::UI::Xaml::RoutedEventArgs& e);
+@@ -216,21 +226,23 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         GETSET_BINDABLE_ENUM_SETTING(BackgroundImageStretchMode, Windows::UI::Xaml::Media::Stretch, Appearance().BackgroundImageStretchMode);
+ 
+         GETSET_BINDABLE_ENUM_SETTING(IntenseTextStyle, Microsoft::Terminal::Settings::Model::IntenseStyle, Appearance().IntenseTextStyle);
+-        WINRT_OBSERVABLE_PROPERTY(bool, ShowProportionalFontWarning, _PropertyChangedHandlers, nullptr);
+ 
+     private:
+-        bool _ShowAllFonts;
+-        void _UpdateBIAlignmentControl(const int32_t val);
++        Windows::UI::Xaml::Data::INotifyPropertyChanged::PropertyChanged_revoker _ViewModelChangedRevoker;
+         std::array<Windows::UI::Xaml::Controls::Primitives::ToggleButton, 9> _BIAlignmentButtons;
+-
+         Windows::Foundation::Collections::IMap<uint16_t, Microsoft::Terminal::Settings::Editor::EnumEntry> _FontWeightMap;
+         Editor::EnumEntry _CustomFontWeight{ nullptr };
+-
++        Windows::Foundation::Collections::IObservableVector<Editor::Font> _filteredFonts;
+         Windows::Foundation::Collections::IObservableVector<winrt::hstring> _FontAxesNames;
+         Windows::Foundation::Collections::IObservableVector<winrt::hstring> _FontFeaturesNames;
++        std::wstring _fontNameFilter;
++        bool _ShowAllFonts = false;
+ 
+-        Windows::UI::Xaml::Data::INotifyPropertyChanged::PropertyChanged_revoker _ViewModelChangedRevoker;
+         static void _ViewModelChanged(const Windows::UI::Xaml::DependencyObject& d, const Windows::UI::Xaml::DependencyPropertyChangedEventArgs& e);
++
++        void _updateFontNameFilter(std::wstring_view filter);
++        void _updateFilteredFontList();
++        void _UpdateBIAlignmentControl(const int32_t val);
+         void _UpdateWithNewViewModel();
+     };
+ };
+diff --git a/src/cascadia/TerminalSettingsEditor/Appearances.idl b/src/cascadia/TerminalSettingsEditor/Appearances.idl
+index 17ef8a1867a..d9d9819c2ae 100644
+--- a/src/cascadia/TerminalSettingsEditor/Appearances.idl
++++ b/src/cascadia/TerminalSettingsEditor/Appearances.idl
+@@ -21,7 +21,6 @@ namespace Microsoft.Terminal.Settings.Editor
+     {
+         String Name { get; };
+         String LocalizedName { get; };
+-        Boolean HasPowerlineCharacters { get; };
+         Windows.Foundation.Collections.IMap<String, String> FontAxesTagsAndNames { get; };
+         Windows.Foundation.Collections.IMap<String, String> FontFeaturesTagsAndNames { get; };
+     }
+@@ -59,6 +58,10 @@ namespace Microsoft.Terminal.Settings.Editor
+         ColorSchemeViewModel CurrentColorScheme;
+         Windows.Foundation.Collections.IObservableVector<ColorSchemeViewModel> SchemesList;
+ 
++        String MissingFontWarningMessage { get; };
++        String ProportionalFontWarningMessage { get; };
++        Boolean HasPowerlineCharacters { get; };
++
+         void AddNewAxisKeyValuePair();
+         void DeleteAxisKeyValuePair(String key);
+         void InitializeFontAxesVector();
+@@ -102,9 +105,8 @@ namespace Microsoft.Terminal.Settings.Editor
+         IHostedInWindow WindowRoot;
+         static Windows.UI.Xaml.DependencyProperty AppearanceProperty { get; };
+ 
+-        Boolean UsingMonospaceFont { get; };
++        Windows.Foundation.Collections.IObservableVector<Font> FilteredFontList { get; };
+         Boolean ShowAllFonts;
+-        Boolean ShowProportionalFontWarning;
+ 
+         IInspectable CurrentCursorShape;
+         Boolean IsVintageCursor { get; };
+@@ -120,7 +122,6 @@ namespace Microsoft.Terminal.Settings.Editor
+         Boolean IsCustomFontWeight { get; };
+         Windows.Foundation.Collections.IObservableVector<Microsoft.Terminal.Settings.Editor.EnumEntry> FontWeightList { get; };
+ 
+-        IInspectable CurrentFontFace { get; };
+         Windows.UI.Xaml.Controls.Slider BIOpacitySlider { get; };
+ 
+         IInspectable CurrentIntenseTextStyle;
+diff --git a/src/cascadia/TerminalSettingsEditor/Appearances.xaml b/src/cascadia/TerminalSettingsEditor/Appearances.xaml
+index 98e062e5f30..4a663f7b464 100644
+--- a/src/cascadia/TerminalSettingsEditor/Appearances.xaml
++++ b/src/cascadia/TerminalSettingsEditor/Appearances.xaml
+@@ -183,7 +183,6 @@
+             </local:SettingContainer>
+ 
+             <!--  Font Face  -->
+-
+             <local:SettingContainer x:Uid="Profile_FontFace"
+                                     ClearSettingValue="{x:Bind Appearance.ClearFontFace}"
+                                     HasSettingValue="{x:Bind Appearance.HasFontFace, Mode=OneWay}"
+@@ -191,36 +190,32 @@
+                                     Visibility="{x:Bind Appearance.IsDefault, Mode=OneWay}">
+ 
+                 <StackPanel Margin="0,8,0,0">
+-                    <!--
+-                        Binding the ItemsSource to a separate variable that switches between the
+-                        two font lists causes a crash within the ComboBox code.
+-                        As a workaround, introduce two ComboBox controls and only display one at a time.
+-                    -->
+-                    <ComboBox x:Uid="Profile_FontFaceBox"
+-                              ItemTemplate="{StaticResource FontFaceComboBoxItemTemplate}"
+-                              ItemsSource="{x:Bind SourceProfile.MonospaceFontList, Mode=OneWay}"
+-                              SelectedItem="{x:Bind CurrentFontFace, Mode=OneWay}"
+-                              SelectionChanged="FontFace_SelectionChanged"
+-                              Style="{StaticResource ComboBoxSettingStyle}"
+-                              Visibility="{x:Bind mtu:Converters.InvertedBooleanToVisibility(ShowAllFonts), Mode=OneWay}" />
+-                    <ComboBox x:Uid="Profile_FontFaceBox"
+-                              ItemTemplate="{StaticResource FontFaceComboBoxItemTemplate}"
+-                              ItemsSource="{x:Bind SourceProfile.CompleteFontList, Mode=OneWay}"
+-                              SelectedItem="{x:Bind CurrentFontFace, Mode=OneWay}"
+-                              SelectionChanged="FontFace_SelectionChanged"
+-                              Style="{StaticResource ComboBoxSettingStyle}"
+-                              Visibility="{x:Bind ShowAllFonts, Mode=OneWay}" />
++                    <AutoSuggestBox x:Name="_fontFaceBox"
++                                    x:Uid="Profile_FontFaceBox"
++                                    GotFocus="FontFaceBox_GotFocus"
++                                    ItemTemplate="{StaticResource FontFaceComboBoxItemTemplate}"
++                                    ItemsSource="{x:Bind FilteredFontList, Mode=OneWay}"
++                                    LostFocus="FontFaceBox_LostFocus"
++                                    SuggestionChosen="FontFaceBox_SuggestionChosen"
++                                    Text="{x:Bind Appearance.FontFace, Mode=OneWay}"
++                                    TextBoxStyle="{StaticResource TextBoxSettingStyle}"
++                                    TextChanged="FontFaceBox_TextChanged" />
+                     <CheckBox x:Name="ShowAllFontsCheckbox"
+                               x:Uid="Profile_FontFaceShowAllFonts"
+-                              IsChecked="{x:Bind ShowAllFonts, Mode=TwoWay}"
+-                              IsEnabled="{x:Bind UsingMonospaceFont, Mode=OneWay}" />
++                              IsChecked="{x:Bind ShowAllFonts, Mode=TwoWay}" />
+                 </StackPanel>
+             </local:SettingContainer>
++            <muxc:InfoBar x:Uid="Profile_FontFace_MissingFontWarning"
++                          IsClosable="False"
++                          IsOpen="{x:Bind mtu:Converters.StringNotEmpty(Appearance.MissingFontWarningMessage), Mode=OneWay}"
++                          Message="{x:Bind Appearance.MissingFontWarningMessage, Mode=OneWay}"
++                          Severity="Error" />
+             <muxc:InfoBar x:Uid="Profile_FontFace_ProportionalFontWarning"
+-                          IsOpen="{x:Bind ShowProportionalFontWarning, Mode=OneWay}"
++                          IsClosable="False"
++                          IsOpen="{x:Bind mtu:Converters.StringNotEmpty(Appearance.ProportionalFontWarningMessage), Mode=OneWay}"
++                          Message="{x:Bind Appearance.ProportionalFontWarningMessage, Mode=OneWay}"
+                           Severity="Warning" />
+ 
+-
+             <!--  Font Size  -->
+             <local:SettingContainer x:Uid="Profile_FontSize"
+                                     ClearSettingValue="{x:Bind Appearance.ClearFontSize}"
+diff --git a/src/cascadia/TerminalSettingsEditor/Profiles_Appearance.cpp b/src/cascadia/TerminalSettingsEditor/Profiles_Appearance.cpp
+index aa6585e6a14..5295d3042bb 100644
+--- a/src/cascadia/TerminalSettingsEditor/Profiles_Appearance.cpp
++++ b/src/cascadia/TerminalSettingsEditor/Profiles_Appearance.cpp
+@@ -28,16 +28,10 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         _Profile = args.Profile();
+         _windowRoot = args.WindowRoot();
+ 
+-        // generate the font list, if we don't have one
+-        if (_Profile.CompleteFontList() || !_Profile.MonospaceFontList())
+-        {
+-            ProfileViewModel::UpdateFontList();
+-        }
+-
+         if (!_previewControl)
+         {
+             const auto settings = _Profile.TermSettings();
+-            _previewConnection->DisplayPowerlineGlyphs(_looksLikePowerlineFont());
++            _previewConnection->DisplayPowerlineGlyphs(_Profile.DefaultAppearance().HasPowerlineCharacters());
+             _previewControl = Control::TermControl(settings, settings, *_previewConnection);
+             _previewControl.IsEnabled(false);
+             _previewControl.AllowFocusWhenDisabled(false);
+@@ -70,25 +64,10 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+         _Profile.DeleteUnfocusedAppearance();
+     }
+ 
+-    bool Profiles_Appearance::_looksLikePowerlineFont() const
+-    {
+-        if (_Profile && _Profile.DefaultAppearance())
+-        {
+-            if (const auto fontName = _Profile.DefaultAppearance().FontFace(); !fontName.empty())
+-            {
+-                if (const auto font = ProfileViewModel::FindFontWithLocalizedName(fontName))
+-                {
+-                    return font.HasPowerlineCharacters();
+-                }
+-            }
+-        }
+-        return false;
+-    }
+-
+     void Profiles_Appearance::_onProfilePropertyChanged(const IInspectable&, const PropertyChangedEventArgs&) const
+     {
+         const auto settings = _Profile.TermSettings();
+-        _previewConnection->DisplayPowerlineGlyphs(_looksLikePowerlineFont());
++        _previewConnection->DisplayPowerlineGlyphs(_Profile.DefaultAppearance().HasPowerlineCharacters());
+         _previewControl.UpdateControlSettings(settings, settings);
+     }
+ }
+diff --git a/src/cascadia/TerminalSettingsEditor/Profiles_Appearance.h b/src/cascadia/TerminalSettingsEditor/Profiles_Appearance.h
+index 0eadfeb6a6e..e4cc5eadbcf 100644
+--- a/src/cascadia/TerminalSettingsEditor/Profiles_Appearance.h
++++ b/src/cascadia/TerminalSettingsEditor/Profiles_Appearance.h
+@@ -27,7 +27,6 @@ namespace winrt::Microsoft::Terminal::Settings::Editor::implementation
+ 
+     private:
+         void _onProfilePropertyChanged(const IInspectable&, const PropertyChangedEventArgs&) const;
+-        bool _looksLikePowerlineFont() const;
+ 
+         winrt::com_ptr<PreviewConnection> _previewConnection{ nullptr };
+         Microsoft::Terminal::Control::TermControl _previewControl{ nullptr };
+diff --git a/src/cascadia/TerminalSettingsEditor/Resources/en-US/Resources.resw b/src/cascadia/TerminalSettingsEditor/Resources/en-US/Resources.resw
+index 1aa417d74d5..377f2fc875b 100644
+--- a/src/cascadia/TerminalSettingsEditor/Resources/en-US/Resources.resw
++++ b/src/cascadia/TerminalSettingsEditor/Resources/en-US/Resources.resw
+@@ -1757,12 +1757,12 @@
+     <value>Learn more.</value>
+     <comment>A hyperlink displayed near Settings_PortableModeNote.Text that the user can follow for more information.</comment>
+   </data>
+-	<data name="Profile_FontFace_ProportionalFontWarning.Title" xml:space="preserve">
+-    <value>Warning:</value>
+-    <comment>Title for the warning info bar used when a non monospace font face is chosen to indicate that there may be visual artifacts</comment>
++	<data name="Profile_FontFace_MissingFontWarning.Title" xml:space="preserve">
++    <value>Missing fonts:</value>
++    <comment>This is a label that is followed by a list of missing fonts.</comment>
+   </data>
+-	<data name="Profile_FontFace_ProportionalFontWarning.Message" xml:space="preserve">
+-    <value>Choosing a non-monospaced font will likely result in visual artifacts. Use at your own discretion.</value>
+-    <comment>Warning info bar used when a non monospace font face is chosen to indicate that there may be visual artifacts</comment>
++	<data name="Profile_FontFace_ProportionalFontWarning.Title" xml:space="preserve">
++    <value>Non-monospace fonts detected:</value>
++    <comment>This is a label that is followed by a list of proportional fonts.</comment>
+   </data>
+ </root>
+diff --git a/src/cascadia/TerminalSettingsEditor/ViewModelHelpers.h b/src/cascadia/TerminalSettingsEditor/ViewModelHelpers.h
+index e306233ab63..61597935390 100644
+--- a/src/cascadia/TerminalSettingsEditor/ViewModelHelpers.h
++++ b/src/cascadia/TerminalSettingsEditor/ViewModelHelpers.h
+@@ -39,20 +39,21 @@ struct ViewModelHelper
+ 
+ #define _BASE_OBSERVABLE_PROJECTED_SETTING(target, name) \
+ public:                                                  \
+-    auto name() const noexcept                           \
++    auto name() const                                    \
+     {                                                    \
+         return target.name();                            \
+     };                                                   \
+     template<typename T>                                 \
+     void name(const T& value)                            \
+     {                                                    \
+-        if (name() != value)                             \
++        const auto t = target;                           \
++        if (t.name() != value)                           \
+         {                                                \
+-            target.name(value);                          \
++            t.name(value);                               \
+             _NotifyChanges(L"Has" #name, L## #name);     \
+         }                                                \
+     }                                                    \
+-    bool Has##name()                                     \
++    bool Has##name() const                               \
+     {                                                    \
+         return target.Has##name();                       \
+     }
+@@ -63,14 +64,15 @@ public:                                                  \
+     _BASE_OBSERVABLE_PROJECTED_SETTING(target, name) \
+     void Clear##name()                               \
+     {                                                \
+-        const auto hadValue{ target.Has##name() };   \
+-        target.Clear##name();                        \
++        const auto t = target;                       \
++        const auto hadValue{ t.Has##name() };        \
++        t.Clear##name();                             \
+         if (hadValue)                                \
+         {                                            \
+             _NotifyChanges(L"Has" #name, L## #name); \
+         }                                            \
+     }                                                \
+-    auto name##OverrideSource()                      \
++    auto name##OverrideSource() const                \
+     {                                                \
+         return target.name##OverrideSource();        \
+     }
+diff --git a/src/cascadia/UIHelpers/Converters.cpp b/src/cascadia/UIHelpers/Converters.cpp
+index 4fadb445d18..27fb1771d0c 100644
+--- a/src/cascadia/UIHelpers/Converters.cpp
++++ b/src/cascadia/UIHelpers/Converters.cpp
+@@ -89,6 +89,12 @@ namespace winrt::Microsoft::Terminal::UI::implementation
+     {
+         return expected != actual;
+     }
++
++    bool Converters::StringNotEmpty(const winrt::hstring& value)
++    {
++        return !value.empty();
++    }
++
+     winrt::Windows::UI::Xaml::Visibility Converters::StringNotEmptyToVisibility(const winrt::hstring& value)
+     {
+         return value.empty() ? winrt::Windows::UI::Xaml::Visibility::Collapsed : winrt::Windows::UI::Xaml::Visibility::Visible;
+diff --git a/src/cascadia/UIHelpers/Converters.h b/src/cascadia/UIHelpers/Converters.h
+index 366703e4fe7..cc6ba7cceea 100644
+--- a/src/cascadia/UIHelpers/Converters.h
++++ b/src/cascadia/UIHelpers/Converters.h
+@@ -20,6 +20,7 @@ namespace winrt::Microsoft::Terminal::UI::implementation
+         static int PercentageToPercentageValue(double value);
+         static double PercentageValueToPercentage(double value);
+         static bool StringsAreNotEqual(const winrt::hstring& expected, const winrt::hstring& actual);
++        static bool StringNotEmpty(const winrt::hstring& value);
+         static winrt::Windows::UI::Xaml::Visibility StringNotEmptyToVisibility(const winrt::hstring& value);
+         static winrt::hstring StringOrEmptyIfPlaceholder(const winrt::hstring& placeholder, const winrt::hstring& value);
+     };
+diff --git a/src/cascadia/UIHelpers/Converters.idl b/src/cascadia/UIHelpers/Converters.idl
+index 99e70886c7f..190a6057ed6 100644
+--- a/src/cascadia/UIHelpers/Converters.idl
++++ b/src/cascadia/UIHelpers/Converters.idl
+@@ -17,6 +17,7 @@ namespace Microsoft.Terminal.UI
+ 
+         // Strings
+         static Boolean StringsAreNotEqual(String expected, String actual);
++        static Boolean StringNotEmpty(String value);
+         static Windows.UI.Xaml.Visibility StringNotEmptyToVisibility(String value);
+         static String StringOrEmptyIfPlaceholder(String placeholder, String value);
+ 
+diff --git a/src/inc/til/string.h b/src/inc/til/string.h
+index e76639000cf..56b559bc9ff 100644
+--- a/src/inc/til/string.h
++++ b/src/inc/til/string.h
+@@ -202,6 +202,26 @@ namespace til // Terminal Implementation Library. Also: "Today I Learned"
+         return to_ulong<>(str, base);
+     }
+ 
++    // Implement to_int in terms of to_ulong by negating its result. to_ulong does not expect
++    // to be passed signed numbers and will return an error accordingly. That error when
++    // compared against -1 evaluates to true. We account for that by returning to_int_error if to_ulong
++    // returns an error.
++    constexpr int to_int(const std::wstring_view& str, unsigned long base = 0) noexcept
++    {
++        auto result = to_ulong_error;
++        const auto signPosition = str.find(L"-");
++        const bool hasSign = signPosition != std::wstring_view::npos;
++        result = hasSign ? to_ulong(str.substr(signPosition + 1), base) : to_ulong(str, base);
++
++        // Check that result is valid and will fit in an int.
++        if (result == to_ulong_error || (result > INT_MAX))
++        {
++            return to_int_error;
++        }
++
++        return hasSign ? result * -1 : result;
++    }
++
+     // Just like std::tolower, but without annoying locales.
+     template<typename T>
+     constexpr T tolower_ascii(T c)
+@@ -376,6 +396,81 @@ namespace til // Terminal Implementation Library. Also: "Today I Learned"
+         return { beg, end };
+     }
+ 
++    // Splits a font-family list into individual font-families. It loosely follows the CSS spec for font-family.
++    // It splits by comma, handles quotes and simple escape characters, and it cleans whitespace.
++    //
++    // This is not the right place to put this, because it's highly specialized towards font-family names.
++    // But this code is needed both, in our renderer and in our settings UI. At the time I couldn't find a better place for it.
++    void iterate_font_families(const std::wstring_view& families, auto&& callback)
++    {
++        std::wstring family;
++        bool backspace = false;
++        bool delayedSpace = false;
++        wchar_t stringType = 0;
++
++        for (const auto ch : families)
++        {
++            if (!backspace)
++            {
++                switch (ch)
++                {
++                case ' ':
++                    if (stringType)
++                    {
++                        // Spaces are treated literally inside strings.
++                        break;
++                    }
++                    delayedSpace = !family.empty();
++                    continue;
++                case '"':
++                case '\'':
++                    if (stringType && stringType != ch)
++                    {
++                        // Single quotes inside double quotes are treated literally and vice versa.
++                        break;
++                    }
++                    stringType = stringType == ch ? 0 : ch;
++                    continue;
++                case ',':
++                    if (stringType)
++                    {
++                        // Commas are treated literally inside strings.
++                        break;
++                    }
++                    if (!family.empty())
++                    {
++                        callback(std::move(family));
++                        family.clear();
++                        delayedSpace = false;
++                    }
++                    continue;
++                case '\\':
++                    backspace = true;
++                    continue;
++                default:
++                    break;
++                }
++            }
++
++            // The `delayedSpace` logic automatically takes care for us to
++            // strip leading and trailing spaces and deduplicate them too.
++            if (delayedSpace)
++            {
++                delayedSpace = false;
++                family.push_back(L' ');
++            }
++
++            family.push_back(ch);
++            backspace = false;
++        }
++
++        // Just like the comma handler above.
++        if (!stringType && !family.empty())
++        {
++            callback(std::move(family));
++        }
++    }
++
+     // This function is appropriate for case-insensitive equivalence testing of file paths and other "system" strings.
+     // Similar to memcmp, this returns <0, 0 or >0.
+     inline int compare_ordinal_insensitive(const std::wstring_view& lhs, const std::wstring_view& rhs) noexcept
+@@ -426,24 +521,4 @@ namespace til // Terminal Implementation Library. Also: "Today I Learned"
+ #pragma warning(suppress : 26477) // Use 'nullptr' rather than 0 or NULL (es.47).
+         return FindNLSStringEx(LOCALE_NAME_USER_DEFAULT, LINGUISTIC_IGNORECASE, str.data(), strLen, needle.data(), needleLen, nullptr, nullptr, nullptr, 0) != -1;
+     }
+-
+-    // Implement to_int in terms of to_ulong by negating its result. to_ulong does not expect
+-    // to be passed signed numbers and will return an error accordingly. That error when
+-    // compared against -1 evaluates to true. We account for that by returning to_int_error if to_ulong
+-    // returns an error.
+-    constexpr int to_int(const std::wstring_view& str, unsigned long base = 0) noexcept
+-    {
+-        auto result = to_ulong_error;
+-        const auto signPosition = str.find(L"-");
+-        const bool hasSign = signPosition != std::wstring_view::npos;
+-        result = hasSign ? to_ulong(str.substr(signPosition + 1), base) : to_ulong(str, base);
+-
+-        // Check that result is valid and will fit in an int.
+-        if (result == to_ulong_error || (result > INT_MAX))
+-        {
+-            return to_int_error;
+-        }
+-
+-        return hasSign ? result * -1 : result;
+-    }
+ }
+diff --git a/src/renderer/atlas/AtlasEngine.api.cpp b/src/renderer/atlas/AtlasEngine.api.cpp
+index 30cac1da931..cf382aa2305 100644
+--- a/src/renderer/atlas/AtlasEngine.api.cpp
++++ b/src/renderer/atlas/AtlasEngine.api.cpp
+@@ -264,7 +264,7 @@ try
+     }
+ #endif
+ 
+-    _resolveFontMetrics(nullptr, fontInfoDesired, fontInfo);
++    _resolveFontMetrics(fontInfoDesired, fontInfo);
+     return S_OK;
+ }
+ CATCH_RETURN()
+@@ -426,7 +426,7 @@ void AtlasEngine::SetSoftwareRendering(bool enable) noexcept
+     }
+ }
+ 
+-void AtlasEngine::SetWarningCallback(std::function<void(HRESULT)> pfn) noexcept
++void AtlasEngine::SetWarningCallback(std::function<void(HRESULT, wil::zwstring_view)> pfn) noexcept
+ {
+     _p.warningCallback = std::move(pfn);
+ }
+@@ -455,31 +455,35 @@ void AtlasEngine::SetWarningCallback(std::function<void(HRESULT)> pfn) noexcept
+ 
+ [[nodiscard]] HRESULT AtlasEngine::UpdateFont(const FontInfoDesired& fontInfoDesired, FontInfo& fontInfo, const std::unordered_map<std::wstring_view, uint32_t>& features, const std::unordered_map<std::wstring_view, float>& axes) noexcept
+ {
+-    try
+-    {
+-        _updateFont(fontInfoDesired.GetFaceName().c_str(), fontInfoDesired, fontInfo, features, axes);
+-        return S_OK;
+-    }
+-    CATCH_LOG();
+-
++    // We're currently faced with a font caching bug that we're unable to reproduce locally. See GH#9375.
++    // But it occurs often enough and has no proper workarounds, so we're forced to fix it.
++    //
++    // Our leading theory is: When an app package has a <uap7:Extension Category="windows.sharedFonts">
++    // (like Windows Terminal with Cascadia Mono/Code) and it gets updated, the system locks the file somehow.
++    // DirectWrite still has some information about the font cached though, so it thinks that it still exists,
++    // but using the font causes it to error out because it can't access it. This fact became apparent in
++    // commit 9e86c98 (PR #16196), because it showed that it's definitely not due to FindFamilyName() failing.
++    //
++    // The workaround is to catch the exception and retry it with our nearby fonts manually loaded in.
+     if constexpr (Feature_NearbyFontLoading::IsEnabled())
+     {
+         try
+         {
+-            // _resolveFontMetrics() checks `_api.s->font->fontCollection` for a pre-existing font collection,
+-            // before falling back to using the system font collection. This way we can inject our custom one. See GH#9375.
+-            // Doing it this way is a bit hacky, but it does have the benefit that we can cache a font collection
+-            // instance across font changes, like when zooming the font size rapidly using the scroll wheel.
+-            _api.s.write()->font.write()->fontCollection = FontCache::GetCached();
+-            _updateFont(fontInfoDesired.GetFaceName().c_str(), fontInfoDesired, fontInfo, features, axes);
++            _updateFont(fontInfoDesired, fontInfo, features, axes);
+             return S_OK;
+         }
+         CATCH_LOG();
++
++        // _resolveFontMetrics() checks `_api.s->font->fontCollection` for a pre-existing font collection,
++        // before falling back to using the system font collection. This way we can inject our custom one.
++        // Doing it this way is a bit hacky, but it does have the benefit that we can cache a font collection
++        // instance across font changes, like when zooming the font size rapidly using the scroll wheel.
++        _api.s.write()->font.write()->fontCollection = FontCache::GetCached();
+     }
+ 
+     try
+     {
+-        _updateFont(nullptr, fontInfoDesired, fontInfo, features, axes);
++        _updateFont(fontInfoDesired, fontInfo, features, axes);
+         return S_OK;
+     }
+     CATCH_RETURN();
+@@ -511,7 +515,7 @@ void AtlasEngine::_resolveTransparencySettings() noexcept
+     }
+ }
+ 
+-void AtlasEngine::_updateFont(const wchar_t* faceName, const FontInfoDesired& fontInfoDesired, FontInfo& fontInfo, const std::unordered_map<std::wstring_view, uint32_t>& features, const std::unordered_map<std::wstring_view, float>& axes)
++void AtlasEngine::_updateFont(const FontInfoDesired& fontInfoDesired, FontInfo& fontInfo, const std::unordered_map<std::wstring_view, uint32_t>& features, const std::unordered_map<std::wstring_view, float>& axes)
+ {
+     std::vector<DWRITE_FONT_FEATURE> fontFeatures;
+     if (!features.empty())
+@@ -588,22 +592,19 @@ void AtlasEngine::_updateFont(const wchar_t* faceName, const FontInfoDesired& fo
+     }
+ 
+     const auto font = _api.s.write()->font.write();
+-    _resolveFontMetrics(faceName, fontInfoDesired, fontInfo, font);
++    _resolveFontMetrics(fontInfoDesired, fontInfo, font);
+     font->fontFeatures = std::move(fontFeatures);
+     font->fontAxisValues = std::move(fontAxisValues);
+ }
+ 
+-void AtlasEngine::_resolveFontMetrics(const wchar_t* requestedFaceName, const FontInfoDesired& fontInfoDesired, FontInfo& fontInfo, FontSettings* fontMetrics) const
++void AtlasEngine::_resolveFontMetrics(const FontInfoDesired& fontInfoDesired, FontInfo& fontInfo, FontSettings* fontMetrics) const
+ {
++    const auto& faceName = fontInfoDesired.GetFaceName();
+     const auto requestedFamily = fontInfoDesired.GetFamily();
+     auto requestedWeight = fontInfoDesired.GetWeight();
+     auto fontSize = fontInfoDesired.GetFontSize();
+     auto requestedSize = fontInfoDesired.GetEngineSize();
+ 
+-    if (!requestedFaceName)
+-    {
+-        requestedFaceName = L"Consolas";
+-    }
+     if (!requestedSize.height)
+     {
+         fontSize = 12.0f;
+@@ -624,22 +625,88 @@ void AtlasEngine::_resolveFontMetrics(const wchar_t* requestedFaceName, const Fo
+         THROW_IF_FAILED(_p.dwriteFactory->GetSystemFontCollection(fontCollection.addressof(), FALSE));
+     }
+ 
+-    u32 index = 0;
+-    BOOL exists = false;
+-    THROW_IF_FAILED(fontCollection->FindFamilyName(requestedFaceName, &index, &exists));
+-    THROW_HR_IF(DWRITE_E_NOFONT, !exists);
++    std::wstring primaryFontName;
++    std::wstring missingFontNames;
++    wil::com_ptr<IDWriteFontFamily> primaryFontFamily;
++    wil::com_ptr<IDWriteFontFallbackBuilder> fontFallbackBuilder;
++
++    // Resolves a comma-separated font list similar to CSS' font-family property. The first font in the list
++    // that can be resolved successfully will be the primary font which dictates the cell size among others.
++    // All remaining fonts are "secondary" fonts used for font fallback.
++    til::iterate_font_families(faceName, [&](std::wstring&& fontName) {
++        u32 index = 0;
++        BOOL exists = false;
++        THROW_IF_FAILED(fontCollection->FindFamilyName(fontName.c_str(), &index, &exists));
+ 
+-    wil::com_ptr<IDWriteFontFamily> fontFamily;
+-    THROW_IF_FAILED(fontCollection->GetFontFamily(index, fontFamily.addressof()));
++        if (!exists)
++        {
++            if (!missingFontNames.empty())
++            {
++                missingFontNames.append(L", ");
++            }
++            missingFontNames.append(fontName);
++            return;
++        }
++
++        if (!primaryFontFamily)
++        {
++            primaryFontName = std::move(fontName);
++            THROW_IF_FAILED(fontCollection->GetFontFamily(index, primaryFontFamily.addressof()));
++        }
++        else
++        {
++            if (!fontFallbackBuilder)
++            {
++                THROW_IF_FAILED(_p.dwriteFactory->CreateFontFallbackBuilder(fontFallbackBuilder.addressof()));
++            }
++
++            static constexpr DWRITE_UNICODE_RANGE fullRange{ 0, 0x10FFFF };
++            auto fontNamePtr = fontName.c_str();
++            THROW_IF_FAILED(fontFallbackBuilder->AddMapping(
++                /* ranges                 */ &fullRange,
++                /* rangesCount            */ 1,
++                /* targetFamilyNames      */ &fontNamePtr,
++                /* targetFamilyNamesCount */ 1,
++                /* fontCollection         */ fontCollection.get(),
++                /* localeName             */ nullptr,
++                /* baseFamilyName         */ nullptr,
++                /* scale                  */ 1.0f));
++        }
++    });
++
++    if (!missingFontNames.empty() && _p.warningCallback)
++    {
++        _p.warningCallback(DWRITE_E_NOFONT, missingFontNames);
++    }
++
++    // Fall back to Consolas if no font was found or specified.
++    if (!primaryFontFamily)
++    {
++        primaryFontName = L"Consolas";
++
++        u32 index = 0;
++        BOOL exists = false;
++        THROW_IF_FAILED(fontCollection->FindFamilyName(primaryFontName.c_str(), &index, &exists));
++        THROW_HR_IF(DWRITE_E_NOFONT, !exists);
++
++        THROW_IF_FAILED(fontCollection->GetFontFamily(index, primaryFontFamily.addressof()));
++    }
++
++    auto fontFallback = _api.systemFontFallback;
++    if (fontFallbackBuilder)
++    {
++        THROW_IF_FAILED(fontFallbackBuilder->AddMappings(_api.systemFontFallback.get()));
++        THROW_IF_FAILED(fontFallbackBuilder->CreateFontFallback(fontFallback.put()));
++    }
+ 
+-    wil::com_ptr<IDWriteFont> font;
+-    THROW_IF_FAILED(fontFamily->GetFirstMatchingFont(static_cast<DWRITE_FONT_WEIGHT>(requestedWeight), DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, font.addressof()));
++    wil::com_ptr<IDWriteFont> primaryFont;
++    THROW_IF_FAILED(primaryFontFamily->GetFirstMatchingFont(static_cast<DWRITE_FONT_WEIGHT>(requestedWeight), DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, primaryFont.addressof()));
+ 
+-    wil::com_ptr<IDWriteFontFace> fontFace;
+-    THROW_IF_FAILED(font->CreateFontFace(fontFace.addressof()));
++    wil::com_ptr<IDWriteFontFace> primaryFontFace;
++    THROW_IF_FAILED(primaryFont->CreateFontFace(primaryFontFace.addressof()));
+ 
+     DWRITE_FONT_METRICS metrics{};
+-    fontFace->GetMetrics(&metrics);
++    primaryFontFace->GetMetrics(&metrics);
+ 
+     // Point sizes are commonly treated at a 72 DPI scale
+     // (including by OpenType), whereas DirectWrite uses 96 DPI.
+@@ -665,12 +732,12 @@ void AtlasEngine::_resolveFontMetrics(const wchar_t* requestedFaceName, const Fo
+         static constexpr u32 codePoint = '0';
+ 
+         u16 glyphIndex;
+-        THROW_IF_FAILED(fontFace->GetGlyphIndicesW(&codePoint, 1, &glyphIndex));
++        THROW_IF_FAILED(primaryFontFace->GetGlyphIndicesW(&codePoint, 1, &glyphIndex));
+ 
+         if (glyphIndex)
+         {
+             DWRITE_GLYPH_METRICS glyphMetrics{};
+-            THROW_IF_FAILED(fontFace->GetDesignGlyphMetrics(&glyphIndex, 1, &glyphMetrics, FALSE));
++            THROW_IF_FAILED(primaryFontFace->GetDesignGlyphMetrics(&glyphIndex, 1, &glyphMetrics, FALSE));
+             advanceWidth = static_cast<f32>(glyphMetrics.advanceWidth) * designUnitsPerPx;
+         }
+     }
+@@ -729,12 +796,11 @@ void AtlasEngine::_resolveFontMetrics(const wchar_t* requestedFaceName, const Fo
+             requestedSize.width = gsl::narrow_cast<til::CoordType>(lrintf(fontSize / cellHeight * cellWidth));
+         }
+ 
+-        fontInfo.SetFromEngine(requestedFaceName, requestedFamily, requestedWeight, false, coordSize, requestedSize);
++        fontInfo.SetFromEngine(primaryFontName, requestedFamily, requestedWeight, false, coordSize, requestedSize);
+     }
+ 
+     if (fontMetrics)
+     {
+-        std::wstring fontName{ requestedFaceName };
+         const auto fontWeightU16 = gsl::narrow_cast<u16>(requestedWeight);
+         const auto advanceWidthU16 = gsl::narrow_cast<u16>(lrintf(advanceWidth));
+         const auto baselineU16 = gsl::narrow_cast<u16>(lrintf(baseline));
+@@ -756,8 +822,9 @@ void AtlasEngine::_resolveFontMetrics(const wchar_t* requestedFaceName, const Fo
+         // as we might cause _api to be in an inconsistent state otherwise.
+ 
+         fontMetrics->fontCollection = std::move(fontCollection);
+-        fontMetrics->fontFamily = std::move(fontFamily);
+-        fontMetrics->fontName = std::move(fontName);
++        fontMetrics->fontFallback = std::move(fontFallback);
++        fontMetrics->fontFallback.try_query_to(fontMetrics->fontFallback1.put());
++        fontMetrics->fontName = std::move(primaryFontName);
+         fontMetrics->fontSize = fontSizeInPx;
+         fontMetrics->cellSize = { cellWidth, cellHeight };
+         fontMetrics->fontWeight = fontWeightU16;
+diff --git a/src/renderer/atlas/AtlasEngine.cpp b/src/renderer/atlas/AtlasEngine.cpp
+index 01403ef4b38..094bb2e685d 100644
+--- a/src/renderer/atlas/AtlasEngine.cpp
++++ b/src/renderer/atlas/AtlasEngine.cpp
+@@ -41,8 +41,7 @@ AtlasEngine::AtlasEngine()
+     THROW_IF_FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(_p.dwriteFactory), reinterpret_cast<::IUnknown**>(_p.dwriteFactory.addressof())));
+     _p.dwriteFactory4 = _p.dwriteFactory.try_query<IDWriteFactory4>();
+ 
+-    THROW_IF_FAILED(_p.dwriteFactory->GetSystemFontFallback(_p.systemFontFallback.addressof()));
+-    _p.systemFontFallback1 = _p.systemFontFallback.try_query<IDWriteFontFallback1>();
++    THROW_IF_FAILED(_p.dwriteFactory->GetSystemFontFallback(_api.systemFontFallback.addressof()));
+ 
+     wil::com_ptr<IDWriteTextAnalyzer> textAnalyzer;
+     THROW_IF_FAILED(_p.dwriteFactory->CreateTextAnalyzer(textAnalyzer.addressof()));
+@@ -575,7 +574,7 @@ void AtlasEngine::_recreateFontDependentResources()
+     {
+         wchar_t localeName[LOCALE_NAME_MAX_LENGTH];
+ 
+-        if (FAILED(GetUserDefaultLocaleName(&localeName[0], LOCALE_NAME_MAX_LENGTH)))
++        if (!GetUserDefaultLocaleName(&localeName[0], LOCALE_NAME_MAX_LENGTH))
+         {
+             memcpy(&localeName[0], L"en-US", 12);
+         }
+@@ -841,7 +840,7 @@ void AtlasEngine::_mapCharacters(const wchar_t* text, const u32 textLength, u32*
+ 
+     if (textFormatAxis)
+     {
+-        THROW_IF_FAILED(_p.systemFontFallback1->MapCharacters(
++        THROW_IF_FAILED(_p.s->font->fontFallback1->MapCharacters(
+             /* analysisSource     */ &analysisSource,
+             /* textPosition       */ 0,
+             /* textLength         */ textLength,
+@@ -859,7 +858,7 @@ void AtlasEngine::_mapCharacters(const wchar_t* text, const u32 textLength, u32*
+         const auto baseStyle = WI_IsFlagSet(_api.attributes, FontRelevantAttributes::Italic) ? DWRITE_FONT_STYLE_ITALIC : DWRITE_FONT_STYLE_NORMAL;
+         wil::com_ptr<IDWriteFont> font;
+ 
+-        THROW_IF_FAILED(_p.systemFontFallback->MapCharacters(
++        THROW_IF_FAILED(_p.s->font->fontFallback->MapCharacters(
+             /* analysisSource     */ &analysisSource,
+             /* textPosition       */ 0,
+             /* textLength         */ textLength,
+diff --git a/src/renderer/atlas/AtlasEngine.h b/src/renderer/atlas/AtlasEngine.h
+index a32fa4dc2fc..9a39ab6de4b 100644
+--- a/src/renderer/atlas/AtlasEngine.h
++++ b/src/renderer/atlas/AtlasEngine.h
+@@ -75,7 +75,7 @@ namespace Microsoft::Console::Render::Atlas
+         void SetRetroTerminalEffect(bool enable) noexcept override;
+         void SetSelectionBackground(COLORREF color, float alpha = 0.5f) noexcept override;
+         void SetSoftwareRendering(bool enable) noexcept override;
+-        void SetWarningCallback(std::function<void(HRESULT)> pfn) noexcept override;
++        void SetWarningCallback(std::function<void(HRESULT, wil::zwstring_view)> pfn) noexcept override;
+         [[nodiscard]] HRESULT SetWindowSize(til::size pixels) noexcept override;
+         [[nodiscard]] HRESULT UpdateFont(const FontInfoDesired& pfiFontInfoDesired, FontInfo& fiFontInfo, const std::unordered_map<std::wstring_view, uint32_t>& features, const std::unordered_map<std::wstring_view, float>& axes) noexcept override;
+         void UpdateHyperlinkHoveredId(uint16_t hoveredId) noexcept override;
+@@ -94,8 +94,8 @@ namespace Microsoft::Console::Render::Atlas
+ 
+         // AtlasEngine.api.cpp
+         void _resolveTransparencySettings() noexcept;
+-        void _updateFont(const wchar_t* faceName, const FontInfoDesired& fontInfoDesired, FontInfo& fontInfo, const std::unordered_map<std::wstring_view, uint32_t>& features, const std::unordered_map<std::wstring_view, float>& axes);
+-        void _resolveFontMetrics(const wchar_t* faceName, const FontInfoDesired& fontInfoDesired, FontInfo& fontInfo, FontSettings* fontMetrics = nullptr) const;
++        void _updateFont(const FontInfoDesired& fontInfoDesired, FontInfo& fontInfo, const std::unordered_map<std::wstring_view, uint32_t>& features, const std::unordered_map<std::wstring_view, float>& axes);
++        void _resolveFontMetrics(const FontInfoDesired& fontInfoDesired, FontInfo& fontInfo, FontSettings* fontMetrics = nullptr) const;
+ 
+         // AtlasEngine.r.cpp
+         ATLAS_ATTR_COLD void _recreateAdapter();
+@@ -156,6 +156,7 @@ namespace Microsoft::Console::Render::Atlas
+             Buffer<f32> glyphAdvances;
+             Buffer<DWRITE_GLYPH_OFFSET> glyphOffsets;
+ 
++            wil::com_ptr<IDWriteFontFallback> systemFontFallback;
+             wil::com_ptr<IDWriteFontFace2> replacementCharacterFontFace;
+             u16 replacementCharacterGlyphIndex = 0;
+             bool replacementCharacterLookedUp = false;
+diff --git a/src/renderer/atlas/AtlasEngine.r.cpp b/src/renderer/atlas/AtlasEngine.r.cpp
+index 0c546a8dceb..50c6b95365d 100644
+--- a/src/renderer/atlas/AtlasEngine.r.cpp
++++ b/src/renderer/atlas/AtlasEngine.r.cpp
+@@ -65,7 +65,7 @@ catch (const wil::ResultException& exception)
+     {
+         try
+         {
+-            _p.warningCallback(hr);
++            _p.warningCallback(hr, {});
+         }
+         CATCH_LOG()
+     }
+diff --git a/src/renderer/atlas/BackendD3D.cpp b/src/renderer/atlas/BackendD3D.cpp
+index 308518ec27e..bd41059ceb1 100644
+--- a/src/renderer/atlas/BackendD3D.cpp
++++ b/src/renderer/atlas/BackendD3D.cpp
+@@ -433,7 +433,7 @@ void BackendD3D::_recreateCustomShader(const RenderingPayload& p)
+             }
+             if (p.warningCallback)
+             {
+-                p.warningCallback(D2DERR_SHADER_COMPILE_FAILED);
++                p.warningCallback(D2DERR_SHADER_COMPILE_FAILED, p.s->misc->customPixelShaderPath);
+             }
+         }
+     }
+@@ -1412,7 +1412,7 @@ BackendD3D::AtlasGlyphEntry* BackendD3D::_drawBuiltinGlyph(const RenderingPayloa
+ 
+     if (BuiltinGlyphs::IsSoftFontChar(glyphIndex))
+     {
+-        _drawSoftFontGlyph(p, rect, glyphIndex);
++        shadingType = _drawSoftFontGlyph(p, rect, glyphIndex);
+     }
+     else
+     {
+@@ -1444,8 +1444,14 @@ BackendD3D::AtlasGlyphEntry* BackendD3D::_drawBuiltinGlyph(const RenderingPayloa
+     return glyphEntry;
+ }
+ 
+-void BackendD3D::_drawSoftFontGlyph(const RenderingPayload& p, const stbrp_rect& rect, u32 glyphIndex)
++BackendD3D::ShadingType BackendD3D::_drawSoftFontGlyph(const RenderingPayload& p, const stbrp_rect& rect, u32 glyphIndex)
+ {
++    // This happens if someone wrote a U+EF2x character (by accident), but we don't even have soft fonts enabled yet.
++    if (p.s->font->softFontPattern.empty())
++    {
++        return ShadingType::Default;
++    }
++
+     if (!_softFontBitmap)
+     {
+         // Allocating such a tiny texture is very wasteful (min. texture size on GPUs
+@@ -1496,6 +1502,7 @@ void BackendD3D::_drawSoftFontGlyph(const RenderingPayload& p, const stbrp_rect&
+ 
+     _d2dBeginDrawing();
+     _d2dRenderTarget->DrawBitmap(_softFontBitmap.get(), &dest, 1, interpolation, nullptr, nullptr);
++    return ShadingType::TextGrayscale;
+ }
+ 
+ void BackendD3D::_drawGlyphAtlasAllocate(const RenderingPayload& p, stbrp_rect& rect)
+diff --git a/src/renderer/atlas/BackendD3D.h b/src/renderer/atlas/BackendD3D.h
+index 1ae6b139b4c..f2a388565ef 100644
+--- a/src/renderer/atlas/BackendD3D.h
++++ b/src/renderer/atlas/BackendD3D.h
+@@ -215,7 +215,7 @@ namespace Microsoft::Console::Render::Atlas
+         ATLAS_ATTR_COLD void _drawTextOverlapSplit(const RenderingPayload& p, u16 y);
+         [[nodiscard]] ATLAS_ATTR_COLD AtlasGlyphEntry* _drawGlyph(const RenderingPayload& p, const ShapedRow& row, AtlasFontFaceEntry& fontFaceEntry, u32 glyphIndex);
+         AtlasGlyphEntry* _drawBuiltinGlyph(const RenderingPayload& p, const ShapedRow& row, AtlasFontFaceEntry& fontFaceEntry, u32 glyphIndex);
+-        void _drawSoftFontGlyph(const RenderingPayload& p, const stbrp_rect& rect, u32 glyphIndex);
++        ShadingType _drawSoftFontGlyph(const RenderingPayload& p, const stbrp_rect& rect, u32 glyphIndex);
+         void _drawGlyphAtlasAllocate(const RenderingPayload& p, stbrp_rect& rect);
+         static AtlasGlyphEntry* _drawGlyphAllocateEntry(const ShapedRow& row, AtlasFontFaceEntry& fontFaceEntry, u32 glyphIndex);
+         static void _splitDoubleHeightGlyph(const RenderingPayload& p, const ShapedRow& row, AtlasFontFaceEntry& fontFaceEntry, AtlasGlyphEntry* glyphEntry);
+diff --git a/src/renderer/atlas/common.h b/src/renderer/atlas/common.h
+index 71010b31f77..87652aa183a 100644
+--- a/src/renderer/atlas/common.h
++++ b/src/renderer/atlas/common.h
+@@ -336,7 +336,8 @@ namespace Microsoft::Console::Render::Atlas
+     struct FontSettings
+     {
+         wil::com_ptr<IDWriteFontCollection> fontCollection;
+-        wil::com_ptr<IDWriteFontFamily> fontFamily;
++        wil::com_ptr<IDWriteFontFallback> fontFallback;
++        wil::com_ptr<IDWriteFontFallback1> fontFallback1; // optional, might be nullptr
+         std::wstring fontName;
+         std::vector<DWRITE_FONT_FEATURE> fontFeatures;
+         std::vector<DWRITE_FONT_AXIS_VALUE> fontAxisValues;
+@@ -477,10 +478,8 @@ namespace Microsoft::Console::Render::Atlas
+         wil::com_ptr<ID2D1Factory> d2dFactory;
+         wil::com_ptr<IDWriteFactory2> dwriteFactory;
+         wil::com_ptr<IDWriteFactory4> dwriteFactory4; // optional, might be nullptr
+-        wil::com_ptr<IDWriteFontFallback> systemFontFallback;
+-        wil::com_ptr<IDWriteFontFallback1> systemFontFallback1; // optional, might be nullptr
+         wil::com_ptr<IDWriteTextAnalyzer1> textAnalyzer;
+-        std::function<void(HRESULT)> warningCallback;
++        std::function<void(HRESULT, wil::zwstring_view)> warningCallback;
+         std::function<void(HANDLE)> swapChainChangedCallback;
+ 
+         //// Parameters which are constant for the existence of the backend.
+diff --git a/src/renderer/inc/IRenderEngine.hpp b/src/renderer/inc/IRenderEngine.hpp
+index 016f0f10baa..b25ca7a0b1e 100644
+--- a/src/renderer/inc/IRenderEngine.hpp
++++ b/src/renderer/inc/IRenderEngine.hpp
+@@ -111,7 +111,7 @@ namespace Microsoft::Console::Render
+         virtual void SetRetroTerminalEffect(bool enable) noexcept {}
+         virtual void SetSelectionBackground(const COLORREF color, const float alpha = 0.5f) noexcept {}
+         virtual void SetSoftwareRendering(bool enable) noexcept {}
+-        virtual void SetWarningCallback(std::function<void(HRESULT)> pfn) noexcept {}
++        virtual void SetWarningCallback(std::function<void(HRESULT, wil::zwstring_view)> pfn) noexcept {}
+         [[nodiscard]] virtual HRESULT SetWindowSize(const til::size pixels) noexcept { return E_NOTIMPL; }
+         [[nodiscard]] virtual HRESULT UpdateFont(const FontInfoDesired& pfiFontInfoDesired, FontInfo& fiFontInfo, const std::unordered_map<std::wstring_view, uint32_t>& features, const std::unordered_map<std::wstring_view, float>& axes) noexcept { return E_NOTIMPL; }
+         virtual void UpdateHyperlinkHoveredId(const uint16_t hoveredId) noexcept {}
+diff --git a/src/til/ut_til/string.cpp b/src/til/ut_til/string.cpp
+index 26fbf92ea47..2ef656a04d7 100644
+--- a/src/til/ut_til/string.cpp
++++ b/src/til/ut_til/string.cpp
+@@ -7,6 +7,25 @@ using namespace WEX::Common;
+ using namespace WEX::Logging;
+ using namespace WEX::TestExecution;
+ 
++template<>
++class WEX::TestExecution::VerifyOutputTraits<std::vector<std::wstring>>
++{
++public:
++    static WEX::Common::NoThrowString ToString(const std::vector<std::wstring>& vec)
++    {
++        WEX::Common::NoThrowString str;
++        str.Append(L"{ ");
++        for (size_t i = 0; i < vec.size(); ++i)
++        {
++            str.Append(i == 0 ? L"\"" : L", \"");
++            str.Append(vec[i].c_str());
++            str.Append(L"\"");
++        }
++        str.Append(L" }");
++        return str;
++    }
++};
++
+ class StringTests
+ {
+     TEST_CLASS(StringTests);
+@@ -199,4 +218,24 @@ class StringTests
+         VERIFY_IS_TRUE(til::is_legal_path(LR"(C:\Users\Documents and Settings\Users\;\Why not)"));
+         VERIFY_IS_FALSE(til::is_legal_path(LR"(C:\Users\Documents and Settings\"Quote-un-quote users")"));
+     }
++
++    TEST_METHOD(IterateFontFamilies)
++    {
++        static constexpr auto expected = [](auto&&... args) {
++            return std::vector<std::wstring>{ std::forward<decltype(args)>(args)... };
++        };
++        static constexpr auto actual = [](std::wstring_view families) {
++            std::vector<std::wstring> split;
++            til::iterate_font_families(families, [&](std::wstring&& str) {
++                split.emplace_back(std::move(str));
++            });
++            return split;
++        };
++
++        VERIFY_ARE_EQUAL(expected(L"foo", L" b  a  r ", LR"(b"az)"), actual(LR"(  foo  ," b  a  r ",b\"az)"));
++        VERIFY_ARE_EQUAL(expected(LR"(foo, bar)"), actual(LR"("foo, bar")"));
++        VERIFY_ARE_EQUAL(expected(LR"("foo")", LR"('bar')"), actual(LR"('"foo"', "'bar'")"));
++        VERIFY_ARE_EQUAL(expected(LR"("foo")", LR"('bar')"), actual(LR"("\"foo\"", '\'bar\'')"));
++        VERIFY_ARE_EQUAL(expected(L"foo"), actual(LR"(,,,,foo,,,,)"));
++    }
+ };
+diff --git a/tools/Lock-CascadiaFont.ps1 b/tools/Lock-CascadiaFont.ps1
+new file mode 100644
+index 00000000000..7ae9d7f0d28
+--- /dev/null
++++ b/tools/Lock-CascadiaFont.ps1
+@@ -0,0 +1,76 @@
++# This script is a failed attempt to lock the Cascadia Mono/Code font files in order to reproduce an issue with the font
++# cache service, where it says a font exists, but then failes to use it (see GH#9375). The script doesn't work because
++# for some reason DirectWrite is still able to fully use the fonts. It's left here for reference.
++
++#Requires -RunAsAdministrator
++
++Add-Type -TypeDefinition @"
++using System;
++using System.Runtime.InteropServices;
++
++public class Win32LockFile {
++    public const uint LOCKFILE_FAIL_IMMEDIATELY = 0x00000001;
++    public const uint LOCKFILE_EXCLUSIVE_LOCK = 0x00000002;
++
++    [DllImport("kernel32.dll")]
++    public static extern bool LockFileEx(IntPtr hFile, uint dwFlags, uint dwReserved, uint nNumberOfBytesToLockLow, uint nNumberOfBytesToLockHigh, ref OVERLAPPED lpOverlapped);
++
++    [StructLayout(LayoutKind.Sequential)]
++    public struct OVERLAPPED {
++        public uint Internal;
++        public uint InternalHigh;
++        public uint Offset;
++        public uint OffsetHigh;
++        public IntPtr hEvent;
++    }
++}
++"@
++
++function Lock-File {
++    param(
++        [Parameter(Mandatory=$true)]
++        [string]$Path
++    )
++
++    $file = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
++    $overlapped = New-Object Win32LockFile+OVERLAPPED
++    $result = [Win32LockFile]::LockFileEx(
++        $file.SafeFileHandle.DangerousGetHandle(), # hFile
++        [Win32LockFile]::LOCKFILE_EXCLUSIVE_LOCK,  # dwFlags
++        0,                                         # dwReserved
++        [UInt32]::MaxValue,                        # nNumberOfBytesToLockLow
++        [UInt32]::MaxValue,                        # nNumberOfBytesToLockHigh
++        [ref]$overlapped                           # lpOverlapped
++    )
++
++    if (-not $result) {
++        throw "Failed to lock file"
++    }
++
++    return $file
++}
++
++$fonts = Get-ItemProperty "HKCU:\Software\Microsoft\Windows NT\CurrentVersion\Fonts\*"
++    | ForEach-Object { $_.psobject.Properties }
++    | Where-Object { $_.Name.StartsWith("Cascadia") }
++    | ForEach-Object { $_.Value }
++
++$fonts += @("CascadiaCode.ttf", "CascadiaCodeItalic.ttf", "CascadiaMono.ttf", "CascadiaMonoItalic.ttf")
++    | ForEach-Object { "C:\Windows\Fonts\$_" }
++    | Where-Object { Test-Path $_ }
++
++try {
++    $handles = $fonts | ForEach-Object {
++        try {
++            Lock-File $_
++        }
++        catch {
++            Write-Error $_
++        }
++    }
++    Restart-Service FontCache
++    Write-Host "Press any key to unlock the font files..."
++    $null = $host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
++} finally {
++    $handles | Where-Object { $_ } | ForEach-Object { $_.Close() }
++}

@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "pdf.js_issue_13878_pr_13908_xl_48defd39"
+contextcrbench2_full_name = "mozilla/pdf.js"
+contextcrbench2_lang = "javascript"
+contextcrbench2_issue_number = "13878"
+contextcrbench2_issue_title = "XFA - Searching a text is broken"
+contextcrbench2_pr_number = "13908"
+contextcrbench2_pr_title = "[api-minor] XFA - Support text search in XFA documents."
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "48defd39a67572e442c7e31947dc89af5f9ad46c"
+contextcrbench2_commit_id = "bb471288649c39331d8ee56e8aac83594a1261c3"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2021-08-19T07:46:39Z"
+contextcrbench2_entry_count = "6"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

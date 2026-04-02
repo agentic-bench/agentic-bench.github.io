@@ -1,0 +1,13 @@
+[
+  {
+    "id": 25347,
+    "full_name": "meilisearch/meilisearch",
+    "lang": "rust",
+    "issue_number": 3596,
+    "pr_number": 3597,
+    "diff_hunk": "@@ -987,6 +987,18 @@ impl IndexScheduler {\n             (bitmap.insert(task.uid));\n         })?;\n \n+        utils::insert_task_datetime(&mut wtxn, self.enqueued_at, task.enqueued_at, task.uid)?;\n+\n+        // we can't override the started_at & finished_at, so we must only set it if the tasks is finished and won't change\n+        if matches!(task.status, Status::Succeeded | Status::Failed | Status::Canceled) {\n+            if let Some(started_at) = task.started_at {\n+                utils::insert_task_datetime(&mut wtxn, self.started_at, started_at, task.uid)?;\n+            }\n+            if let Some(finished_at) = task.finished_at {\n+                utils::insert_task_datetime(&mut wtxn, self.finished_at, finished_at, task.uid)?;\n+            }\n+        }\n+\n         wtxn.commit()?;\n         self.wake_up.signal();\n \n",
+    "diff_hunk_content_with_line_number": "[987][987]              (bitmap.insert(task.uid));\n[988][988]          })?;\n[989][989]  \n[][990] +        utils::insert_task_datetime(&mut wtxn, self.enqueued_at, task.enqueued_at, task.uid)?;\n[][991] +\n[][992] +        // we can't override the started_at & finished_at, so we must only set it if the tasks is finished and won't change\n[][993] +        if matches!(task.status, Status::Succeeded | Status::Failed | Status::Canceled) {\n[][994] +            if let Some(started_at) = task.started_at {\n[][995] +                utils::insert_task_datetime(&mut wtxn, self.started_at, started_at, task.uid)?;\n[][996] +            }\n[][997] +            if let Some(finished_at) = task.finished_at {\n[][998] +                utils::insert_task_datetime(&mut wtxn, self.finished_at, finished_at, task.uid)?;\n[][999] +            }\n[][1000] +        }\n[][1001] +\n[990][1002]          wtxn.commit()?;\n[991][1003]          self.wake_up.signal();\n[992][1004]  ",
+    "checked_commit_id": "a2b151e877eec9a2ef12b9c33c76c9abe468f3dd",
+    "pr_size": "xl"
+  }
+]

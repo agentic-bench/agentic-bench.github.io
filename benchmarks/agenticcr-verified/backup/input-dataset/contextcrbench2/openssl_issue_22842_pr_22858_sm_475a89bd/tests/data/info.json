@@ -1,0 +1,8 @@
+{
+    "task_id": "openssl_issue_22842_pr_22858_sm_475a89bd",
+    "repo": "openssl",
+    "issue_number": 22842,
+    "pr_number": 22858,
+    "checked_commit_id": "475a89bd796dec51075efca7d32a5a482540d2ea",
+    "entry_count": 1
+}

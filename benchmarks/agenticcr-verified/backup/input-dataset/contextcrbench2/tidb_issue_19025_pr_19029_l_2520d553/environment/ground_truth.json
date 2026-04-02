@@ -1,0 +1,10 @@
+[
+  {
+    "path": "server/tidb_test.go",
+    "line": 944,
+    "original_line": 944,
+    "review_comment": [
+      "We should add another case: `select null;` and the expectFlag should be `uint16(tmysql.BinaryFlag)`"
+    ]
+  }
+]

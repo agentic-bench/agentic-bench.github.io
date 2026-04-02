@@ -1,0 +1,20 @@
+[
+  {
+    "path": "test/src/test/java/org/apache/rocketmq/test/container/PopSlaveActingMasterIT.java",
+    "line": 18,
+    "original_line": 1,
+    "review_comment": [
+      "Missing ASF header",
+      "Thanks, I'll add it."
+    ]
+  },
+  {
+    "path": "test/src/test/java/org/apache/rocketmq/test/container/PopSlaveActingMasterIT.java",
+    "line": 59,
+    "original_line": 40,
+    "review_comment": [
+      "How about ignoring these tests? It proves the function's correctness, but it takes too much time and is not the core function, which affects the running time of the CI. IMO, just run these tests manually before the release.",
+      "OK."
+    ]
+  }
+]

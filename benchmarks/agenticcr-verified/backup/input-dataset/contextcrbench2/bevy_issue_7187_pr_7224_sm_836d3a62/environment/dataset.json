@@ -1,0 +1,13 @@
+[
+  {
+    "id": 1649,
+    "full_name": "bevyengine/bevy",
+    "lang": "rust",
+    "issue_number": 7187,
+    "pr_number": 7224,
+    "diff_hunk": "@@ -159,7 +159,15 @@ impl<P: PhaseItem> DrawFunctions<P> {\n pub trait RenderCommand<P: PhaseItem> {\n     /// Specifies the general ECS data (e.g. resources) required by [`RenderCommand::render`].\n     ///\n+    /// When fetching resources, note that, due to lifetime limitations of the `Deref` trait,\n+    /// [`SRes::into_inner`] must be called on each [`SRes`] reference in the\n+    /// [`RenderCommand::render`] method, instead of being automatically dereferenced as is the\n+    /// case in normal `systems`.\n+    ///\n     /// All parameters have to be read only.\n+    ///\n+    /// [`SRes`]: bevy_ecs::system::lifetimeless::SRes\n+    /// [`SRes::into_inner`]: bevy_ecs::system::lifetimeless::SRes::into_inner\n     type Param: SystemParam + 'static;\n     /// Specifies the ECS data of the view entity required by [`RenderCommand::render`].\n     ///\n",
+    "diff_hunk_content_with_line_number": "[159][159]  pub trait RenderCommand<P: PhaseItem> {\n[160][160]      /// Specifies the general ECS data (e.g. resources) required by [`RenderCommand::render`].\n[161][161]      ///\n[][162] +    /// When fetching resources, note that, due to lifetime limitations of the `Deref` trait,\n[][163] +    /// [`SRes::into_inner`] must be called on each [`SRes`] reference in the\n[][164] +    /// [`RenderCommand::render`] method, instead of being automatically dereferenced as is the\n[][165] +    /// case in normal `systems`.\n[][166] +    ///\n[162][167]      /// All parameters have to be read only.\n[][168] +    ///\n[][169] +    /// [`SRes`]: bevy_ecs::system::lifetimeless::SRes\n[][170] +    /// [`SRes::into_inner`]: bevy_ecs::system::lifetimeless::SRes::into_inner\n[163][171]      type Param: SystemParam + 'static;\n[164][172]      /// Specifies the ECS data of the view entity required by [`RenderCommand::render`].\n[165][173]      ///",
+    "checked_commit_id": "836d3a62d2ef0a728dd4b05a1d79dae0f77a9e63",
+    "pr_size": "sm"
+  }
+]

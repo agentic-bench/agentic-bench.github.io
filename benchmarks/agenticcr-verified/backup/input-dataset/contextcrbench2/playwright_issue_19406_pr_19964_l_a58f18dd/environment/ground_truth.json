@@ -1,0 +1,10 @@
+[
+  {
+    "path": "packages/playwright-core/src/server/injected/selectorGenerator.ts",
+    "line": 204,
+    "original_line": 204,
+    "review_comment": [
+      "I would expect you to bail out here?"
+    ]
+  }
+]

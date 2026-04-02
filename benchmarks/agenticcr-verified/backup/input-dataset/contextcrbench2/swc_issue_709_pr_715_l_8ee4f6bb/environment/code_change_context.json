@@ -1,0 +1,6 @@
+{
+  "issue_title": "Error parsing optional binding pattern parameter in an ambient context",
+  "issue_body": "**Input code**\r\n\r\n```ts\r\ndeclare namespace __event {\r\n    export class EventInit {\r\n        constructor({\r\n            bubbles,\r\n            cancelable,\r\n            composed\r\n        }?: {\r\n            bubbles?: boolean | undefined;\r\n            cancelable?: boolean | undefined;\r\n            composed?: boolean | undefined;\r\n        });\r\n    }\r\n}\r\n```\r\n\r\n**Expected behavior**\r\n\r\nNo error, as this is not an implementation signature since this is an ambient context.\r\n\r\n**Actual behavior**\r\n\r\nHas diagnostic: `A binding pattern parameter cannot be optional in an implementation signature.`\r\n\r\n**Version**\r\nThe version of @swc/core: latest",
+  "pr_title": "Allow optional binding pattern in ambient context",
+  "pr_body": "Fix #709, really"
+}

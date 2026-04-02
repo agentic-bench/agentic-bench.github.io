@@ -1,0 +1,8 @@
+{
+    "task_id": "tidb_issue_44320_pr_44352_sm_083f40c6",
+    "repo": "tidb",
+    "issue_number": 44320,
+    "pr_number": 44352,
+    "checked_commit_id": "083f40c6bb7b829fcb70e47bfa133c61c6d50d64",
+    "entry_count": 2
+}

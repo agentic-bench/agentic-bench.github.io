@@ -1,0 +1,18 @@
+diff --git a/.clang-format b/.clang-format
+new file mode 100644
+index 0000000000000..e69de29bb2d1d
+diff --git a/pandas/io/parquet.py b/pandas/io/parquet.py
+index 6fc70e9f4a737..86196b50c4726 100644
+--- a/pandas/io/parquet.py
++++ b/pandas/io/parquet.py
+@@ -269,6 +269,10 @@ def read_parquet(path, engine="auto", columns=None, **kwargs):
+         expected. A local file could be:
+         ``file://localhost/path/to/table.parquet``.
+ 
++        A file path can also be a directory name that contains multiple(partitioned)
++        parquet files (in addition to single file path). A directory path could be:
++        ``directory://usr/path/to/folder``.
++
+         If you want to pass in a path object, pandas accepts any
+         ``os.PathLike``.
+ 

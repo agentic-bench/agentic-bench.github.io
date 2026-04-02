@@ -1,0 +1,21 @@
+[
+  {
+    "path": "backend/remote/backend.go",
+    "line": 157,
+    "original_line": 157,
+    "review_comment": [
+      "Agree that it's not too informative, but it gets the job done. Maybe making it a specific error is not a bad idea as this doesn't tell the user how to fix it (which is purging the cached config)?\r\n\r\nI'm not sure how many people will switch to `0.12` and then back to `0.11`, so no idea if its worth it.",
+      "I imagine this would only happen if someone was in the middle of testing or upgrading to 0.12 and accidentally switched back to the older binary - that's how I stumbled across it. \r\n\r\nI didn't even consider purging the cached config as an option; I guess if there's no remote state it's fine, but if there's any remote state terraform will fail anyway:\r\n`Error refreshing state: Terraform 0.11.13 does not support state version 4, please update.`\r\n"
+    ]
+  },
+  {
+    "path": "command/meta_backend.go",
+    "line": 393,
+    "original_line": 393,
+    "review_comment": [
+      "Why are we changing the logic here?\r\nI can't recall exactly why I put that in, and the test for it still passes, but the logic around the backend state is quite finicky and I'd rather not change any of it at if at all possible. ",
+      "oh never-mind, I didn't put that in, and I see how it's redundant wit the check above ;)  ",
+      "Ha sorry, I realized after I pushed that should've been in its own commit with a comment!"
+    ]
+  }
+]

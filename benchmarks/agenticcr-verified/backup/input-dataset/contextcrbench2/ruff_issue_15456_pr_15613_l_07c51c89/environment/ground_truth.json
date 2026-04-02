@@ -1,0 +1,20 @@
+[
+  {
+    "path": "crates/red_knot_python_semantic/src/types/infer.rs",
+    "line": 1991,
+    "original_line": 1991,
+    "review_comment": [
+      "I went through three or four different iterations of this API here. I'm still not satisfied. If we want to pass in the `assigned_ty` directly, we need to call `infer_standalone_expression` at the call site. But we are only allowed to do that if the `target` is not a `ast::Expr::Name(_)`, so we need to basically copy the whole `match` statement below to the call site. The duplication maybe not so bad, but I could some expression types are not yet handled here (see pre-existing TODO), and then we would need to remember to update it everywhere.\r\n\r\nMaybe my struggle to incorporate this here is also a sign that I'm doing something wrong?",
+      "I think it's fine. An altenrative, to avoid monomorphization is to have a `Target` enum with a `Name`, and another variant but naming kind of gets awkward.\n\nWhat's the reason that we only infer the value's type for name? Is it because the inference for non-names happens elsewhere and it, therefore, avoids doubl-inference?",
+      "> What's the reason that we only infer the value's type for name? Is it because the inference for non-names happens elsewhere and it, therefore, avoids doubl-inference?\r\n\r\nWe only call `infer_standalone_expression(value)` for *non*-`Name`s. For `Name`s, we call `infer_definition`, which (somewhere down the line) calls `infer_standalone_expression(value)` itself.\r\n\r\nSo yes, if we would call `infer_standalone_expression(value)` for all targets, we would get double-inference (results e.g. in duplicated diagnostics)."
+    ]
+  },
+  {
+    "path": "crates/red_knot_python_semantic/src/types/infer.rs",
+    "line": 2026,
+    "original_line": 2026,
+    "review_comment": [
+      "In future, if we add narrowing of attribute types, there could be a distinction between \"infer the local type of this attribute expression\" and \"get the declared type of this attribute\", and we would want the latter here, not the former. Which might also obsolete the change in this PR to the inferred type of `Store` attribute expressions. But for now, there is no difference, so it's convenient to just use `infer_attribute_expression` for both."
+    ]
+  }
+]

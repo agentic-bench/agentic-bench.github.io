@@ -1,0 +1,10 @@
+[
+  {
+    "path": "subsys/mgmt/mcumgr/smp_shell.c",
+    "line": 93,
+    "original_line": 93,
+    "review_comment": [
+      "What if the logging was already disabled? This code seems to enable it regardless if it was disabled by this code or not. The way we (we being me not zephyr) currently deal with this is we send \"log halt\" over the UART prior to using mcumgr. Also what sort of impact does this have performance wise vs without this code doing the log halt method, are you able to do a firmware update with both methods and measure the difference in time/speed?"
+    ]
+  }
+]

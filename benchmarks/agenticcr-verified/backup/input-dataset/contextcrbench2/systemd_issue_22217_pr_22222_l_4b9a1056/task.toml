@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "systemd_issue_22217_pr_22222_l_4b9a1056"
+contextcrbench2_full_name = "systemd/systemd"
+contextcrbench2_lang = "c"
+contextcrbench2_issue_number = "22217"
+contextcrbench2_issue_title = "DHCP Server of systemd-networkd will not work on USB Gadget RNDIS connected to Windows"
+contextcrbench2_pr_number = "22222"
+contextcrbench2_pr_title = "dhcp-server: support packets from non-Ethernet interfaces"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "4b9a1056d8debde0f6c1ba7e60788eae17f91d17"
+contextcrbench2_commit_id = "54d95d02e3fdcfda1041da7df04df82b0a63077b"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2022-01-23T12:38:23Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

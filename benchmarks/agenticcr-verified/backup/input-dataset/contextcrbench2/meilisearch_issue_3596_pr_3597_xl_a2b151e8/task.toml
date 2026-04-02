@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "meilisearch_issue_3596_pr_3597_xl_a2b151e8"
+contextcrbench2_full_name = "meilisearch/meilisearch"
+contextcrbench2_lang = "rust"
+contextcrbench2_issue_number = "3596"
+contextcrbench2_issue_title = "Tasks filter does not works with the dump"
+contextcrbench2_pr_number = "3597"
+contextcrbench2_pr_title = "ensure that the task queue is correctly imported"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "a2b151e877eec9a2ef12b9c33c76c9abe468f3dd"
+contextcrbench2_commit_id = "a2b151e877eec9a2ef12b9c33c76c9abe468f3dd"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2023-03-21T15:20:14Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

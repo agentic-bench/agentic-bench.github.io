@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "bevy_issue_2252_pr_2713_xl_3e922912"
+contextcrbench2_full_name = "bevyengine/bevy"
+contextcrbench2_lang = "rust"
+contextcrbench2_issue_number = "2252"
+contextcrbench2_issue_title = "Component Bundle Queries"
+contextcrbench2_pr_number = "2713"
+contextcrbench2_pr_title = "[Merged by Bors] - Implement `WorldQuery` derive macro"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "3e922912d91edcbab925d962dcba0d47162fd60f"
+contextcrbench2_commit_id = "10510f2f91c22b4b30d7857a2f12ea9c303dc34d"
+contextcrbench2_created_at = "2022-01-10T00:37:13Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

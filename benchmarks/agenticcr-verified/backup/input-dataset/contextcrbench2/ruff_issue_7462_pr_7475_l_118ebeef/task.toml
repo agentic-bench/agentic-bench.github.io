@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "ruff_issue_7462_pr_7475_l_118ebeef"
+contextcrbench2_full_name = "astral-sh/ruff"
+contextcrbench2_lang = "rust"
+contextcrbench2_issue_number = "7462"
+contextcrbench2_issue_title = "Formatter instability: Instable call chain formatting"
+contextcrbench2_pr_number = "7475"
+contextcrbench2_pr_title = "Add optimized `best_fit_parenthesize` IR"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "118ebeef9006a02c638bd6676a168a8d05364a64"
+contextcrbench2_commit_id = "81333ac3e54d43e5432304acd3dd0be6a1faa8af"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2023-09-18T15:11:55Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

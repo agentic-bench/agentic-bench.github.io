@@ -1,0 +1,13 @@
+[
+  {
+    "id": 48315,
+    "full_name": "rails/rails",
+    "lang": "ruby",
+    "issue_number": 39606,
+    "pr_number": 39607,
+    "diff_hunk": "@@ -402,6 +402,18 @@ def assert_enqueued_with(job: nil, args: nil, at: nil, queue: nil, &block)\n       end\n \n       matching_job = jobs.find do |enqueued_job|\n+        if expected_args[:job].present?\n+          if expected_args[:job].respond_to?(:call)\n+            if !expected_args[:job].call(enqueued_job[:job])\n+              potential_matches << enqueued_job\n+              next\n+            end\n+          elsif expected_args[:job] != enqueued_job[:job]\n+            potential_matches << enqueued_job\n+            next\n+          end\n+        end\n+\n         deserialized_job = deserialize_args_for_assertion(enqueued_job)\n         potential_matches << deserialized_job\n \n",
+    "diff_hunk_content_with_line_number": "[402][402]        end\n[403][403]  \n[404][404]        matching_job = jobs.find do |enqueued_job|\n[][405] +        if expected_args[:job].present?\n[][406] +          if expected_args[:job].respond_to?(:call)\n[][407] +            if !expected_args[:job].call(enqueued_job[:job])\n[][408] +              potential_matches << enqueued_job\n[][409] +              next\n[][410] +            end\n[][411] +          elsif expected_args[:job] != enqueued_job[:job]\n[][412] +            potential_matches << enqueued_job\n[][413] +            next\n[][414] +          end\n[][415] +        end\n[][416] +\n[405][417]          deserialized_job = deserialize_args_for_assertion(enqueued_job)\n[406][418]          potential_matches << deserialized_job\n[407][419]  ",
+    "checked_commit_id": "c6f1041d7192418e4aa76437b21657521c85becd",
+    "pr_size": "sm"
+  }
+]

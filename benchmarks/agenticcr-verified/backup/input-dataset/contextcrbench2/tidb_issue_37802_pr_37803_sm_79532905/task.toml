@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "tidb_issue_37802_pr_37803_sm_79532905"
+contextcrbench2_full_name = "pingcap/tidb"
+contextcrbench2_lang = "go"
+contextcrbench2_issue_number = "37802"
+contextcrbench2_issue_title = "change tidb_rc_read_check_ts to instance level"
+contextcrbench2_pr_number = "37803"
+contextcrbench2_pr_title = "variables: change tidb_rc_read_check_ts to instance level"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "79532905b0a8967a18b46d17a23a8e5ae7a28c32"
+contextcrbench2_commit_id = "2c7d54b36e3a4a6ca4c05c14d7a420dcd98905e7"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2022-09-16T05:45:26Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

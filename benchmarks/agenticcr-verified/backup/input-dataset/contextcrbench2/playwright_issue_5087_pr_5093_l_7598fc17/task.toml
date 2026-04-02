@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "playwright_issue_5087_pr_5093_l_7598fc17"
+contextcrbench2_full_name = "microsoft/playwright"
+contextcrbench2_lang = "typescript"
+contextcrbench2_issue_number = "5087"
+contextcrbench2_issue_title = "[Feature] Add debug log when calling to waitForResponse/waitForRequest"
+contextcrbench2_pr_number = "5093"
+contextcrbench2_pr_title = "feat(logs): add wrapApiCall for logging to many api methods"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "7598fc17473432425e6ac510b2b6751c1029bea8"
+contextcrbench2_commit_id = "7598fc17473432425e6ac510b2b6751c1029bea8"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2021-01-22T00:57:13Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

@@ -1,0 +1,6 @@
+{
+  "issue_title": "Reflect proc-macro causes compile errors when using custom Result type",
+  "issue_body": "## Bevy version\r\nv0.5.0\r\n\r\n## Operating system & version\r\nMacOS 11.4\r\n\r\n## What you did\r\nused the Reflect proc-macro\r\n\r\n## What you expected to happen\r\ncompile successfully\r\n\r\n## What actually happened\r\ncompile error, conflicting Result types\r\n\r\n## Additional information\r\nthe `derive_reflect` process macro is not hygienic, i prefer to use my own specialized Result type which only has one generic parameter. this macro mistakenly picks it up. fix is pretty easy, i could make a PR if quested.",
+  "pr_title": "[Merged by Bors] - Make proc macros hygienic in bevy_reflect_derive",
+  "pr_body": "# Objective\r\n\r\n- Fixes #3004 \r\n\r\n## Solution\r\n\r\n- Replaced all the types with their fully quallified names\r\n- Replaced all trait methods and inherent methods on dyn traits with their fully qualified names\r\n- Made a new file `fq_std.rs` that contains structs corresponding to commonly used Structs and Traits from `std`. These structs are replaced by their respective fully qualified names when used inside `quote!`"
+}

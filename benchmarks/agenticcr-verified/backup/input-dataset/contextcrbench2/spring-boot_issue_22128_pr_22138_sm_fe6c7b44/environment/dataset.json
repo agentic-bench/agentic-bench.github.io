@@ -1,0 +1,24 @@
+[
+  {
+    "id": 14100,
+    "full_name": "spring-projects/spring-boot",
+    "lang": "java",
+    "issue_number": 22128,
+    "pr_number": 22138,
+    "diff_hunk": "@@ -164,6 +164,19 @@ void customFilterDispatcherTypes() {\n \t\t\t\t});\n \t}\n \n+\t@Test\n+\tvoid emptyFilterDispatcherTypesDoNotThrowException() {\n+\t\tthis.contextRunner.withPropertyValues(\"spring.security.filter.dispatcher-types:\")\n+\t\t\t\t.withConfiguration(AutoConfigurations.of(SecurityFilterAutoConfiguration.class)).run((context) -> {\n+\t\t\t\t\tDelegatingFilterProxyRegistrationBean bean = context.getBean(\"securityFilterChainRegistration\",\n+\t\t\t\t\t\t\tDelegatingFilterProxyRegistrationBean.class);\n+\t\t\t\t\t@SuppressWarnings(\"unchecked\")\n+\t\t\t\t\tEnumSet<DispatcherType> dispatcherTypes = (EnumSet<DispatcherType>) ReflectionTestUtils\n+\t\t\t\t\t\t\t.getField(bean, \"dispatcherTypes\");\n+\t\t\t\t\tassertThat(dispatcherTypes).isEmpty();\n+\t\t\t\t});\n+\t}\n+\n \t@Configuration(proxyBeanMethods = false)\n \t@TestAutoConfigurationPackage(City.class)\n \tstatic class EntityConfiguration {\n",
+    "diff_hunk_content_with_line_number": "[164][164]  \t\t\t\t});\n[165][165]  \t}\n[166][166]  \n[][167] +\t@Test\n[][168] +\tvoid emptyFilterDispatcherTypesDoNotThrowException() {\n[][169] +\t\tthis.contextRunner.withPropertyValues(\"spring.security.filter.dispatcher-types:\")\n[][170] +\t\t\t\t.withConfiguration(AutoConfigurations.of(SecurityFilterAutoConfiguration.class)).run((context) -> {\n[][171] +\t\t\t\t\tDelegatingFilterProxyRegistrationBean bean = context.getBean(\"securityFilterChainRegistration\",\n[][172] +\t\t\t\t\t\t\tDelegatingFilterProxyRegistrationBean.class);\n[][173] +\t\t\t\t\t@SuppressWarnings(\"unchecked\")\n[][174] +\t\t\t\t\tEnumSet<DispatcherType> dispatcherTypes = (EnumSet<DispatcherType>) ReflectionTestUtils\n[][175] +\t\t\t\t\t\t\t.getField(bean, \"dispatcherTypes\");\n[][176] +\t\t\t\t\tassertThat(dispatcherTypes).isEmpty();\n[][177] +\t\t\t\t});\n[][178] +\t}\n[][179] +\n[167][180]  \t@Configuration(proxyBeanMethods = false)\n[168][181]  \t@TestAutoConfigurationPackage(City.class)\n[169][182]  \tstatic class EntityConfiguration {",
+    "checked_commit_id": "fe6c7b4489fec28a69121de86b8237620c2d9714",
+    "pr_size": "sm"
+  },
+  {
+    "id": 14101,
+    "full_name": "spring-projects/spring-boot",
+    "lang": "java",
+    "issue_number": 22128,
+    "pr_number": 22138,
+    "diff_hunk": "@@ -142,6 +142,17 @@ void filterDispatcherTypesCanBeCustomized() {\n \t\t\t\t});\n \t}\n \n+\t@SuppressWarnings(\"unchecked\")\n+\t@Test\n+\tvoid emptyFilterDispatcherTypesDoNotThrowException() {\n+\t\tthis.contextRunner.withUserConfiguration(SessionRepositoryConfiguration.class)\n+\t\t\t\t.withPropertyValues(\"spring.session.servlet.filter-dispatcher-types=\").run((context) -> {\n+\t\t\t\t\tFilterRegistrationBean<?> registration = context.getBean(FilterRegistrationBean.class);\n+\t\t\t\t\tObject dispatcherTypes = ReflectionTestUtils.getField(registration, \"dispatcherTypes\");\n+\t\t\t\t\tassertThat((EnumSet<DispatcherType>) dispatcherTypes).isEmpty();\n+\t\t\t\t});\n+\t}\n+\n \t@Test\n \tvoid sessionCookieConfigurationIsAppliedToAutoConfiguredCookieSerializer() {\n \t\tthis.contextRunner.withUserConfiguration(SessionRepositoryConfiguration.class)\n",
+    "diff_hunk_content_with_line_number": "[142][142]  \t\t\t\t});\n[143][143]  \t}\n[144][144]  \n[][145] +\t@SuppressWarnings(\"unchecked\")\n[][146] +\t@Test\n[][147] +\tvoid emptyFilterDispatcherTypesDoNotThrowException() {\n[][148] +\t\tthis.contextRunner.withUserConfiguration(SessionRepositoryConfiguration.class)\n[][149] +\t\t\t\t.withPropertyValues(\"spring.session.servlet.filter-dispatcher-types=\").run((context) -> {\n[][150] +\t\t\t\t\tFilterRegistrationBean<?> registration = context.getBean(FilterRegistrationBean.class);\n[][151] +\t\t\t\t\tObject dispatcherTypes = ReflectionTestUtils.getField(registration, \"dispatcherTypes\");\n[][152] +\t\t\t\t\tassertThat((EnumSet<DispatcherType>) dispatcherTypes).isEmpty();\n[][153] +\t\t\t\t});\n[][154] +\t}\n[][155] +\n[145][156]  \t@Test\n[146][157]  \tvoid sessionCookieConfigurationIsAppliedToAutoConfiguredCookieSerializer() {\n[147][158]  \t\tthis.contextRunner.withUserConfiguration(SessionRepositoryConfiguration.class)",
+    "checked_commit_id": "fe6c7b4489fec28a69121de86b8237620c2d9714",
+    "pr_size": "sm"
+  }
+]

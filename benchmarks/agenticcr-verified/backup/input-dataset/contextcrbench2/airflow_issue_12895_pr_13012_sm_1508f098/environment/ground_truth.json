@@ -1,0 +1,13 @@
+[
+  {
+    "path": "airflow/upgrade/rules/import_changes.py",
+    "line": 90,
+    "original_line": 90,
+    "review_comment": [
+      "Shouldn't this be `new_path = arg[0]` ?\r\n`arg[0]` is the new path while `arg[1]` is the old path.\r\nWe want to filter out new paths that lands in ariflow.operator/sensor/hooks\r\n",
+      "cc @Dr-Denzy ",
+      "I will look into it.",
+      "@Dr-Denzy you can use the DAG example in https://github.com/apache/airflow/issues/14258 to verify it"
+    ]
+  }
+]

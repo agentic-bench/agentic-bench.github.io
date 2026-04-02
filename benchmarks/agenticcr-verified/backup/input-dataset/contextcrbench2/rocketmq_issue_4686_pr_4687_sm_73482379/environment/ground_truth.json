@@ -1,0 +1,12 @@
+[
+  {
+    "path": "namesrv/src/main/java/org/apache/rocketmq/namesrv/kvconfig/KVConfigManager.java",
+    "line": 85,
+    "original_line": 85,
+    "review_comment": [
+      "IllegalMonitorStateException will be thrown if lock failed?",
+      "Thank you for your reply,\r\nmy idea was wrong, I did not think that the lock will throw exception after the lock failure",
+      "anyway, thanks for your contribution~"
+    ]
+  }
+]

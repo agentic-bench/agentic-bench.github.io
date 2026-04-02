@@ -1,0 +1,205 @@
+diff --git a/doc/source/whatsnew/v1.2.0.rst b/doc/source/whatsnew/v1.2.0.rst
+index 18940b574b517..9a597c134a10a 100644
+--- a/doc/source/whatsnew/v1.2.0.rst
++++ b/doc/source/whatsnew/v1.2.0.rst
+@@ -331,6 +331,7 @@ Plotting
+ 
+ - Bug in :meth:`DataFrame.plot` was rotating xticklabels when ``subplots=True``, even if the x-axis wasn't an irregular time series (:issue:`29460`)
+ - Bug in :meth:`DataFrame.plot` where a marker letter in the ``style`` keyword sometimes causes a ``ValueError`` (:issue:`21003`)
++- Twinned axes were losing their tick labels which should only happen to all but the last row or column of 'externally' shared axes (:issue:`33819`)
+ 
+ Groupby/resample/rolling
+ ^^^^^^^^^^^^^^^^^^^^^^^^
+diff --git a/pandas/plotting/_matplotlib/tools.py b/pandas/plotting/_matplotlib/tools.py
+index c5b44f37150bb..0db34f3e8cfa7 100644
+--- a/pandas/plotting/_matplotlib/tools.py
++++ b/pandas/plotting/_matplotlib/tools.py
+@@ -297,6 +297,57 @@ def _remove_labels_from_axis(axis: "Axis"):
+     axis.get_label().set_visible(False)
+ 
+ 
++def _has_externally_shared_axis(ax1: "matplotlib.axes", compare_axis: "str") -> bool:
++    """
++    Return whether an axis is externally shared.
++
++    Parameters
++    ----------
++    ax1 : matplotlib.axes
++        Axis to query.
++    compare_axis : str
++        `"x"` or `"y"` according to whether the X-axis or Y-axis is being
++        compared.
++
++    Returns
++    -------
++    bool
++        `True` if the axis is externally shared. Otherwise `False`.
++
++    Notes
++    -----
++    If two axes with different positions are sharing an axis, they can be
++    referred to as *externally* sharing the common axis.
++
++    If two axes sharing an axis also have the same position, they can be
++    referred to as *internally* sharing the common axis (a.k.a twinning).
++
++    _handle_shared_axes() is only interested in axes externally sharing an
++    axis, regardless of whether either of the axes is also internally sharing
++    with a third axis.
++    """
++    if compare_axis == "x":
++        axes = ax1.get_shared_x_axes()
++    elif compare_axis == "y":
++        axes = ax1.get_shared_y_axes()
++    else:
++        raise ValueError(
++            "_has_externally_shared_axis() needs 'x' or 'y' as a second parameter"
++        )
++
++    axes = axes.get_siblings(ax1)
++
++    # Retain ax1 and any of its siblings which aren't in the same position as it
++    ax1_points = ax1.get_position().get_points()
++    axes = [
++        ax2
++        for ax2 in axes
++        if ax2 is ax1 or not np.array_equal(ax1_points, ax2.get_position().get_points())
++    ]
++
++    return len(axes) > 1
++
++
+ def handle_shared_axes(
+     axarr: Iterable["Axes"],
+     nplots: int,
+@@ -328,7 +379,7 @@ def handle_shared_axes(
+                     # the last in the column, because below is no subplot/gap.
+                     if not layout[row_num(ax) + 1, col_num(ax)]:
+                         continue
+-                    if sharex or len(ax.get_shared_x_axes().get_siblings(ax)) > 1:
++                    if sharex or _has_externally_shared_axis(ax, "x"):
+                         _remove_labels_from_axis(ax.xaxis)
+ 
+             except IndexError:
+@@ -337,7 +388,7 @@ def handle_shared_axes(
+                 for ax in axarr:
+                     if ax.is_last_row():
+                         continue
+-                    if sharex or len(ax.get_shared_x_axes().get_siblings(ax)) > 1:
++                    if sharex or _has_externally_shared_axis(ax, "x"):
+                         _remove_labels_from_axis(ax.xaxis)
+ 
+         if ncols > 1:
+@@ -347,7 +398,7 @@ def handle_shared_axes(
+                 # have a subplot there, we can skip the layout test
+                 if ax.is_first_col():
+                     continue
+-                if sharey or len(ax.get_shared_y_axes().get_siblings(ax)) > 1:
++                if sharey or _has_externally_shared_axis(ax, "y"):
+                     _remove_labels_from_axis(ax.yaxis)
+ 
+ 
+diff --git a/pandas/tests/plotting/test_misc.py b/pandas/tests/plotting/test_misc.py
+index 0208ab3e0225b..4dc415744c5a2 100644
+--- a/pandas/tests/plotting/test_misc.py
++++ b/pandas/tests/plotting/test_misc.py
+@@ -433,3 +433,99 @@ def test_dictionary_color(self):
+         ax = df1.plot(kind="line", color=dic_color)
+         colors = [rect.get_color() for rect in ax.get_lines()[0:2]]
+         assert all(color == expected[index] for index, color in enumerate(colors))
++
++    @pytest.mark.slow
++    def test_has_externally_shared_axis(self):
++        # GH33819
++        func = plotting._matplotlib.tools._has_externally_shared_axis
++
++        # Test x-axis
++        fig = self.plt.figure()
++        plots = fig.subplots(2, 4)
++
++        # Create *externally* shared axes for first and third columns
++        plots[0][0] = fig.add_subplot(231, sharex=plots[1][0])
++        plots[0][2] = fig.add_subplot(233, sharex=plots[1][2])
++
++        # Create *internally* shared axes for second and third columns
++        plots[0][1].twinx()
++        plots[0][2].twinx()
++
++        # First  column is only externally shared
++        # Second column is only internally shared
++        # Third  column is both
++        # Fourth column is neither
++        assert func(plots[0][0], "x")
++        assert not func(plots[0][1], "x")
++        assert func(plots[0][2], "x")
++        assert not func(plots[0][3], "x")
++
++        # Test y-axis
++        fig = self.plt.figure()
++        plots = fig.subplots(4, 2)
++
++        # Create *externally* shared axes for first and third rows
++        plots[0][0] = fig.add_subplot(321, sharey=plots[0][1])
++        plots[2][0] = fig.add_subplot(325, sharey=plots[2][1])
++
++        # Create *internally* shared axes for second and third rows
++        plots[1][0].twiny()
++        plots[2][0].twiny()
++
++        # First  row is only externally shared
++        # Second row is only internally shared
++        # Third  row is both
++        # Fourth row is neither
++        assert func(plots[0][0], "y")
++        assert not func(plots[1][0], "y")
++        assert func(plots[2][0], "y")
++        assert not func(plots[3][0], "y")
++
++        # Check that an invalid compare_axis value triggers the expected exception
++        msg = "needs 'x' or 'y' as a second parameter"
++        with pytest.raises(ValueError, match=msg):
++            func(plots[0][0], "z")
++
++    @pytest.mark.slow
++    def test_externally_shared_axes(self):
++        # Example from #33819
++        # Create data
++        df = DataFrame({"a": np.random.randn(1000), "b": np.random.randn(1000)})
++
++        # Create figure
++        fig = self.plt.figure()
++        plots = fig.subplots(2, 3)
++
++        # Create *externally* shared axes
++        plots[0][0] = fig.add_subplot(231, sharex=plots[1][0])
++        # note: no plots[0][1] that's the twin only case
++        plots[0][2] = fig.add_subplot(233, sharex=plots[1][2])
++
++        # Create *internally* shared axes
++        # note: no plots[0][0] that's the external only case
++        twin_ax1 = plots[0][1].twinx()
++        twin_ax2 = plots[0][2].twinx()
++
++        # Plot data to primary axes
++        df["a"].plot(ax=plots[0][0], title="External share only").set_xlabel(
++            "this label should never be visible"
++        )
++        df["a"].plot(ax=plots[1][0])
++
++        df["a"].plot(ax=plots[0][1], title="Internal share (twin) only").set_xlabel(
++            "this label should always be visible"
++        )
++        df["a"].plot(ax=plots[1][1])
++
++        df["a"].plot(ax=plots[0][2], title="Both").set_xlabel(
++            "this label should never be visible"
++        )
++        df["a"].plot(ax=plots[1][2])
++
++        # Plot data to twinned axes
++        df["b"].plot(ax=twin_ax1, color="green")
++        df["b"].plot(ax=twin_ax2, color="yellow")
++
++        assert not plots[0][0].xaxis.get_label().get_visible()
++        assert plots[0][1].xaxis.get_label().get_visible()
++        assert not plots[0][2].xaxis.get_label().get_visible()

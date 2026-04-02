@@ -1,0 +1,89 @@
+[
+  {
+    "path": "src/cascadia/WindowsTerminal/NotificationIcon.cpp",
+    "line": 87,
+    "original_line": 87,
+    "review_comment": [
+      "\ud83d\udcdd DH - Loading up somebody else's resources - probably moved to Emperor"
+    ]
+  },
+  {
+    "path": "src/cascadia/WindowsTerminal/WindowEmperor.h",
+    "line": 36,
+    "original_line": 35,
+    "review_comment": [
+      "nit: why not `const&`?"
+    ]
+  },
+  {
+    "path": "src/cascadia/WindowsTerminal/WindowEmperor.cpp",
+    "line": 669,
+    "original_line": 689,
+    "review_comment": [
+      "can somebody display our window now?",
+      "Yes. Maybe I can hook `WM_WINDOWPOSCHANGING` and clear the bits? \ud83e\udd14"
+    ]
+  },
+  {
+    "path": "src/cascadia/WindowsTerminal/WindowEmperor.cpp",
+    "line": 152,
+    "original_line": 158,
+    "review_comment": [
+      "fwiw `unique_mutex_nothrow` et al have `.try_create` which returns false if it fails and populates an out param boolean"
+    ]
+  },
+  {
+    "path": "src/cascadia/WindowsTerminal/WindowEmperor.cpp",
+    "line": 219,
+    "original_line": 225,
+    "review_comment": [
+      "\ud83d\udd16"
+    ]
+  },
+  {
+    "path": "src/cascadia/WindowsTerminal/WindowEmperor.cpp",
+    "line": 370,
+    "original_line": 370,
+    "review_comment": [
+      "Do we need to do this before we start spawning windows (and CLI processes?)",
+      "I think we could do this at any point. Do you have something in mind?"
+    ]
+  },
+  {
+    "path": "src/cascadia/WindowsTerminal/WindowEmperor.cpp",
+    "line": 518,
+    "original_line": 518,
+    "review_comment": [
+      "Entirely sytlistically, it's a little weird that this isn't like `window = _mostRecentWindowCurrentDesktop(); break;`. It's the only early return in what is otherwise a very methodical function",
+      "That's unfortunately necessary because `_mostRecentWindowCurrentDesktop` is a coroutine. We could of course turn this function into a coroutine as well and then do\r\n```\r\nwindow = co_await _mostRecentWindowCurrentDesktop();\r\nbreak;\r\n```\r\nIt's mostly a coincidence that I drew the boundary like that."
+    ]
+  },
+  {
+    "path": "src/cascadia/WindowsTerminal/WindowEmperor.cpp",
+    "line": 580,
+    "original_line": 580,
+    "review_comment": [
+      "\ud83d\udcdd: you know, the code is cleaner if it's one `for` loop with the `if(args.WindowID) / else if (!args.WindowName.empty())` statement on the inside, but it's less efficient then. :shrug:",
+      "Nah, it'd would not really be a big difference (branch prediction + it usually never loops >10 times anyway). This is also not really intentional, and I'll just move the if condition inside.",
+      "Eh, you know what, I'll leave this as-is for now, because it makes the `window = _mostRecentWindow();` branch at the end easier to express. If anyone ever happens to change this code I would not mind at all."
+    ]
+  },
+  {
+    "path": "src/cascadia/WindowsTerminal/WindowEmperor.cpp",
+    "line": 930,
+    "original_line": 930,
+    "review_comment": [
+      "_of course it can't be, that would be too easy_",
+      "In my defense, when I wrote that `GuidFromPlainString` didn't exist yet. \ud83d\ude05\r\nIt's quite ugly code indeed."
+    ]
+  },
+  {
+    "path": "src/cascadia/WindowsTerminal/BaseWindow.h",
+    "line": 10,
+    "original_line": 10,
+    "review_comment": [
+      "feels weird that this  guy isnt with the others in WindowEmperor. ik its lt a message \"for the emperor\", just threw me",
+      "`WM_USER` messages are technically per-window-class from what I know, so I felt like they should be defined in their respective window classes as well."
+    ]
+  }
+]

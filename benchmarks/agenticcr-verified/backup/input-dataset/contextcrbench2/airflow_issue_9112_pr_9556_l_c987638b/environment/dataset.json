@@ -1,0 +1,13 @@
+[
+  {
+    "id": 54928,
+    "full_name": "apache/airflow",
+    "lang": "python",
+    "issue_number": 9112,
+    "pr_number": 9556,
+    "diff_hunk": "@@ -89,5 +89,25 @@ class DAGRunCollectionSchema(Schema):\n     total_entries = fields.Int()\n \n \n+class DagRunsBatchFormSchema(Schema):\n+    \"\"\" Schema to validate and deserialize the Form(request payload) submitted to DagRun Batch endpoint\"\"\"\n+\n+    class Meta:\n+        \"\"\" Meta \"\"\"\n+        datetimeformat = 'iso'\n+        strict = True\n+\n+    page_offset = fields.Int(missing=0, min=0)\n+    page_limit = fields.Int(missing=100, min=1)\n+    dag_ids = fields.List(fields.Str(), missing=None)\n+    execution_date_gte = fields.DateTime(missing=None)\n+    execution_date_lte = fields.DateTime(missing=None)\n+    start_date_gte = fields.DateTime(missing=None)\n+    start_date_lte = fields.DateTime(missing=None)\n+    end_date_gte = fields.DateTime(missing=None)\n+    end_date_lte = fields.DateTime(missing=None)\n+\n+\n dagrun_schema = DAGRunSchema()\n dagrun_collection_schema = DAGRunCollectionSchema()\n+dagruns_batch_form_schema = DagRunsBatchFormSchema()\n",
+    "diff_hunk_content_with_line_number": "[89][89]      total_entries = fields.Int()\n[90][90]  \n[91][91]  \n[][92] +class DagRunsBatchFormSchema(Schema):\n[][93] +    \"\"\" Schema to validate and deserialize the Form(request payload) submitted to DagRun Batch endpoint\"\"\"\n[][94] +\n[][95] +    class Meta:\n[][96] +        \"\"\" Meta \"\"\"\n[][97] +        datetimeformat = 'iso'\n[][98] +        strict = True\n[][99] +\n[][100] +    page_offset = fields.Int(missing=0, min=0)\n[][101] +    page_limit = fields.Int(missing=100, min=1)\n[][102] +    dag_ids = fields.List(fields.Str(), missing=None)\n[][103] +    execution_date_gte = fields.DateTime(missing=None)\n[][104] +    execution_date_lte = fields.DateTime(missing=None)\n[][105] +    start_date_gte = fields.DateTime(missing=None)\n[][106] +    start_date_lte = fields.DateTime(missing=None)\n[][107] +    end_date_gte = fields.DateTime(missing=None)\n[][108] +    end_date_lte = fields.DateTime(missing=None)\n[][109] +\n[][110] +\n[92][111]  dagrun_schema = DAGRunSchema()\n[93][112]  dagrun_collection_schema = DAGRunCollectionSchema()\n[][113] +dagruns_batch_form_schema = DagRunsBatchFormSchema()",
+    "checked_commit_id": "c987638bb8e957df2d03133d3cf8da0da6005f44",
+    "pr_size": "l"
+  }
+]

@@ -1,0 +1,27 @@
+[
+  {
+    "path": "Common/Statistics/AssetsUnderManagementCapacityManager.cs",
+    "line": 216,
+    "original_line": 216,
+    "review_comment": [
+      "A comment here describing _why_ we're using `0.025m` and `0.050m` -- in fact, I'm not sure I understand what these factors mean.",
+      "This factor is the maximum percentage of market volume that is tradeable. These values are ad-hoc defined by research."
+    ]
+  },
+  {
+    "path": "Common/Statistics/AssetsUnderManagementCapacityManager.cs",
+    "line": 98,
+    "original_line": 98,
+    "review_comment": [
+      "maybe a note here saying that we're only adding the consolidator for the first config -- also, should there be preference of trades over quotes or vice versa? Right now we're just depending on whatever order the provider returns them in which (may) cause non-determinism later (perhaps)?"
+    ]
+  },
+  {
+    "path": "Common/Statistics/AssetsUnderManagementCapacityManager.cs",
+    "line": 226,
+    "original_line": 226,
+    "review_comment": [
+      "This might make a nice extension method -- I can see this being applicable in many places. I like it!"
+    ]
+  }
+]

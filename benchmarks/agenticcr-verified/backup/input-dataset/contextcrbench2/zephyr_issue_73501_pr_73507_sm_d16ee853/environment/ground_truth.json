@@ -1,0 +1,14 @@
+[
+  {
+    "path": "subsys/fs/fs.c",
+    "line": 794,
+    "original_line": 794,
+    "review_comment": [
+      "I understand that this fixes problem with NULL pointer exception but unfortunately now systems continue write to system that is no longer valid.",
+      "In my testing the i/o errors out and returns an error code, which is a huge improvement over the NULL pointer exception.",
+      "Remove the \"Fixes https://github.com/zephyrproject-rtos/zephyr/issues/73501\" from commit and description as this does not fix the problem, it only makes it manifest in a less violent way.",
+      "But it does fix \"the problem\", which is NULL pointer dereference caused by a user removing a usb drive during file i/o. ",
+      "@de-nordic  Please check https://github.com/zephyrproject-rtos/zephyr/pull/78018 as an alternative. "
+    ]
+  }
+]

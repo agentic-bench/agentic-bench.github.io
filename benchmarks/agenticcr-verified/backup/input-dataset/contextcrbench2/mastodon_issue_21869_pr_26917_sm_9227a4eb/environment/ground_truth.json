@@ -1,0 +1,29 @@
+[
+  {
+    "path": "app/controllers/redirects_controller.rb",
+    "line": 16,
+    "original_line": 16,
+    "review_comment": [
+      "## URL redirection from remote source\n\nUntrusted URL redirection depends on a [user-provided value](1).\n\n[Show more details](https://github.com/mastodon/mastodon/security/code-scanning/530)"
+    ]
+  },
+  {
+    "path": "app/controllers/redirects_controller.rb",
+    "line": 27,
+    "original_line": 27,
+    "review_comment": [
+      "In the search controller, we disallow resolving URLs for logged-out users. We probably should do the same here.",
+      "That is the case. ",
+      "ok, it seems like I can't read and completely missed the `if user_signed_in?`, sorry"
+    ]
+  },
+  {
+    "path": "app/controllers/redirects_controller.rb",
+    "line": 27,
+    "original_line": 27,
+    "review_comment": [
+      "Shouldn't it be done on behalf of the user who is clicking the link, so that it works for private posts as well?",
+      "I think we want to cache the redirect whenever possible so best to leave it out."
+    ]
+  }
+]

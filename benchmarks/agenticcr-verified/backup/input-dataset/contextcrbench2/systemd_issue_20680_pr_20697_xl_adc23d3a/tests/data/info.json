@@ -1,0 +1,8 @@
+{
+    "task_id": "systemd_issue_20680_pr_20697_xl_adc23d3a",
+    "repo": "systemd",
+    "issue_number": 20680,
+    "pr_number": 20697,
+    "checked_commit_id": "adc23d3a1945ee1fae083d2b71137cfc6ce822f2",
+    "entry_count": 1
+}

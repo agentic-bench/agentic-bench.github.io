@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "ruff_issue_8967_pr_8971_l_3ef92ad1"
+contextcrbench2_full_name = "astral-sh/ruff"
+contextcrbench2_lang = "rust"
+contextcrbench2_issue_number = "8967"
+contextcrbench2_issue_title = "[Fix error] UP025, UP032, W605"
+contextcrbench2_pr_number = "8971"
+contextcrbench2_pr_title = "Avoid syntax error via invalid ur string prefix"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "3ef92ad1f928182fd891aedaeb1c63ef9bde8a5e"
+contextcrbench2_commit_id = "3ef92ad1f928182fd891aedaeb1c63ef9bde8a5e"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2023-12-02T18:25:13Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

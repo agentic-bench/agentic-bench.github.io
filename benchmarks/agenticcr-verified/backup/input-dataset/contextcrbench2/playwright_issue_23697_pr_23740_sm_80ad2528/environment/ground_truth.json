@@ -1,0 +1,11 @@
+[
+  {
+    "path": "tests/page/locator-query.spec.ts",
+    "line": 197,
+    "original_line": 197,
+    "review_comment": [
+      "The behavior is a little confusing when both frame locators evaluate to the same frame but I guess we accept that.",
+      "Yep, we throw the error in this case, because it's not feasible to support today."
+    ]
+  }
+]

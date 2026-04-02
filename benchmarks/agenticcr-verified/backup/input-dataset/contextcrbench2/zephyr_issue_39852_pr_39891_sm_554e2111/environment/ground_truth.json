@@ -1,0 +1,12 @@
+[
+  {
+    "path": "subsys/bluetooth/host/adv.c",
+    "line": 514,
+    "original_line": 514,
+    "review_comment": [
+      "Since we are also doing `set_data->len - 2` maybe we should store the result in a variable here which would provide the semantic meaning of why we subtract 2, e.g. something like\r\n```\r\nuint8_t data_len = set_data->len - 2; /* Length of the data minus the length and type fields */\r\n```\r\n\r\nI also see that we actually even have the `len` variable which is what actually encode into the length field, so perhaps this should actually have been\r\n```suggestion\r\n\t\t\t\t\tmemcpy(&set_data->data[2], data[j].data, len);\r\n```\r\n\r\nAny changes to this should probably also be used in the offset calculation on the next line. ",
+      "The `len` variable is the length of the AD field. This can be larger than `BT_HCI_LE_EXT_ADV_FRAG_MAX_LEN`, therefore we cannot apply the patch you've suggested. \r\n\r\nWe could consider extracting out `uint8_t used_ad_len` or something similar.",
+      "In any case, we should probably also add (void) to the call to `memcpy`:\r\n```suggestion\r\n\t\t\t\t\t(void)memcpy(&set_data->data[2], data[j].data, set_data->len - 2);\r\n```"
+    ]
+  }
+]

@@ -1,0 +1,13 @@
+[
+  {
+    "id": 54722,
+    "full_name": "apache/airflow",
+    "lang": "python",
+    "issue_number": 12895,
+    "pr_number": 13012,
+    "diff_hunk": "@@ -80,10 +82,30 @@ class ImportChangesRule(BaseRule):\n         \"https://github.com/apache/airflow#backport-packages\"\n     )\n \n+    current_airflow_version = Version(__import__(\"airflow\").__version__)\n+\n+    if current_airflow_version < Version(\"2.0.0\"):\n+\n+        def _filter_incompatible_renames(arg):\n+            new_path = arg[1]\n+            return (\n+                not new_path.startswith(\"airflow.operators\")\n+                and not new_path.startswith(\"airflow.sensors\")\n+                and not new_path.startswith(\"airflow.hooks\")\n+            )\n+\n+    else:\n+        # Everything allowed on 2.0.0+\n+        def _filter_incompatible_renames(arg):\n+            return True\n+\n     ALL_CHANGES = [\n-        ImportChange.from_new_old_paths(*args) for args in ALL\n+        ImportChange.from_new_old_paths(*args)\n+        for args in filter(_filter_incompatible_renames, ALL)\n     ]  # type: List[ImportChange]\n \n+    del _filter_incompatible_renames\n+\n     @staticmethod\n     def _check_file(file_path):\n         problems = []\n",
+    "diff_hunk_content_with_line_number": "[80][82]          \"https://github.com/apache/airflow#backport-packages\"\n[81][83]      )\n[82][84]  \n[][85] +    current_airflow_version = Version(__import__(\"airflow\").__version__)\n[][86] +\n[][87] +    if current_airflow_version < Version(\"2.0.0\"):\n[][88] +\n[][89] +        def _filter_incompatible_renames(arg):\n[][90] +            new_path = arg[1]\n[][91] +            return (\n[][92] +                not new_path.startswith(\"airflow.operators\")\n[][93] +                and not new_path.startswith(\"airflow.sensors\")\n[][94] +                and not new_path.startswith(\"airflow.hooks\")\n[][95] +            )\n[][96] +\n[][97] +    else:\n[][98] +        # Everything allowed on 2.0.0+\n[][99] +        def _filter_incompatible_renames(arg):\n[][100] +            return True\n[][101] +\n[83][102]      ALL_CHANGES = [\n[84][] -        ImportChange.from_new_old_paths(*args) for args in ALL\n[][103] +        ImportChange.from_new_old_paths(*args)\n[][104] +        for args in filter(_filter_incompatible_renames, ALL)\n[85][105]      ]  # type: List[ImportChange]\n[86][106]  \n[][107] +    del _filter_incompatible_renames\n[][108] +\n[87][109]      @staticmethod\n[88][110]      def _check_file(file_path):\n[89][111]          problems = []",
+    "checked_commit_id": "1508f0982e80fc804fd0a427a3b976fa433541bd",
+    "pr_size": "sm"
+  }
+]

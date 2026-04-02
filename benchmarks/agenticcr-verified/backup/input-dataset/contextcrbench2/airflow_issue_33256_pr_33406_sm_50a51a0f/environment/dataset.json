@@ -1,0 +1,24 @@
+[
+  {
+    "id": 54393,
+    "full_name": "apache/airflow",
+    "lang": "python",
+    "issue_number": 33256,
+    "pr_number": 33406,
+    "diff_hunk": "@@ -73,3 +74,15 @@ def test_target_time_aware(self):\n             op = TimeSensorAsync(task_id=\"test\", target_time=aware_time)\n             assert hasattr(op.target_datetime.tzinfo, \"offset\")\n             assert op.target_datetime.tzinfo.offset == 0\n+\n+    def test_target_time_naive_dag_timezone(self):\n+        \"\"\"\n+        Tests that naive target_time gets converted correctly using the DAG's timezone.\n+        \"\"\"\n+        with DAG(\n+            \"test_target_time_naive_dag_timezone\",\n+            start_date=pendulum.datetime(2020, 1, 1, 0, 0, tz=DEFAULT_TIMEZONE),\n+        ):\n+            op = TimeSensorAsync(task_id=\"test\", target_time=pendulum.time(9, 0))\n+            assert op.target_datetime.time() == pendulum.time(1, 0)\n+            assert op.target_datetime.tzinfo == UTC\n",
+    "diff_hunk_content_with_line_number": "[73][74]              op = TimeSensorAsync(task_id=\"test\", target_time=aware_time)\n[74][75]              assert hasattr(op.target_datetime.tzinfo, \"offset\")\n[75][76]              assert op.target_datetime.tzinfo.offset == 0\n[][77] +\n[][78] +    def test_target_time_naive_dag_timezone(self):\n[][79] +        \"\"\"\n[][80] +        Tests that naive target_time gets converted correctly using the DAG's timezone.\n[][81] +        \"\"\"\n[][82] +        with DAG(\n[][83] +            \"test_target_time_naive_dag_timezone\",\n[][84] +            start_date=pendulum.datetime(2020, 1, 1, 0, 0, tz=DEFAULT_TIMEZONE),\n[][85] +        ):\n[][86] +            op = TimeSensorAsync(task_id=\"test\", target_time=pendulum.time(9, 0))\n[][87] +            assert op.target_datetime.time() == pendulum.time(1, 0)\n[][88] +            assert op.target_datetime.tzinfo == UTC",
+    "checked_commit_id": "50a51a0f152dc087599195c7479b16b49ba02284",
+    "pr_size": "sm"
+  },
+  {
+    "id": 54394,
+    "full_name": "apache/airflow",
+    "lang": "python",
+    "issue_number": 33256,
+    "pr_number": 33406,
+    "diff_hunk": "@@ -73,3 +74,15 @@ def test_target_time_aware(self):\n             op = TimeSensorAsync(task_id=\"test\", target_time=aware_time)\n             assert hasattr(op.target_datetime.tzinfo, \"offset\")\n             assert op.target_datetime.tzinfo.offset == 0\n+\n+    def test_target_time_naive_dag_timezone(self):\n+        \"\"\"\n+        Tests that naive target_time gets converted correctly using the DAG's timezone.\n+        \"\"\"\n+        with DAG(\n+            \"test_target_time_naive_dag_timezone\",\n+            start_date=pendulum.datetime(2020, 1, 1, 0, 0, tz=DEFAULT_TIMEZONE),\n+        ):\n+            op = TimeSensorAsync(task_id=\"test\", target_time=pendulum.time(9, 0))\n+            assert op.target_datetime.time() == pendulum.time(1, 0)\n+            assert op.target_datetime.tzinfo == UTC\n",
+    "diff_hunk_content_with_line_number": "[73][74]              op = TimeSensorAsync(task_id=\"test\", target_time=aware_time)\n[74][75]              assert hasattr(op.target_datetime.tzinfo, \"offset\")\n[75][76]              assert op.target_datetime.tzinfo.offset == 0\n[][77] +\n[][78] +    def test_target_time_naive_dag_timezone(self):\n[][79] +        \"\"\"\n[][80] +        Tests that naive target_time gets converted correctly using the DAG's timezone.\n[][81] +        \"\"\"\n[][82] +        with DAG(\n[][83] +            \"test_target_time_naive_dag_timezone\",\n[][84] +            start_date=pendulum.datetime(2020, 1, 1, 0, 0, tz=DEFAULT_TIMEZONE),\n[][85] +        ):\n[][86] +            op = TimeSensorAsync(task_id=\"test\", target_time=pendulum.time(9, 0))\n[][87] +            assert op.target_datetime.time() == pendulum.time(1, 0)\n[][88] +            assert op.target_datetime.tzinfo == UTC",
+    "checked_commit_id": "50a51a0f152dc087599195c7479b16b49ba02284",
+    "pr_size": "sm"
+  }
+]

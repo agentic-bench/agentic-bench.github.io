@@ -1,0 +1,24 @@
+[
+  {
+    "id": 21166,
+    "full_name": "hashicorp/terraform",
+    "lang": "go",
+    "issue_number": 21190,
+    "pr_number": 21199,
+    "diff_hunk": "@@ -149,8 +149,16 @@ func (b *Remote) configure(ctx context.Context) error {\n \tb.hostname = d.Get(\"hostname\").(string)\n \tb.organization = d.Get(\"organization\").(string)\n \n+\t// The backend schema for the workspaces attribute changed in terraform\n+\t// 0.12, and causes a panic when encountered by 0.11. While we don't support\n+\t// downgrading, we do want to protect users from that panic.\n+\twsConfig := d.Get(\"workspaces\").(*schema.Set).List()\n+\tif len(wsConfig) == 0 {\n+\t\treturn fmt.Errorf(\"the cached backend configuration is not valid for this version of terraform\")\n+\t}\n+\n \t// Get and assert the workspaces configuration block.\n-\tworkspace := d.Get(\"workspaces\").(*schema.Set).List()[0].(map[string]interface{})\n+\tworkspace := wsConfig[0].(map[string]interface{})\n \n \t// Get the default workspace name and prefix.\n \tb.workspace = workspace[\"name\"].(string)\n",
+    "diff_hunk_content_with_line_number": "[149][149]  \tb.hostname = d.Get(\"hostname\").(string)\n[150][150]  \tb.organization = d.Get(\"organization\").(string)\n[151][151]  \n[][152] +\t// The backend schema for the workspaces attribute changed in terraform\n[][153] +\t// 0.12, and causes a panic when encountered by 0.11. While we don't support\n[][154] +\t// downgrading, we do want to protect users from that panic.\n[][155] +\twsConfig := d.Get(\"workspaces\").(*schema.Set).List()\n[][156] +\tif len(wsConfig) == 0 {\n[][157] +\t\treturn fmt.Errorf(\"the cached backend configuration is not valid for this version of terraform\")\n[][158] +\t}\n[][159] +\n[152][160]  \t// Get and assert the workspaces configuration block.\n[153][] -\tworkspace := d.Get(\"workspaces\").(*schema.Set).List()[0].(map[string]interface{})\n[][161] +\tworkspace := wsConfig[0].(map[string]interface{})\n[154][162]  \n[155][163]  \t// Get the default workspace name and prefix.\n[156][164]  \tb.workspace = workspace[\"name\"].(string)",
+    "checked_commit_id": "bf7a1ac6a91fc8f7c3bc8b8dfd8e2ce009127739",
+    "pr_size": "sm"
+  },
+  {
+    "id": 21167,
+    "full_name": "hashicorp/terraform",
+    "lang": "go",
+    "issue_number": 21190,
+    "pr_number": 21199,
+    "diff_hunk": "@@ -390,16 +390,14 @@ func (m *Meta) backendFromConfig(opts *BackendOpts) (backend.Backend, error) {\n \tcase c != nil && s.Remote.Empty() && !s.Backend.Empty():\n \t\t// If our configuration is the same, then we're just initializing\n \t\t// a previously configured remote backend.\n-\t\tif !s.Backend.Empty() {\n-\t\t\thash := s.Backend.Hash\n-\t\t\t// on init we need an updated hash containing any extra options\n-\t\t\t// that were added after merging.\n-\t\t\tif opts.Init {\n-\t\t\t\thash = s.Backend.Rehash()\n-\t\t\t}\n-\t\t\tif hash == cHash {\n-\t\t\t\treturn m.backend_C_r_S_unchanged(c, sMgr)\n-\t\t\t}\n+\t\thash := s.Backend.Hash\n+\t\t// on init we need an updated hash containing any extra options\n+\t\t// that were added after merging.\n+\t\tif opts.Init {\n+\t\t\thash = s.Backend.Rehash()\n+\t\t}\n+\t\tif hash == cHash {\n+\t\t\treturn m.backend_C_r_S_unchanged(c, sMgr)\n \t\t}\n \n \t\tif !opts.Init {",
+    "diff_hunk_content_with_line_number": "[390][390]  \tcase c != nil && s.Remote.Empty() && !s.Backend.Empty():\n[391][391]  \t\t// If our configuration is the same, then we're just initializing\n[392][392]  \t\t// a previously configured remote backend.\n[393][] -\t\tif !s.Backend.Empty() {\n[394][] -\t\t\thash := s.Backend.Hash\n[395][] -\t\t\t// on init we need an updated hash containing any extra options\n[396][] -\t\t\t// that were added after merging.\n[397][] -\t\t\tif opts.Init {\n[398][] -\t\t\t\thash = s.Backend.Rehash()\n[399][] -\t\t\t}\n[400][] -\t\t\tif hash == cHash {\n[401][] -\t\t\t\treturn m.backend_C_r_S_unchanged(c, sMgr)\n[402][] -\t\t\t}\n[][393] +\t\thash := s.Backend.Hash\n[][394] +\t\t// on init we need an updated hash containing any extra options\n[][395] +\t\t// that were added after merging.\n[][396] +\t\tif opts.Init {\n[][397] +\t\t\thash = s.Backend.Rehash()\n[][398] +\t\t}\n[][399] +\t\tif hash == cHash {\n[][400] +\t\t\treturn m.backend_C_r_S_unchanged(c, sMgr)\n[403][401]  \t\t}\n[404][402]  \n[405][403]  \t\tif !opts.Init {",
+    "checked_commit_id": "bf7a1ac6a91fc8f7c3bc8b8dfd8e2ce009127739",
+    "pr_size": "sm"
+  }
+]

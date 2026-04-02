@@ -1,0 +1,946 @@
+diff --git a/crates/bevy_reflect/bevy_reflect_derive/src/container_attributes.rs b/crates/bevy_reflect/bevy_reflect_derive/src/container_attributes.rs
+index b2995035036d7..94749f0e8a4e7 100644
+--- a/crates/bevy_reflect/bevy_reflect_derive/src/container_attributes.rs
++++ b/crates/bevy_reflect/bevy_reflect_derive/src/container_attributes.rs
+@@ -5,9 +5,10 @@
+ //! the derive helper attribute for `Reflect`, which looks like:
+ //! `#[reflect(PartialEq, Default, ...)]` and `#[reflect_value(PartialEq, Default, ...)]`.
+ 
++use crate::fq_std::{FQAny, FQDefault, FQOption};
+ use crate::utility;
+ use proc_macro2::{Ident, Span};
+-use quote::{quote, quote_spanned};
++use quote::quote_spanned;
+ use syn::parse::{Parse, ParseStream};
+ use syn::punctuated::Punctuated;
+ use syn::spanned::Spanned;
+@@ -220,22 +221,19 @@ impl ReflectTraits {
+     ///
+     /// If `Hash` was not registered, returns `None`.
+     pub fn get_hash_impl(&self, bevy_reflect_path: &Path) -> Option<proc_macro2::TokenStream> {
+-        let option = quote!(::core::option::Option);
+-        let any = quote!(::core::any::Any);
+-
+         match &self.hash {
+             &TraitImpl::Implemented(span) => Some(quote_spanned! {span=>
+-                fn reflect_hash(&self) -> #option<u64> {
++                fn reflect_hash(&self) -> #FQOption<u64> {
+                     use ::core::hash::{Hash, Hasher};
+-                    let mut hasher: #bevy_reflect_path::ReflectHasher = ::core::default::Default::default();
+-                    Hash::hash(&#any::type_id(self), &mut hasher);
++                    let mut hasher: #bevy_reflect_path::ReflectHasher = #FQDefault::default();
++                    Hash::hash(&#FQAny::type_id(self), &mut hasher);
+                     Hash::hash(self, &mut hasher);
+-                    #option::Some(Hasher::finish(&hasher))
++                    #FQOption::Some(Hasher::finish(&hasher))
+                 }
+             }),
+             &TraitImpl::Custom(ref impl_fn, span) => Some(quote_spanned! {span=>
+-                fn reflect_hash(&self) -> #option<u64> {
+-                    #option::Some(#impl_fn(self))
++                fn reflect_hash(&self) -> #FQOption<u64> {
++                    #FQOption::Some(#impl_fn(self))
+                 }
+             }),
+             TraitImpl::NotImplemented => None,
+@@ -249,23 +247,20 @@ impl ReflectTraits {
+         &self,
+         bevy_reflect_path: &Path,
+     ) -> Option<proc_macro2::TokenStream> {
+-        let option = quote!(::core::option::Option);
+-        let any = quote!(::core::any::Any);
+-
+         match &self.partial_eq {
+             &TraitImpl::Implemented(span) => Some(quote_spanned! {span=>
+-                fn reflect_partial_eq(&self, value: &dyn #bevy_reflect_path::Reflect) -> #option<bool> {
++                fn reflect_partial_eq(&self, value: &dyn #bevy_reflect_path::Reflect) -> #FQOption<bool> {
+                     let value = <dyn #bevy_reflect_path::Reflect>::as_any(value);
+-                    if let #option::Some(value) = <dyn #any>::downcast_ref::<Self>(value) {
+-                        #option::Some(::core::cmp::PartialEq::eq(self, value))
++                    if let #FQOption::Some(value) = <dyn #FQAny>::downcast_ref::<Self>(value) {
++                        #FQOption::Some(::core::cmp::PartialEq::eq(self, value))
+                     } else {
+-                        #option::Some(false)
++                        #FQOption::Some(false)
+                     }
+                 }
+             }),
+             &TraitImpl::Custom(ref impl_fn, span) => Some(quote_spanned! {span=>
+-                fn reflect_partial_eq(&self, value: &dyn #bevy_reflect_path::Reflect) -> #option<bool> {
+-                    #option::Some(#impl_fn(self, value))
++                fn reflect_partial_eq(&self, value: &dyn #bevy_reflect_path::Reflect) -> #FQOption<bool> {
++                    #FQOption::Some(#impl_fn(self, value))
+                 }
+             }),
+             TraitImpl::NotImplemented => None,
+diff --git a/crates/bevy_reflect/bevy_reflect_derive/src/documentation.rs b/crates/bevy_reflect/bevy_reflect_derive/src/documentation.rs
+index 49b809dd7e826..4bf2474873655 100644
+--- a/crates/bevy_reflect/bevy_reflect_derive/src/documentation.rs
++++ b/crates/bevy_reflect/bevy_reflect_derive/src/documentation.rs
+@@ -1,5 +1,6 @@
+ //! Contains code related to documentation reflection (requires the `documentation` feature).
+ 
++use crate::fq_std::FQOption;
+ use proc_macro2::TokenStream;
+ use quote::{quote, ToTokens};
+ use syn::{Attribute, Lit, Meta};
+@@ -68,11 +69,10 @@ impl Documentation {
+ 
+ impl ToTokens for Documentation {
+     fn to_tokens(&self, tokens: &mut TokenStream) {
+-        let option = quote!(::core::option::Option);
+         if let Some(doc) = self.doc_string() {
+-            quote!(#option::Some(#doc)).to_tokens(tokens);
++            quote!(#FQOption::Some(#doc)).to_tokens(tokens);
+         } else {
+-            quote!(#option::None).to_tokens(tokens);
++            quote!(#FQOption::None).to_tokens(tokens);
+         }
+     }
+ }
+diff --git a/crates/bevy_reflect/bevy_reflect_derive/src/enum_utility.rs b/crates/bevy_reflect/bevy_reflect_derive/src/enum_utility.rs
+index fc6cf247b098e..b8b94c693358d 100644
+--- a/crates/bevy_reflect/bevy_reflect_derive/src/enum_utility.rs
++++ b/crates/bevy_reflect/bevy_reflect_derive/src/enum_utility.rs
+@@ -1,3 +1,4 @@
++use crate::fq_std::FQDefault;
+ use crate::{
+     derive_data::{EnumVariantFields, ReflectEnum},
+     utility::ident_or_index,
+@@ -39,7 +40,7 @@ pub(crate) fn get_variant_constructors(
+         let constructor_fields = fields.iter().enumerate().map(|(declar_index, field)| {
+             let field_ident = ident_or_index(field.data.ident.as_ref(), declar_index);
+             let field_value = if field.attrs.ignore.is_ignored() {
+-                quote! { ::core::default::Default::default() }
++                quote! { #FQDefault::default() }
+             } else {
+                 let error_repr = field.data.ident.as_ref().map_or_else(
+                     || format!("at index {reflect_index}"),
+diff --git a/crates/bevy_reflect/bevy_reflect_derive/src/fq_std.rs b/crates/bevy_reflect/bevy_reflect_derive/src/fq_std.rs
+new file mode 100644
+index 0000000000000..014b939b8c290
+--- /dev/null
++++ b/crates/bevy_reflect/bevy_reflect_derive/src/fq_std.rs
+@@ -0,0 +1,45 @@
++use proc_macro2::TokenStream;
++use quote::{quote, ToTokens};
++
++pub(crate) struct FQAny;
++pub(crate) struct FQBox;
++pub(crate) struct FQClone;
++pub(crate) struct FQDefault;
++pub(crate) struct FQOption;
++pub(crate) struct FQResult;
++
++impl ToTokens for FQAny {
++    fn to_tokens(&self, tokens: &mut TokenStream) {
++        quote!(::core::any::Any).to_tokens(tokens);
++    }
++}
++
++impl ToTokens for FQBox {
++    fn to_tokens(&self, tokens: &mut TokenStream) {
++        quote!(::std::boxed::Box).to_tokens(tokens);
++    }
++}
++
++impl ToTokens for FQClone {
++    fn to_tokens(&self, tokens: &mut TokenStream) {
++        quote!(::core::clone::Clone).to_tokens(tokens);
++    }
++}
++
++impl ToTokens for FQDefault {
++    fn to_tokens(&self, tokens: &mut TokenStream) {
++        quote!(::core::default::Default).to_tokens(tokens);
++    }
++}
++
++impl ToTokens for FQOption {
++    fn to_tokens(&self, tokens: &mut TokenStream) {
++        quote!(::core::option::Option).to_tokens(tokens);
++    }
++}
++
++impl ToTokens for FQResult {
++    fn to_tokens(&self, tokens: &mut TokenStream) {
++        quote!(::core::result::Result).to_tokens(tokens);
++    }
++}
+diff --git a/crates/bevy_reflect/bevy_reflect_derive/src/from_reflect.rs b/crates/bevy_reflect/bevy_reflect_derive/src/from_reflect.rs
+index 93eb8e650d873..aab2545b54989 100644
+--- a/crates/bevy_reflect/bevy_reflect_derive/src/from_reflect.rs
++++ b/crates/bevy_reflect/bevy_reflect_derive/src/from_reflect.rs
+@@ -2,10 +2,11 @@ use crate::container_attributes::REFLECT_DEFAULT;
+ use crate::derive_data::ReflectEnum;
+ use crate::enum_utility::{get_variant_constructors, EnumVariantConstructors};
+ use crate::field_attributes::DefaultBehavior;
++use crate::fq_std::{FQAny, FQClone, FQDefault, FQOption};
+ use crate::{ReflectMeta, ReflectStruct};
+ use proc_macro::TokenStream;
+ use proc_macro2::Span;
+-use quote::quote;
++use quote::{quote, ToTokens};
+ use syn::{Field, Ident, Index, Lit, LitInt, LitStr, Member};
+ 
+ /// Implements `FromReflect` for the given struct
+@@ -20,17 +21,13 @@ pub(crate) fn impl_tuple_struct(reflect_struct: &ReflectStruct) -> TokenStream {
+ 
+ /// Implements `FromReflect` for the given value type
+ pub(crate) fn impl_value(meta: &ReflectMeta) -> TokenStream {
+-    let option = quote!(::core::option::Option);
+-    let clone = quote!(::core::clone::Clone::clone);
+-    let any = quote!(::core::any::Any);
+-
+     let type_name = meta.type_name();
+     let bevy_reflect_path = meta.bevy_reflect_path();
+     let (impl_generics, ty_generics, where_clause) = meta.generics().split_for_impl();
+     TokenStream::from(quote! {
+         impl #impl_generics #bevy_reflect_path::FromReflect for #type_name #ty_generics #where_clause  {
+-            fn from_reflect(reflect: &dyn #bevy_reflect_path::Reflect) -> #option<Self> {
+-                #option::Some(#clone(<dyn #any>::downcast_ref::<#type_name #ty_generics>(<dyn #bevy_reflect_path::Reflect>::as_any(reflect))?))
++            fn from_reflect(reflect: &dyn #bevy_reflect_path::Reflect) -> #FQOption<Self> {
++                #FQOption::Some(#FQClone::clone(<dyn #FQAny>::downcast_ref::<#type_name #ty_generics>(<dyn #bevy_reflect_path::Reflect>::as_any(reflect))?))
+             }
+         }
+     })
+@@ -38,7 +35,7 @@ pub(crate) fn impl_value(meta: &ReflectMeta) -> TokenStream {
+ 
+ /// Implements `FromReflect` for the given enum type
+ pub(crate) fn impl_enum(reflect_enum: &ReflectEnum) -> TokenStream {
+-    let option = quote!(::core::option::Option);
++    let fqoption = FQOption.into_token_stream();
+ 
+     let type_name = reflect_enum.meta().type_name();
+     let bevy_reflect_path = reflect_enum.meta().bevy_reflect_path();
+@@ -53,14 +50,14 @@ pub(crate) fn impl_enum(reflect_enum: &ReflectEnum) -> TokenStream {
+         reflect_enum.meta().generics().split_for_impl();
+     TokenStream::from(quote! {
+         impl #impl_generics #bevy_reflect_path::FromReflect for #type_name #ty_generics #where_clause  {
+-            fn from_reflect(#ref_value: &dyn #bevy_reflect_path::Reflect) -> #option<Self> {
++            fn from_reflect(#ref_value: &dyn #bevy_reflect_path::Reflect) -> #FQOption<Self> {
+                 if let #bevy_reflect_path::ReflectRef::Enum(#ref_value) = #bevy_reflect_path::Reflect::reflect_ref(#ref_value) {
+                     match #bevy_reflect_path::Enum::variant_name(#ref_value) {
+-                        #(#variant_names => #option::Some(#variant_constructors),)*
++                        #(#variant_names => #fqoption::Some(#variant_constructors),)*
+                         name => panic!("variant with name `{}` does not exist on enum `{}`", name, ::core::any::type_name::<Self>()),
+                     }
+                 } else {
+-                    #option::None
++                    #FQOption::None
+                 }
+             }
+         }
+@@ -78,7 +75,7 @@ impl MemberValuePair {
+ }
+ 
+ fn impl_struct_internal(reflect_struct: &ReflectStruct, is_tuple: bool) -> TokenStream {
+-    let option = quote!(::core::option::Option);
++    let fqoption = FQOption.into_token_stream();
+ 
+     let struct_name = reflect_struct.meta().type_name();
+     let generics = reflect_struct.meta().generics();
+@@ -97,21 +94,21 @@ fn impl_struct_internal(reflect_struct: &ReflectStruct, is_tuple: bool) -> Token
+ 
+     let constructor = if reflect_struct.meta().traits().contains(REFLECT_DEFAULT) {
+         quote!(
+-            let mut __this: Self = ::core::default::Default::default();
++            let mut __this: Self = #FQDefault::default();
+             #(
+-                if let #option::Some(__field) = #active_values() {
++                if let #fqoption::Some(__field) = #active_values() {
+                     // Iff field exists -> use its value
+                     __this.#active_members = __field;
+                 }
+             )*
+-            #option::Some(__this)
++            #FQOption::Some(__this)
+         )
+     } else {
+         let MemberValuePair(ignored_members, ignored_values) =
+             get_ignored_fields(reflect_struct, is_tuple);
+ 
+         quote!(
+-            #option::Some(
++            #FQOption::Some(
+                 Self {
+                     #(#active_members: #active_values()?,)*
+                     #(#ignored_members: #ignored_values,)*
+@@ -137,11 +134,11 @@ fn impl_struct_internal(reflect_struct: &ReflectStruct, is_tuple: bool) -> Token
+     TokenStream::from(quote! {
+         impl #impl_generics #bevy_reflect_path::FromReflect for #struct_name #ty_generics #where_from_reflect_clause
+         {
+-            fn from_reflect(reflect: &dyn #bevy_reflect_path::Reflect) -> #option<Self> {
++            fn from_reflect(reflect: &dyn #bevy_reflect_path::Reflect) -> #FQOption<Self> {
+                 if let #bevy_reflect_path::ReflectRef::#ref_struct_type(#ref_struct) = #bevy_reflect_path::Reflect::reflect_ref(reflect) {
+                     #constructor
+                 } else {
+-                    #option::None
++                    #FQOption::None
+                 }
+             }
+         }
+@@ -161,7 +158,7 @@ fn get_ignored_fields(reflect_struct: &ReflectStruct, is_tuple: bool) -> MemberV
+ 
+                 let value = match &field.attrs.default {
+                     DefaultBehavior::Func(path) => quote! {#path()},
+-                    _ => quote! {::core::default::Default::default()},
++                    _ => quote! {#FQDefault::default()},
+                 };
+ 
+                 (member, value)
+@@ -180,8 +177,6 @@ fn get_active_fields(
+     struct_type: &Ident,
+     is_tuple: bool,
+ ) -> MemberValuePair {
+-    let option = quote!(::core::option::Option);
+-
+     let bevy_reflect_path = reflect_struct.meta().bevy_reflect_path();
+ 
+     MemberValuePair::new(
+@@ -199,19 +194,19 @@ fn get_active_fields(
+                 let value = match &field.attrs.default {
+                     DefaultBehavior::Func(path) => quote! {
+                         (||
+-                            if let #option::Some(field) = #get_field {
++                            if let #FQOption::Some(field) = #get_field {
+                                 <#ty as #bevy_reflect_path::FromReflect>::from_reflect(field)
+                             } else {
+-                                #option::Some(#path())
++                                #FQOption::Some(#path())
+                             }
+                         )
+                     },
+                     DefaultBehavior::Default => quote! {
+                         (||
+-                            if let #option::Some(field) = #get_field {
++                            if let #FQOption::Some(field) = #get_field {
+                                 <#ty as #bevy_reflect_path::FromReflect>::from_reflect(field)
+                             } else {
+-                                #option::Some(::core::default::Default::default())
++                                #FQOption::Some(#FQDefault::default())
+                             }
+                         )
+                     },
+diff --git a/crates/bevy_reflect/bevy_reflect_derive/src/impls/enums.rs b/crates/bevy_reflect/bevy_reflect_derive/src/impls/enums.rs
+index f08d02b811d8c..ce163092fac5a 100644
+--- a/crates/bevy_reflect/bevy_reflect_derive/src/impls/enums.rs
++++ b/crates/bevy_reflect/bevy_reflect_derive/src/impls/enums.rs
+@@ -1,5 +1,6 @@
+ use crate::derive_data::{EnumVariant, EnumVariantFields, ReflectEnum, StructField};
+ use crate::enum_utility::{get_variant_constructors, EnumVariantConstructors};
++use crate::fq_std::{FQAny, FQBox, FQOption, FQResult};
+ use crate::impls::impl_typed;
+ use proc_macro::TokenStream;
+ use proc_macro2::{Ident, Span};
+@@ -7,10 +8,6 @@ use quote::quote;
+ use syn::Fields;
+ 
+ pub(crate) fn impl_enum(reflect_enum: &ReflectEnum) -> TokenStream {
+-    let option = quote!(::core::option::Option);
+-    let any = quote!(::core::any::Any);
+-    let std_box = quote!(::std::boxed::Box);
+-
+     let bevy_reflect_path = reflect_enum.meta().bevy_reflect_path();
+     let enum_name = reflect_enum.meta().type_name();
+ 
+@@ -41,7 +38,7 @@ pub(crate) fn impl_enum(reflect_enum: &ReflectEnum) -> TokenStream {
+         .get_hash_impl(bevy_reflect_path)
+         .unwrap_or_else(|| {
+             quote! {
+-                fn reflect_hash(&self) -> #option<u64> {
++                fn reflect_hash(&self) -> #FQOption<u64> {
+                     #bevy_reflect_path::enum_hash(self)
+                 }
+             }
+@@ -53,7 +50,7 @@ pub(crate) fn impl_enum(reflect_enum: &ReflectEnum) -> TokenStream {
+         .get_partial_eq_impl(bevy_reflect_path)
+         .unwrap_or_else(|| {
+             quote! {
+-                fn reflect_partial_eq(&self, value: &dyn #bevy_reflect_path::Reflect) -> #option<bool> {
++                fn reflect_partial_eq(&self, value: &dyn #bevy_reflect_path::Reflect) -> #FQOption<bool> {
+                     #bevy_reflect_path::enum_partial_eq(self, value)
+                 }
+             }
+@@ -97,45 +94,45 @@ pub(crate) fn impl_enum(reflect_enum: &ReflectEnum) -> TokenStream {
+         #typed_impl
+ 
+         impl #impl_generics #bevy_reflect_path::Enum for #enum_name #ty_generics #where_clause {
+-            fn field(&self, #ref_name: &str) -> #option<&dyn #bevy_reflect_path::Reflect> {
++            fn field(&self, #ref_name: &str) -> #FQOption<&dyn #bevy_reflect_path::Reflect> {
+                  match self {
+                     #(#enum_field,)*
+-                    _ => #option::None,
++                    _ => #FQOption::None,
+                 }
+             }
+ 
+-            fn field_at(&self, #ref_index: usize) -> #option<&dyn #bevy_reflect_path::Reflect> {
++            fn field_at(&self, #ref_index: usize) -> #FQOption<&dyn #bevy_reflect_path::Reflect> {
+                 match self {
+                     #(#enum_field_at,)*
+-                    _ => #option::None,
++                    _ => #FQOption::None,
+                 }
+             }
+ 
+-            fn field_mut(&mut self, #ref_name: &str) -> #option<&mut dyn #bevy_reflect_path::Reflect> {
++            fn field_mut(&mut self, #ref_name: &str) -> #FQOption<&mut dyn #bevy_reflect_path::Reflect> {
+                  match self {
+                     #(#enum_field,)*
+-                    _ => #option::None,
++                    _ => #FQOption::None,
+                 }
+             }
+ 
+-            fn field_at_mut(&mut self, #ref_index: usize) -> #option<&mut dyn #bevy_reflect_path::Reflect> {
++            fn field_at_mut(&mut self, #ref_index: usize) -> #FQOption<&mut dyn #bevy_reflect_path::Reflect> {
+                 match self {
+                     #(#enum_field_at,)*
+-                    _ => #option::None,
++                    _ => #FQOption::None,
+                 }
+             }
+ 
+-            fn index_of(&self, #ref_name: &str) -> #option<usize> {
++            fn index_of(&self, #ref_name: &str) -> #FQOption<usize> {
+                  match self {
+                     #(#enum_index_of,)*
+-                    _ => #option::None,
++                    _ => #FQOption::None,
+                 }
+             }
+ 
+-            fn name_at(&self, #ref_index: usize) -> #option<&str> {
++            fn name_at(&self, #ref_index: usize) -> #FQOption<&str> {
+                  match self {
+                     #(#enum_name_at,)*
+-                    _ => #option::None,
++                    _ => #FQOption::None,
+                 }
+             }
+ 
+@@ -192,22 +189,22 @@ pub(crate) fn impl_enum(reflect_enum: &ReflectEnum) -> TokenStream {
+             }
+ 
+             #[inline]
+-            fn into_any(self: #std_box<Self>) -> #std_box<dyn #any> {
++            fn into_any(self: #FQBox<Self>) -> #FQBox<dyn #FQAny> {
+                 self
+             }
+ 
+             #[inline]
+-            fn as_any(&self) -> &dyn #any {
++            fn as_any(&self) -> &dyn #FQAny {
+                 self
+             }
+ 
+             #[inline]
+-            fn as_any_mut(&mut self) -> &mut dyn #any {
++            fn as_any_mut(&mut self) -> &mut dyn #FQAny {
+                 self
+             }
+ 
+             #[inline]
+-            fn into_reflect(self: #std_box<Self>) -> #std_box<dyn #bevy_reflect_path::Reflect> {
++            fn into_reflect(self: #FQBox<Self>) -> #FQBox<dyn #bevy_reflect_path::Reflect> {
+                 self
+             }
+ 
+@@ -222,14 +219,14 @@ pub(crate) fn impl_enum(reflect_enum: &ReflectEnum) -> TokenStream {
+             }
+ 
+             #[inline]
+-            fn clone_value(&self) -> #std_box<dyn #bevy_reflect_path::Reflect> {
+-                #std_box::new(#bevy_reflect_path::Enum::clone_dynamic(self))
++            fn clone_value(&self) -> #FQBox<dyn #bevy_reflect_path::Reflect> {
++                #FQBox::new(#bevy_reflect_path::Enum::clone_dynamic(self))
+             }
+ 
+             #[inline]
+-            fn set(&mut self, #ref_value: #std_box<dyn #bevy_reflect_path::Reflect>) -> ::core::result::Result<(), #std_box<dyn #bevy_reflect_path::Reflect>> {
++            fn set(&mut self, #ref_value: #FQBox<dyn #bevy_reflect_path::Reflect>) -> #FQResult<(), #FQBox<dyn #bevy_reflect_path::Reflect>> {
+                 *self = <dyn #bevy_reflect_path::Reflect>::take(#ref_value)?;
+-                ::core::result::Result::Ok(())
++                #FQResult::Ok(())
+             }
+ 
+             #[inline]
+@@ -273,7 +270,7 @@ pub(crate) fn impl_enum(reflect_enum: &ReflectEnum) -> TokenStream {
+                 #bevy_reflect_path::ReflectMut::Enum(self)
+             }
+ 
+-            fn reflect_owned(self: #std_box<Self>) -> #bevy_reflect_path::ReflectOwned {
++            fn reflect_owned(self: #FQBox<Self>) -> #bevy_reflect_path::ReflectOwned {
+                 #bevy_reflect_path::ReflectOwned::Enum(self)
+             }
+ 
+@@ -299,8 +296,6 @@ struct EnumImpls {
+ }
+ 
+ fn generate_impls(reflect_enum: &ReflectEnum, ref_index: &Ident, ref_name: &Ident) -> EnumImpls {
+-    let option = quote!(::core::option::Option);
+-
+     let bevy_reflect_path = reflect_enum.meta().bevy_reflect_path();
+ 
+     let mut variant_info = Vec::new();
+@@ -386,7 +381,7 @@ fn generate_impls(reflect_enum: &ReflectEnum, ref_index: &Ident, ref_name: &Iden
+                 let args = get_field_args(fields, |reflect_idx, declaration_index, field| {
+                     let declar_field = syn::Index::from(declaration_index);
+                     enum_field_at.push(quote! {
+-                        #unit { #declar_field : value, .. } if #ref_index == #reflect_idx => #option::Some(value)
++                        #unit { #declar_field : value, .. } if #ref_index == #reflect_idx => #FQOption::Some(value)
+                     });
+ 
+                     #[cfg(feature = "documentation")]
+@@ -412,16 +407,16 @@ fn generate_impls(reflect_enum: &ReflectEnum, ref_index: &Ident, ref_name: &Iden
+                     let field_ident = field.data.ident.as_ref().unwrap();
+                     let field_name = field_ident.to_string();
+                     enum_field.push(quote! {
+-                        #unit{ #field_ident, .. } if #ref_name == #field_name => #option::Some(#field_ident)
++                        #unit{ #field_ident, .. } if #ref_name == #field_name => #FQOption::Some(#field_ident)
+                     });
+                     enum_field_at.push(quote! {
+-                        #unit{ #field_ident, .. } if #ref_index == #reflect_idx => #option::Some(#field_ident)
++                        #unit{ #field_ident, .. } if #ref_index == #reflect_idx => #FQOption::Some(#field_ident)
+                     });
+                     enum_index_of.push(quote! {
+-                        #unit{ .. } if #ref_name == #field_name => #option::Some(#reflect_idx)
++                        #unit{ .. } if #ref_name == #field_name => #FQOption::Some(#reflect_idx)
+                     });
+                     enum_name_at.push(quote! {
+-                        #unit{ .. } if #ref_index == #reflect_idx => #option::Some(#field_name)
++                        #unit{ .. } if #ref_index == #reflect_idx => #FQOption::Some(#field_name)
+                     });
+ 
+                     #[cfg(feature = "documentation")]
+diff --git a/crates/bevy_reflect/bevy_reflect_derive/src/impls/structs.rs b/crates/bevy_reflect/bevy_reflect_derive/src/impls/structs.rs
+index 8d2bfc5684ddb..eefffd3ec0506 100644
+--- a/crates/bevy_reflect/bevy_reflect_derive/src/impls/structs.rs
++++ b/crates/bevy_reflect/bevy_reflect_derive/src/impls/structs.rs
+@@ -1,14 +1,13 @@
++use crate::fq_std::{FQAny, FQBox, FQDefault, FQOption, FQResult};
+ use crate::impls::impl_typed;
+ use crate::ReflectStruct;
+ use proc_macro::TokenStream;
+-use quote::quote;
++use quote::{quote, ToTokens};
+ use syn::{Index, Member};
+ 
+ /// Implements `Struct`, `GetTypeRegistration`, and `Reflect` for the given derive data.
+ pub(crate) fn impl_struct(reflect_struct: &ReflectStruct) -> TokenStream {
+-    let option = quote!(::core::option::Option);
+-    let any = quote!(::core::any::Any);
+-    let std_box = quote!(::std::boxed::Box);
++    let fqoption = FQOption.into_token_stream();
+ 
+     let bevy_reflect_path = reflect_struct.meta().bevy_reflect_path();
+     let struct_name = reflect_struct.meta().type_name();
+@@ -49,7 +48,7 @@ pub(crate) fn impl_struct(reflect_struct: &ReflectStruct) -> TokenStream {
+         .get_partial_eq_impl(bevy_reflect_path)
+         .unwrap_or_else(|| {
+             quote! {
+-                fn reflect_partial_eq(&self, value: &dyn #bevy_reflect_path::Reflect) -> #option<bool> {
++                fn reflect_partial_eq(&self, value: &dyn #bevy_reflect_path::Reflect) -> #FQOption<bool> {
+                     #bevy_reflect_path::struct_partial_eq(self, value)
+                 }
+             }
+@@ -110,38 +109,38 @@ pub(crate) fn impl_struct(reflect_struct: &ReflectStruct) -> TokenStream {
+         #typed_impl
+ 
+         impl #impl_generics #bevy_reflect_path::Struct for #struct_name #ty_generics #where_clause {
+-            fn field(&self, name: &str) -> #option<&dyn #bevy_reflect_path::Reflect> {
++            fn field(&self, name: &str) -> #FQOption<&dyn #bevy_reflect_path::Reflect> {
+                 match name {
+-                    #(#field_names => #option::Some(&self.#field_idents),)*
+-                    _ => #option::None,
++                    #(#field_names => #fqoption::Some(&self.#field_idents),)*
++                    _ => #FQOption::None,
+                 }
+             }
+ 
+-            fn field_mut(&mut self, name: &str) -> #option<&mut dyn #bevy_reflect_path::Reflect> {
++            fn field_mut(&mut self, name: &str) -> #FQOption<&mut dyn #bevy_reflect_path::Reflect> {
+                 match name {
+-                    #(#field_names => #option::Some(&mut self.#field_idents),)*
+-                    _ => #option::None,
++                    #(#field_names => #fqoption::Some(&mut self.#field_idents),)*
++                    _ => #FQOption::None,
+                 }
+             }
+ 
+-            fn field_at(&self, index: usize) -> #option<&dyn #bevy_reflect_path::Reflect> {
++            fn field_at(&self, index: usize) -> #FQOption<&dyn #bevy_reflect_path::Reflect> {
+                 match index {
+-                    #(#field_indices => #option::Some(&self.#field_idents),)*
+-                    _ => #option::None,
++                    #(#field_indices => #fqoption::Some(&self.#field_idents),)*
++                    _ => #FQOption::None,
+                 }
+             }
+ 
+-            fn field_at_mut(&mut self, index: usize) -> #option<&mut dyn #bevy_reflect_path::Reflect> {
++            fn field_at_mut(&mut self, index: usize) -> #FQOption<&mut dyn #bevy_reflect_path::Reflect> {
+                 match index {
+-                    #(#field_indices => #option::Some(&mut self.#field_idents),)*
+-                    _ => #option::None,
++                    #(#field_indices => #fqoption::Some(&mut self.#field_idents),)*
++                    _ => #FQOption::None,
+                 }
+             }
+ 
+-            fn name_at(&self, index: usize) -> #option<&str> {
++            fn name_at(&self, index: usize) -> #FQOption<&str> {
+                 match index {
+-                    #(#field_indices => #option::Some(#field_names),)*
+-                    _ => #option::None,
++                    #(#field_indices => #fqoption::Some(#field_names),)*
++                    _ => #FQOption::None,
+                 }
+             }
+ 
+@@ -154,7 +153,7 @@ pub(crate) fn impl_struct(reflect_struct: &ReflectStruct) -> TokenStream {
+             }
+ 
+             fn clone_dynamic(&self) -> #bevy_reflect_path::DynamicStruct {
+-                let mut dynamic: #bevy_reflect_path::DynamicStruct = ::core::default::Default::default();
++                let mut dynamic: #bevy_reflect_path::DynamicStruct = #FQDefault::default();
+                 dynamic.set_name(::std::string::ToString::to_string(#bevy_reflect_path::Reflect::type_name(self)));
+                 #(dynamic.insert_boxed(#field_names, #bevy_reflect_path::Reflect::clone_value(&self.#field_idents));)*
+                 dynamic
+@@ -173,22 +172,22 @@ pub(crate) fn impl_struct(reflect_struct: &ReflectStruct) -> TokenStream {
+             }
+ 
+             #[inline]
+-            fn into_any(self: #std_box<Self>) -> #std_box<dyn #any> {
++            fn into_any(self: #FQBox<Self>) -> #FQBox<dyn #FQAny> {
+                 self
+             }
+ 
+             #[inline]
+-            fn as_any(&self) -> &dyn #any {
++            fn as_any(&self) -> &dyn #FQAny {
+                 self
+             }
+ 
+             #[inline]
+-            fn as_any_mut(&mut self) -> &mut dyn #any {
++            fn as_any_mut(&mut self) -> &mut dyn #FQAny {
+                 self
+             }
+ 
+             #[inline]
+-            fn into_reflect(self: #std_box<Self>) -> #std_box<dyn #bevy_reflect_path::Reflect> {
++            fn into_reflect(self: #FQBox<Self>) -> #FQBox<dyn #bevy_reflect_path::Reflect> {
+                 self
+             }
+ 
+@@ -203,14 +202,14 @@ pub(crate) fn impl_struct(reflect_struct: &ReflectStruct) -> TokenStream {
+             }
+ 
+             #[inline]
+-            fn clone_value(&self) -> #std_box<dyn #bevy_reflect_path::Reflect> {
+-                #std_box::new(#bevy_reflect_path::Struct::clone_dynamic(self))
++            fn clone_value(&self) -> #FQBox<dyn #bevy_reflect_path::Reflect> {
++                #FQBox::new(#bevy_reflect_path::Struct::clone_dynamic(self))
+             }
+ 
+             #[inline]
+-            fn set(&mut self, value: #std_box<dyn #bevy_reflect_path::Reflect>) -> ::core::result::Result<(), #std_box<dyn #bevy_reflect_path::Reflect>> {
++            fn set(&mut self, value: #FQBox<dyn #bevy_reflect_path::Reflect>) -> #FQResult<(), #FQBox<dyn #bevy_reflect_path::Reflect>> {
+                 *self = <dyn #bevy_reflect_path::Reflect>::take(value)?;
+-                ::core::result::Result::Ok(())
++                #FQResult::Ok(())
+             }
+ 
+             #[inline]
+@@ -233,7 +232,7 @@ pub(crate) fn impl_struct(reflect_struct: &ReflectStruct) -> TokenStream {
+                 #bevy_reflect_path::ReflectMut::Struct(self)
+             }
+ 
+-            fn reflect_owned(self: #std_box<Self>) -> #bevy_reflect_path::ReflectOwned {
++            fn reflect_owned(self: #FQBox<Self>) -> #bevy_reflect_path::ReflectOwned {
+                 #bevy_reflect_path::ReflectOwned::Struct(self)
+             }
+ 
+diff --git a/crates/bevy_reflect/bevy_reflect_derive/src/impls/tuple_structs.rs b/crates/bevy_reflect/bevy_reflect_derive/src/impls/tuple_structs.rs
+index 00e2d8e3d2f12..da187a3ca8a0b 100644
+--- a/crates/bevy_reflect/bevy_reflect_derive/src/impls/tuple_structs.rs
++++ b/crates/bevy_reflect/bevy_reflect_derive/src/impls/tuple_structs.rs
+@@ -1,14 +1,13 @@
++use crate::fq_std::{FQAny, FQBox, FQDefault, FQOption, FQResult};
+ use crate::impls::impl_typed;
+ use crate::ReflectStruct;
+ use proc_macro::TokenStream;
+-use quote::quote;
++use quote::{quote, ToTokens};
+ use syn::{Index, Member};
+ 
+ /// Implements `TupleStruct`, `GetTypeRegistration`, and `Reflect` for the given derive data.
+ pub(crate) fn impl_tuple_struct(reflect_struct: &ReflectStruct) -> TokenStream {
+-    let option = quote!(::core::option::Option);
+-    let any = quote!(::core::any::Any);
+-    let std_box = quote!(::std::boxed::Box);
++    let fqoption = FQOption.into_token_stream();
+ 
+     let bevy_reflect_path = reflect_struct.meta().bevy_reflect_path();
+     let struct_name = reflect_struct.meta().type_name();
+@@ -33,7 +32,7 @@ pub(crate) fn impl_tuple_struct(reflect_struct: &ReflectStruct) -> TokenStream {
+         .get_partial_eq_impl(bevy_reflect_path)
+         .unwrap_or_else(|| {
+             quote! {
+-                fn reflect_partial_eq(&self, value: &dyn #bevy_reflect_path::Reflect) -> #option<bool> {
++                fn reflect_partial_eq(&self, value: &dyn #bevy_reflect_path::Reflect) -> #FQOption<bool> {
+                     #bevy_reflect_path::tuple_struct_partial_eq(self, value)
+                 }
+             }
+@@ -93,17 +92,17 @@ pub(crate) fn impl_tuple_struct(reflect_struct: &ReflectStruct) -> TokenStream {
+         #typed_impl
+ 
+         impl #impl_generics #bevy_reflect_path::TupleStruct for #struct_name #ty_generics #where_clause {
+-            fn field(&self, index: usize) -> #option<&dyn #bevy_reflect_path::Reflect> {
++            fn field(&self, index: usize) -> #FQOption<&dyn #bevy_reflect_path::Reflect> {
+                 match index {
+-                    #(#field_indices => #option::Some(&self.#field_idents),)*
+-                    _ => #option::None,
++                    #(#field_indices => #fqoption::Some(&self.#field_idents),)*
++                    _ => #FQOption::None,
+                 }
+             }
+ 
+-            fn field_mut(&mut self, index: usize) -> #option<&mut dyn #bevy_reflect_path::Reflect> {
++            fn field_mut(&mut self, index: usize) -> #FQOption<&mut dyn #bevy_reflect_path::Reflect> {
+                 match index {
+-                    #(#field_indices => #option::Some(&mut self.#field_idents),)*
+-                    _ => #option::None,
++                    #(#field_indices => #fqoption::Some(&mut self.#field_idents),)*
++                    _ => #FQOption::None,
+                 }
+             }
+ 
+@@ -116,7 +115,7 @@ pub(crate) fn impl_tuple_struct(reflect_struct: &ReflectStruct) -> TokenStream {
+             }
+ 
+             fn clone_dynamic(&self) -> #bevy_reflect_path::DynamicTupleStruct {
+-                let mut dynamic: #bevy_reflect_path::DynamicTupleStruct = ::core::default::Default::default();
++                let mut dynamic: #bevy_reflect_path::DynamicTupleStruct = #FQDefault::default();
+                 dynamic.set_name(::std::string::ToString::to_string(#bevy_reflect_path::Reflect::type_name(self)));
+                 #(dynamic.insert_boxed(#bevy_reflect_path::Reflect::clone_value(&self.#field_idents));)*
+                 dynamic
+@@ -135,22 +134,22 @@ pub(crate) fn impl_tuple_struct(reflect_struct: &ReflectStruct) -> TokenStream {
+             }
+ 
+             #[inline]
+-            fn into_any(self: #std_box<Self>) -> #std_box<dyn #any> {
++            fn into_any(self: #FQBox<Self>) -> #FQBox<dyn #FQAny> {
+                 self
+             }
+ 
+             #[inline]
+-            fn as_any(&self) -> &dyn #any {
++            fn as_any(&self) -> &dyn #FQAny {
+                 self
+             }
+ 
+             #[inline]
+-            fn as_any_mut(&mut self) -> &mut dyn #any {
++            fn as_any_mut(&mut self) -> &mut dyn #FQAny {
+                 self
+             }
+ 
+             #[inline]
+-            fn into_reflect(self: #std_box<Self>) -> #std_box<dyn #bevy_reflect_path::Reflect> {
++            fn into_reflect(self: #FQBox<Self>) -> #FQBox<dyn #bevy_reflect_path::Reflect> {
+                 self
+             }
+ 
+@@ -165,14 +164,14 @@ pub(crate) fn impl_tuple_struct(reflect_struct: &ReflectStruct) -> TokenStream {
+             }
+ 
+             #[inline]
+-            fn clone_value(&self) -> #std_box<dyn #bevy_reflect_path::Reflect> {
+-                #std_box::new(#bevy_reflect_path::TupleStruct::clone_dynamic(self))
++            fn clone_value(&self) -> #FQBox<dyn #bevy_reflect_path::Reflect> {
++                #FQBox::new(#bevy_reflect_path::TupleStruct::clone_dynamic(self))
+             }
+ 
+             #[inline]
+-            fn set(&mut self, value: #std_box<dyn #bevy_reflect_path::Reflect>) -> ::core::result::Result<(), #std_box<dyn #bevy_reflect_path::Reflect>> {
++            fn set(&mut self, value: #FQBox<dyn #bevy_reflect_path::Reflect>) -> #FQResult<(), #FQBox<dyn #bevy_reflect_path::Reflect>> {
+                 *self = <dyn #bevy_reflect_path::Reflect>::take(value)?;
+-                ::core::result::Result::Ok(())
++                #FQResult::Ok(())
+             }
+ 
+             #[inline]
+@@ -194,7 +193,7 @@ pub(crate) fn impl_tuple_struct(reflect_struct: &ReflectStruct) -> TokenStream {
+                 #bevy_reflect_path::ReflectMut::TupleStruct(self)
+             }
+ 
+-            fn reflect_owned(self: #std_box<Self>) -> #bevy_reflect_path::ReflectOwned {
++            fn reflect_owned(self: #FQBox<Self>) -> #bevy_reflect_path::ReflectOwned {
+                 #bevy_reflect_path::ReflectOwned::TupleStruct(self)
+             }
+ 
+diff --git a/crates/bevy_reflect/bevy_reflect_derive/src/impls/values.rs b/crates/bevy_reflect/bevy_reflect_derive/src/impls/values.rs
+index 1266dbe11102b..5d87027d1a25a 100644
+--- a/crates/bevy_reflect/bevy_reflect_derive/src/impls/values.rs
++++ b/crates/bevy_reflect/bevy_reflect_derive/src/impls/values.rs
+@@ -1,3 +1,4 @@
++use crate::fq_std::{FQAny, FQBox, FQClone, FQOption, FQResult};
+ use crate::impls::impl_typed;
+ use crate::ReflectMeta;
+ use proc_macro::TokenStream;
+@@ -5,10 +6,6 @@ use quote::quote;
+ 
+ /// Implements `GetTypeRegistration` and `Reflect` for the given type data.
+ pub(crate) fn impl_value(meta: &ReflectMeta) -> TokenStream {
+-    let any = quote!(::core::any::Any);
+-    let std_box = quote!(::std::boxed::Box);
+-    let clone = quote!(::core::clone::Clone::clone);
+-
+     let bevy_reflect_path = meta.bevy_reflect_path();
+     let type_name = meta.type_name();
+ 
+@@ -54,22 +51,22 @@ pub(crate) fn impl_value(meta: &ReflectMeta) -> TokenStream {
+             }
+ 
+             #[inline]
+-            fn into_any(self: #std_box<Self>) -> #std_box<dyn #any> {
++            fn into_any(self: #FQBox<Self>) -> #FQBox<dyn #FQAny> {
+                 self
+             }
+ 
+             #[inline]
+-            fn as_any(&self) -> &dyn #any {
++            fn as_any(&self) -> &dyn #FQAny {
+                 self
+             }
+ 
+             #[inline]
+-            fn as_any_mut(&mut self) -> &mut dyn #any {
++            fn as_any_mut(&mut self) -> &mut dyn #FQAny {
+                 self
+             }
+ 
+             #[inline]
+-            fn into_reflect(self: #std_box<Self>) -> #std_box<dyn #bevy_reflect_path::Reflect> {
++            fn into_reflect(self: #FQBox<Self>) -> #FQBox<dyn #bevy_reflect_path::Reflect> {
+                 self
+             }
+ 
+@@ -84,24 +81,24 @@ pub(crate) fn impl_value(meta: &ReflectMeta) -> TokenStream {
+             }
+ 
+             #[inline]
+-            fn clone_value(&self) -> #std_box<dyn #bevy_reflect_path::Reflect> {
+-                #std_box::new(#clone(self))
++            fn clone_value(&self) -> #FQBox<dyn #bevy_reflect_path::Reflect> {
++                #FQBox::new(#FQClone::clone(self))
+             }
+ 
+             #[inline]
+             fn apply(&mut self, value: &dyn #bevy_reflect_path::Reflect) {
+                 let value = #bevy_reflect_path::Reflect::as_any(value);
+-                if let ::core::option::Option::Some(value) = <dyn #any>::downcast_ref::<Self>(value) {
+-                    *self = #clone(value);
++                if let #FQOption::Some(value) = <dyn #FQAny>::downcast_ref::<Self>(value) {
++                    *self = #FQClone::clone(value);
+                 } else {
+                     panic!("Value is not {}.", ::core::any::type_name::<Self>());
+                 }
+             }
+ 
+             #[inline]
+-            fn set(&mut self, value: #std_box<dyn #bevy_reflect_path::Reflect>) -> ::core::result::Result<(), #std_box<dyn #bevy_reflect_path::Reflect>> {
++            fn set(&mut self, value: #FQBox<dyn #bevy_reflect_path::Reflect>) -> #FQResult<(), #FQBox<dyn #bevy_reflect_path::Reflect>> {
+                 *self = <dyn #bevy_reflect_path::Reflect>::take(value)?;
+-                ::core::result::Result::Ok(())
++                #FQResult::Ok(())
+             }
+ 
+             fn reflect_ref(&self) -> #bevy_reflect_path::ReflectRef {
+@@ -112,7 +109,7 @@ pub(crate) fn impl_value(meta: &ReflectMeta) -> TokenStream {
+                 #bevy_reflect_path::ReflectMut::Value(self)
+             }
+ 
+-            fn reflect_owned(self: #std_box<Self>) -> #bevy_reflect_path::ReflectOwned {
++            fn reflect_owned(self: #FQBox<Self>) -> #bevy_reflect_path::ReflectOwned {
+                 #bevy_reflect_path::ReflectOwned::Value(self)
+             }
+ 
+diff --git a/crates/bevy_reflect/bevy_reflect_derive/src/lib.rs b/crates/bevy_reflect/bevy_reflect_derive/src/lib.rs
+index 33d9ce3b75061..eb486d86baa31 100644
+--- a/crates/bevy_reflect/bevy_reflect_derive/src/lib.rs
++++ b/crates/bevy_reflect/bevy_reflect_derive/src/lib.rs
+@@ -20,6 +20,7 @@ mod derive_data;
+ mod documentation;
+ mod enum_utility;
+ mod field_attributes;
++mod fq_std;
+ mod from_reflect;
+ mod impls;
+ mod reflect_value;
+diff --git a/crates/bevy_reflect/bevy_reflect_derive/src/trait_reflection.rs b/crates/bevy_reflect/bevy_reflect_derive/src/trait_reflection.rs
+index 83329cc1af461..5441fa3c1f8da 100644
+--- a/crates/bevy_reflect/bevy_reflect_derive/src/trait_reflection.rs
++++ b/crates/bevy_reflect/bevy_reflect_derive/src/trait_reflection.rs
+@@ -1,3 +1,4 @@
++use crate::fq_std::{FQBox, FQClone, FQOption, FQResult};
+ use bevy_macro_utils::BevyManifest;
+ use proc_macro::TokenStream;
+ use quote::quote;
+@@ -26,10 +27,6 @@ impl Parse for TraitInfo {
+ /// This generates a struct that takes the form `ReflectMyTrait`. An instance of this struct can then be
+ /// used to perform the conversion.
+ pub(crate) fn reflect_trait(_args: &TokenStream, input: TokenStream) -> TokenStream {
+-    let option = quote!(::core::option::Option);
+-    let result = quote!(::core::result::Result);
+-    let std_box = quote!(::std::boxed::Box);
+-
+     let trait_info = parse_macro_input!(input as TraitInfo);
+     let item_trait = &trait_info.item_trait;
+     let trait_ident = &item_trait.ident;
+@@ -59,26 +56,26 @@ pub(crate) fn reflect_trait(_args: &TokenStream, input: TokenStream) -> TokenStr
+         #item_trait
+ 
+         #[doc = #struct_doc]
+-        #[derive(::core::clone::Clone)]
++        #[derive(#FQClone)]
+         #trait_vis struct #reflect_trait_ident {
+-            get_func: fn(&dyn #bevy_reflect_path::Reflect) -> #option<&dyn #trait_ident>,
+-            get_mut_func: fn(&mut dyn #bevy_reflect_path::Reflect) -> #option<&mut dyn #trait_ident>,
+-            get_boxed_func: fn(#std_box<dyn #bevy_reflect_path::Reflect>) -> #result<#std_box<dyn #trait_ident>, #std_box<dyn #bevy_reflect_path::Reflect>>,
++            get_func: fn(&dyn #bevy_reflect_path::Reflect) -> #FQOption<&dyn #trait_ident>,
++            get_mut_func: fn(&mut dyn #bevy_reflect_path::Reflect) -> #FQOption<&mut dyn #trait_ident>,
++            get_boxed_func: fn(#FQBox<dyn #bevy_reflect_path::Reflect>) -> #FQResult<#FQBox<dyn #trait_ident>, #FQBox<dyn #bevy_reflect_path::Reflect>>,
+         }
+ 
+         impl #reflect_trait_ident {
+             #[doc = #get_doc]
+-            pub fn get<'a>(&self, reflect_value: &'a dyn #bevy_reflect_path::Reflect) -> #option<&'a dyn #trait_ident> {
++            pub fn get<'a>(&self, reflect_value: &'a dyn #bevy_reflect_path::Reflect) -> #FQOption<&'a dyn #trait_ident> {
+                 (self.get_func)(reflect_value)
+             }
+ 
+             #[doc = #get_mut_doc]
+-            pub fn get_mut<'a>(&self, reflect_value: &'a mut dyn #bevy_reflect_path::Reflect) -> #option<&'a mut dyn #trait_ident> {
++            pub fn get_mut<'a>(&self, reflect_value: &'a mut dyn #bevy_reflect_path::Reflect) -> #FQOption<&'a mut dyn #trait_ident> {
+                 (self.get_mut_func)(reflect_value)
+             }
+ 
+             #[doc = #get_box_doc]
+-            pub fn get_boxed(&self, reflect_value: #std_box<dyn #bevy_reflect_path::Reflect>) -> #result<#std_box<dyn #trait_ident>, #std_box<dyn #bevy_reflect_path::Reflect>> {
++            pub fn get_boxed(&self, reflect_value: #FQBox<dyn #bevy_reflect_path::Reflect>) -> #FQResult<#FQBox<dyn #trait_ident>, #FQBox<dyn #bevy_reflect_path::Reflect>> {
+                 (self.get_boxed_func)(reflect_value)
+             }
+         }
+@@ -93,7 +90,7 @@ pub(crate) fn reflect_trait(_args: &TokenStream, input: TokenStream) -> TokenStr
+                         <dyn #bevy_reflect_path::Reflect>::downcast_mut::<T>(reflect_value).map(|value| value as &mut dyn #trait_ident)
+                     },
+                     get_boxed_func: |reflect_value| {
+-                        <dyn #bevy_reflect_path::Reflect>::downcast::<T>(reflect_value).map(|value| value as #std_box<dyn #trait_ident>)
++                        <dyn #bevy_reflect_path::Reflect>::downcast::<T>(reflect_value).map(|value| value as #FQBox<dyn #trait_ident>)
+                     }
+                 }
+             }

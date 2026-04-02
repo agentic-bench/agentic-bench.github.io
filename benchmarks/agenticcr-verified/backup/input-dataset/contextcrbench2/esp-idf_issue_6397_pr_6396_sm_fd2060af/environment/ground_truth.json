@@ -1,0 +1,12 @@
+[
+  {
+    "path": "components/driver/uart.c",
+    "line": 1291,
+    "original_line": 1291,
+    "review_comment": [
+      "It would be better to set a flag in this case and print this log message after `UART_EXIT_CRITICAL` and before `break;` in case the flag is set. Entering and exiting critical sections is rather expensive compared to setting and testing a flag",
+      "Why do you need to care about performance in an unlikely error path?",
+      "You are right about performance, in fact, I meant that we would prefer to have both variable set atomically, in order to avoid being pre-empted in-between"
+    ]
+  }
+]

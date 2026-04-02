@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "terminal_issue_6645_pr_6635_xl_264618ae"
+contextcrbench2_full_name = "microsoft/terminal"
+contextcrbench2_lang = "cpp"
+contextcrbench2_issue_number = "6645"
+contextcrbench2_issue_title = "Make keys in the command palette look like actual keys, like in VS Code"
+contextcrbench2_pr_number = "6635"
+contextcrbench2_pr_title = "Add support for the Command Palette"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "264618ae88e94c6d239ab654e84ef9fad6e82a65"
+contextcrbench2_commit_id = "ecae4f1a55d9ef9cbe8c6acde136e8ace3f2d636"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2020-06-25T18:37:40Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

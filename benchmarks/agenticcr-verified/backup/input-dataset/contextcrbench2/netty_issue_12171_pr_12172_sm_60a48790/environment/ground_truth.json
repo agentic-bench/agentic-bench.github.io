@@ -1,0 +1,10 @@
+[
+  {
+    "path": "codec/src/main/java/io/netty/handler/codec/LengthFieldBasedFrameDecoder.java",
+    "line": 398,
+    "original_line": 398,
+    "review_comment": [
+      "```suggestion\r\n        if (frameLengthInt == -1) { // new frame\r\n```"
+    ]
+  }
+]

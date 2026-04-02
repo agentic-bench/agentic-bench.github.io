@@ -1,0 +1,382 @@
+diff --git a/docs/src/test-api/class-testproject.md b/docs/src/test-api/class-testproject.md
+index 17fecf69309ae..634535fd49848 100644
+--- a/docs/src/test-api/class-testproject.md
++++ b/docs/src/test-api/class-testproject.md
+@@ -392,3 +392,35 @@ export default defineConfig({
+ ```
+ 
+ Use [`property: TestConfig.use`] to change this option for all projects.
++
++## property: TestProject.workers
++* since: v1.52
++- type: ?<[int]|[string]>
++
++The maximum number of concurrent worker processes to use for parallelizing tests from this project. Can also be set as percentage of logical CPU cores, e.g. `'50%'.`
++
++This could be useful, for example, when all tests from a project share a single resource like a test account, and therefore cannot be executed in parallel. Limiting workers to one for such a project will prevent simultaneous use of the shared resource.
++
++Note that the global [`property: TestConfig.workers`] limit applies to the total number of worker processes. However, Playwright will limit the number of workers used for this project by the value of [`property: TestProject.workers`].
++
++By default, there is no limit per project. See [`property: TestConfig.workers`] for the default of the total worker limit.
++
++**Usage**
++
++```js title="playwright.config.ts"
++import { defineConfig } from '@playwright/test';
++
++export default defineConfig({
++  workers: 10,  // total workers limit
++
++  projects: [
++    {
++      name: 'runs in parallel',
++    },
++    {
++      name: 'one at a time',
++      workers: 1,  // workers limit for this project
++    },
++  ],
++});
++```
+diff --git a/packages/playwright/src/common/config.ts b/packages/playwright/src/common/config.ts
+index 0c1a7b73476db..f91f9d398907c 100644
+--- a/packages/playwright/src/common/config.ts
++++ b/packages/playwright/src/common/config.ts
+@@ -108,7 +108,7 @@ export class FullConfigInternal {
+       updateSnapshots: takeFirst(configCLIOverrides.updateSnapshots, userConfig.updateSnapshots, 'missing'),
+       updateSourceMethod: takeFirst(configCLIOverrides.updateSourceMethod, userConfig.updateSourceMethod, 'patch'),
+       version: require('../../package.json').version,
+-      workers: 0,
++      workers: resolveWorkers(takeFirst(configCLIOverrides.debug ? 1 : undefined, configCLIOverrides.workers, userConfig.workers, '50%')),
+       webServer: null,
+     };
+     for (const key in userConfig) {
+@@ -118,18 +118,6 @@ export class FullConfigInternal {
+ 
+     (this.config as any)[configInternalSymbol] = this;
+ 
+-    const workers = takeFirst(configCLIOverrides.debug ? 1 : undefined, configCLIOverrides.workers, userConfig.workers, '50%');
+-    if (typeof workers === 'string') {
+-      if (workers.endsWith('%')) {
+-        const cpus = os.cpus().length;
+-        this.config.workers = Math.max(1, Math.floor(cpus * (parseInt(workers, 10) / 100)));
+-      } else {
+-        this.config.workers = parseWorkers(workers);
+-      }
+-    } else {
+-      this.config.workers = workers;
+-    }
+-
+     const webServers = takeFirst(userConfig.webServer, null);
+     if (Array.isArray(webServers)) { // multiple web server mode
+       // Due to previous choices, this value shows up to the user in globalSetup as part of FullConfig. Arrays are not supported by the old type.
+@@ -174,6 +162,7 @@ export class FullProjectInternal {
+   readonly respectGitIgnore: boolean;
+   readonly snapshotPathTemplate: string | undefined;
+   readonly ignoreSnapshots: boolean;
++  readonly workers: number | undefined;
+   id = '';
+   deps: FullProjectInternal[] = [];
+   teardown: FullProjectInternal | undefined;
+@@ -210,6 +199,9 @@ export class FullProjectInternal {
+     }
+     this.respectGitIgnore = takeFirst(projectConfig.respectGitIgnore, config.respectGitIgnore, !projectConfig.testDir && !config.testDir);
+     this.ignoreSnapshots = takeFirst(configCLIOverrides.ignoreSnapshots,  projectConfig.ignoreSnapshots, config.ignoreSnapshots, false);
++    this.workers = projectConfig.workers ? resolveWorkers(projectConfig.workers) : undefined;
++    if (configCLIOverrides.debug && this.workers)
++      this.workers = 1;
+   }
+ }
+ 
+@@ -235,12 +227,18 @@ function resolveReporters(reporters: Config['reporter'], rootDir: string): Repor
+   });
+ }
+ 
+-function parseWorkers(workers: string) {
+-  const parsedWorkers = parseInt(workers, 10);
+-  if (isNaN(parsedWorkers))
+-    throw new Error(`Workers ${workers} must be a number or percentage.`);
+-
+-  return parsedWorkers;
++function resolveWorkers(workers: string | number): number {
++  if (typeof workers === 'string') {
++    if (workers.endsWith('%')) {
++      const cpus = os.cpus().length;
++      return Math.max(1, Math.floor(cpus * (parseInt(workers, 10) / 100)));
++    }
++    const parsedWorkers = parseInt(workers, 10);
++    if (isNaN(parsedWorkers))
++      throw new Error(`Workers ${workers} must be a number or percentage.`);
++    return parsedWorkers;
++  }
++  return workers;
+ }
+ 
+ function resolveProjectDependencies(projects: FullProjectInternal[]) {
+diff --git a/packages/playwright/src/common/configLoader.ts b/packages/playwright/src/common/configLoader.ts
+index 74ded63c72e08..bb65bc71d9fb4 100644
+--- a/packages/playwright/src/common/configLoader.ts
++++ b/packages/playwright/src/common/configLoader.ts
+@@ -248,13 +248,6 @@ function validateConfig(file: string, config: Config) {
+       throw errorWithFile(file, `config.updateSnapshots must be one of "all", "changed", "missing" or "none"`);
+   }
+ 
+-  if ('workers' in config && config.workers !== undefined) {
+-    if (typeof config.workers === 'number' && config.workers <= 0)
+-      throw errorWithFile(file, `config.workers must be a positive number`);
+-    else if (typeof config.workers === 'string' && !config.workers.endsWith('%'))
+-      throw errorWithFile(file, `config.workers must be a number or percentage`);
+-  }
+-
+   if ('tsconfig' in config && config.tsconfig !== undefined) {
+     if (typeof config.tsconfig !== 'string')
+       throw errorWithFile(file, `config.tsconfig must be a string`);
+@@ -320,6 +313,13 @@ function validateProject(file: string, project: Project, title: string) {
+     if (typeof project.ignoreSnapshots !== 'boolean')
+       throw errorWithFile(file, `${title}.ignoreSnapshots must be a boolean`);
+   }
++
++  if ('workers' in project && project.workers !== undefined) {
++    if (typeof project.workers === 'number' && project.workers <= 0)
++      throw errorWithFile(file, `${title}.workers must be a positive number`);
++    else if (typeof project.workers === 'string' && !project.workers.endsWith('%'))
++      throw errorWithFile(file, `${title}.workers must be a number or percentage`);
++  }
+ }
+ 
+ export function resolveConfigLocation(configFile: string | undefined): ConfigLocation {
+diff --git a/packages/playwright/src/runner/dispatcher.ts b/packages/playwright/src/runner/dispatcher.ts
+index cf0c7144c0238..c3a2e222eff26 100644
+--- a/packages/playwright/src/runner/dispatcher.ts
++++ b/packages/playwright/src/runner/dispatcher.ts
+@@ -38,6 +38,7 @@ export type EnvByProjectId = Map<string, Record<string, string | undefined>>;
+ export class Dispatcher {
+   private _workerSlots: { busy: boolean, worker?: WorkerHost, jobDispatcher?: JobDispatcher }[] = [];
+   private _queue: TestGroup[] = [];
++  private _workerLimitPerProjectId = new Map<string, number>();
+   private _queuedOrRunningHashCount = new Map<string, number>();
+   private _finished = new ManualPromise<void>();
+   private _isStopped = true;
+@@ -53,27 +54,48 @@ export class Dispatcher {
+     this._config = config;
+     this._reporter = reporter;
+     this._failureTracker = failureTracker;
++    for (const project of config.projects) {
++      if (project.workers)
++        this._workerLimitPerProjectId.set(project.id, project.workers);
++    }
+   }
+ 
+   private async _scheduleJob() {
+-    // 1. Find a job to run.
+-    if (this._isStopped || !this._queue.length)
++    // 1. Find a job/worker combination to run.
++    if (this._isStopped)
+       return;
+-    const job = this._queue[0];
+-
+-    // 2. Find a worker with the same hash, or just some free worker.
+-    let index = this._workerSlots.findIndex(w => !w.busy && w.worker && w.worker.hash() === job.workerHash && !w.worker.didSendStop());
+-    if (index === -1)
+-      index = this._workerSlots.findIndex(w => !w.busy);
+-    // No workers available, bail out.
+-    if (index === -1)
++
++    let jobIndex = -1;
++    let workerIndex = -1;
++    for (let index = 0; index < this._queue.length; index++) {
++      const job = this._queue[index];
++
++      // 2.1 Respect the project worker limit.
++      const projectIdWorkerLimit = this._workerLimitPerProjectId.get(job.projectId);
++      if (projectIdWorkerLimit) {
++        const runningWorkersWithSameProjectId = this._workerSlots.filter(w => w.busy && w.worker && w.worker.projectId() === job.projectId).length;
++        if (runningWorkersWithSameProjectId >= projectIdWorkerLimit)
++          continue;
++      }
++
++      // 2.2. Find a worker with the same hash, or just some free worker.
++      workerIndex = this._workerSlots.findIndex(w => !w.busy && w.worker && w.worker.hash() === job.workerHash && !w.worker.didSendStop());
++      if (workerIndex === -1)
++        workerIndex = this._workerSlots.findIndex(w => !w.busy);
++      jobIndex = index;
++      break;
++    }
++
++    // 2.3. No workers available, bail out.
++    if (jobIndex === -1)
+       return;
+ 
+     // 3. Claim both the job and the worker, run the job and release the worker.
+-    this._queue.shift();
+-    this._workerSlots[index].busy = true;
+-    await this._startJobInWorker(index, job);
+-    this._workerSlots[index].busy = false;
++    const job = this._queue[jobIndex];
++    this._queue.splice(jobIndex, 1);
++    this._workerSlots[workerIndex].busy = true;
++    await this._startJobInWorker(workerIndex, job);
++    this._workerSlots[workerIndex].busy = false;
+ 
+     // 4. Check the "finished" condition.
+     this._checkFinished();
+diff --git a/packages/playwright/src/runner/workerHost.ts b/packages/playwright/src/runner/workerHost.ts
+index 6c6b512574262..0ab8c54ba13d9 100644
+--- a/packages/playwright/src/runner/workerHost.ts
++++ b/packages/playwright/src/runner/workerHost.ts
+@@ -83,6 +83,10 @@ export class WorkerHost extends ProcessHost {
+     return this._hash;
+   }
+ 
++  projectId() {
++    return this._params.projectId;
++  }
++
+   didFail() {
+     return this._didFail;
+   }
+diff --git a/packages/playwright/types/test.d.ts b/packages/playwright/types/test.d.ts
+index 1d95350d0d9d6..32f349495520a 100644
+--- a/packages/playwright/types/test.d.ts
++++ b/packages/playwright/types/test.d.ts
+@@ -676,6 +676,47 @@ interface TestProject<TestArgs = {}, WorkerArgs = {}> {
+    * option for all projects.
+    */
+   timeout?: number;
++
++  /**
++   * The maximum number of concurrent worker processes to use for parallelizing tests from this project. Can also be set
++   * as percentage of logical CPU cores, e.g. `'50%'.`
++   *
++   * This could be useful, for example, when all tests from a project share a single resource like a test account, and
++   * therefore cannot be executed in parallel. Limiting workers to one for such a project will prevent simultaneous use
++   * of the shared resource.
++   *
++   * Note that the global [testConfig.workers](https://playwright.dev/docs/api/class-testconfig#test-config-workers)
++   * limit applies to the total number of worker processes. However, Playwright will limit the number of workers used
++   * for this project by the value of
++   * [testProject.workers](https://playwright.dev/docs/api/class-testproject#test-project-workers).
++   *
++   * By default, there is no limit per project. See
++   * [testConfig.workers](https://playwright.dev/docs/api/class-testconfig#test-config-workers) for the default of the
++   * total worker limit.
++   *
++   * **Usage**
++   *
++   * ```js
++   * // playwright.config.ts
++   * import { defineConfig } from '@playwright/test';
++   *
++   * export default defineConfig({
++   *   workers: 10,  // total workers limit
++   *
++   *   projects: [
++   *     {
++   *       name: 'runs in parallel',
++   *     },
++   *     {
++   *       name: 'one at a time',
++   *       workers: 1,  // workers limit for this project
++   *     },
++   *   ],
++   * });
++   * ```
++   *
++   */
++  workers?: number|string;
+ }
+ 
+ export interface Project<TestArgs = {}, WorkerArgs = {}> extends TestProject<TestArgs, WorkerArgs> {
+diff --git a/tests/playwright-test/worker-index.spec.ts b/tests/playwright-test/worker-index.spec.ts
+index 555807e03c021..7ab48caefa311 100644
+--- a/tests/playwright-test/worker-index.spec.ts
++++ b/tests/playwright-test/worker-index.spec.ts
+@@ -239,3 +239,88 @@ test('should not spawn workers for statically skipped tests', async ({ runInline
+   expect(result.output).toContain('workerIndex=0');
+   expect(result.output).not.toContain('workerIndex=1');
+ });
++
++test('should respect project.workers=1', async ({ runInlineTest }) => {
++  const result = await runInlineTest({
++    'playwright.config.ts': `
++      export default {
++        workers: 10,
++        projects: [
++          { name: 'project1', workers: 1 },
++          { name: 'project2', workers: 1 },
++        ],
++      };
++    `,
++    'a.test.js': `
++      import { test, expect } from '@playwright/test';
++      test.describe.configure({ mode: 'parallel' });
++      test('test1', async ({}, testInfo) => {
++        console.log('%%test1-begin:' + testInfo.project.name);
++        await new Promise(f => setTimeout(f, 1000 + (testInfo.project.name === 'project1' ? 2000 : 0)));
++        console.log('%%test1-end:' + testInfo.project.name);
++      });
++      test('test2', async ({}, testInfo) => {
++        console.log('%%test2:' + testInfo.project.name);
++      });
++    `,
++  }, { workers: 10 });
++  expect(result.passed).toBe(4);
++  expect(result.exitCode).toBe(0);
++
++  // test1 from both projects start, test2 starts once test1 for that project finishes
++  expect(result.outputLines.slice(0, 2).sort()).toEqual([
++    'test1-begin:project1',
++    'test1-begin:project2',
++  ]);
++  expect(result.outputLines.slice(2, 6)).toEqual([
++    'test1-end:project2',
++    'test2:project2',
++    'test1-end:project1',
++    'test2:project1',
++  ]);
++});
++
++test('should respect project.workers>1', async ({ runInlineTest }) => {
++  const result = await runInlineTest({
++    'playwright.config.ts': `
++      export default {
++        workers: 10,
++        projects: [
++          { name: 'project', workers: 2 },
++        ],
++      };
++    `,
++    'a.test.js': `
++      import { test, expect } from '@playwright/test';
++      test.describe.configure({ mode: 'parallel' });
++      test('test1', async ({}, testInfo) => {
++        console.log('%%test1-begin');
++        await new Promise(f => setTimeout(f, 2000));
++        console.log('%%test1-end');
++      });
++      test('test2', async ({}, testInfo) => {
++        console.log('%%test2-begin');
++        await new Promise(f => setTimeout(f, 1000));
++        console.log('%%test2-end');
++      });
++      test('test3', async ({}, testInfo) => {
++        console.log('%%test3');
++      });
++    `,
++  }, { workers: 10 });
++  expect(result.passed).toBe(3);
++  expect(result.exitCode).toBe(0);
++
++  // 1+2 start, 1 finishes => 3 runs, 2 finishes
++  expect(result.outputLines.slice(0, 2).sort()).toEqual([
++    'test1-begin',
++    'test2-begin',
++  ]);
++  expect(result.outputLines.slice(2, 4)).toEqual([
++    'test2-end',
++    'test3',
++  ]);
++  expect(result.outputLines.slice(4, 5)).toEqual([
++    'test1-end',
++  ]);
++});

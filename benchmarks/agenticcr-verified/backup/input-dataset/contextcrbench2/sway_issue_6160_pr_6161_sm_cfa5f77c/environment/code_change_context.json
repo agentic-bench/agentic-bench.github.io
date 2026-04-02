@@ -1,0 +1,6 @@
+{
+  "issue_title": "Sway: anchors on opposing sides do not center the layer-shell",
+  "issue_body": "The documentation of the layer-shell protocol states:\r\n\r\n```xml\r\n<request name=\"set_anchor\">\r\n  <description summary=\"configures the anchor point of the surface\">\r\n    Requests that the compositor anchor the surface to the specified edges\r\n    and corners. If two orthogonal edges are specified (e.g. 'top' and\r\n    'left'), then the anchor point will be the intersection of the edges\r\n    (e.g. the top left corner of the output); otherwise the anchor point\r\n    will be centered on that edge, or in the center if none is specified.\r\n\r\n    Anchor is double-buffered, see wl_surface.commit.\r\n  </description>\r\n  <arg name=\"anchor\" type=\"uint\" enum=\"anchor\"/>\r\n</request>\r\n```\r\n\r\nIt isn't mentioned that two opposing anchors are not allowed, but when trying\r\nthat the window doesn't get accepted. So maybe mention something about that in\r\nthe documentation? I would suggest adding something like this:\r\n\r\n>     If two opposing edges are specified it will result in undefined\r\n>     behaviour.\r\n",
+  "pr_title": "desktop/layer_shell: fix centering for opposing anchors",
+  "pr_body": "Fixes #6160. Tested it with the mako patch mentioned in the issue."
+}

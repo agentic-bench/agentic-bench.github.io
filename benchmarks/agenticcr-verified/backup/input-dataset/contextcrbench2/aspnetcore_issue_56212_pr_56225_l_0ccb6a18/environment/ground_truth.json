@@ -1,0 +1,11 @@
+[
+  {
+    "path": "src/OpenApi/test/Services/OpenApiSchemaService/OpenApiComponentService.RequestBodySchemas.cs",
+    "line": 151,
+    "original_line": 102,
+    "review_comment": [
+      "nit: `Assignee` should be checked for not required.",
+      "The fact that it is not in the `schema.Required` list is indication enough but I can add a specific check to make it clearer."
+    ]
+  }
+]

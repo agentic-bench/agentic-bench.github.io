@@ -1,0 +1,55 @@
+diff --git a/pandas/core/internals/blocks.py b/pandas/core/internals/blocks.py
+index 660c70b64a961..1aa5d991124f7 100644
+--- a/pandas/core/internals/blocks.py
++++ b/pandas/core/internals/blocks.py
+@@ -742,9 +742,17 @@ def replace(
+                 regex=regex,
+                 convert=convert,
+             )
+-            return [
+-                inner_elem.convert() for elem in block_replaced for inner_elem in elem
+-            ]
++            blocks_converted = []
++            for ls_elem in block_replaced:
++                # If a replace was executed block_replaced is list of lists,
++                # if no replace was necessary block_replaced is only a list
++                if is_list_like(ls_elem):
++                    blocks_converted.extend(
++                        [sub_block.convert() for sub_block in ls_elem]
++                    )
++                else:
++                    blocks_converted.extend([ls_elem.convert()])
++            return blocks_converted
+ 
+         values = self.values
+         if lib.is_scalar(to_replace) and isinstance(values, np.ndarray):
+diff --git a/pandas/tests/frame/methods/test_replace.py b/pandas/tests/frame/methods/test_replace.py
+index ee89562261b19..1367df2203db1 100644
+--- a/pandas/tests/frame/methods/test_replace.py
++++ b/pandas/tests/frame/methods/test_replace.py
+@@ -22,6 +22,25 @@ def mix_abc() -> Dict[str, List[Union[float, str]]]:
+ 
+ 
+ class TestDataFrameReplace:
++    def test_replace_without_type_cast(self):
++        # PH: 32988: Fix unwanted type casting while replacing
++        result = (
++            pd.DataFrame(np.eye(2))
++            .replace(to_replace=[None, -np.inf, np.inf], value=pd.NA)
++            .dtypes
++        )
++        expected = pd.Series([np.float64, np.float64])
++        tm.assert_series_equal(result, expected)
++
++        result = pd.DataFrame(np.eye(2)).replace(
++            to_replace=[None, -np.inf, np.inf, 1.0], value=pd.NA
++        )
++        expected_dtypes = pd.Series([np.float64, np.float64])
++
++        expected = pd.DataFrame({0: [np.nan, 0.0], 1: [0.0, np.nan]})
++        tm.assert_series_equal(result.dtypes, expected_dtypes)
++        tm.assert_frame_equal(result, expected)
++
+     def test_replace_inplace(self, datetime_frame, float_string_frame):
+         datetime_frame["A"][:5] = np.nan
+         datetime_frame["A"][-5:] = np.nan

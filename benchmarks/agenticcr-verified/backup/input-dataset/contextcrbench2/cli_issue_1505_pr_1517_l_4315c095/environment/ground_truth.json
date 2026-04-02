@@ -1,0 +1,12 @@
+[
+  {
+    "path": "pkg/cmd/factory/remote_resolver.go",
+    "line": 24,
+    "original_line": 24,
+    "review_comment": [
+      "The caching here feels premature. Unless I'm missing something the costliest action here is reading remotes on disk and unless we've benchmarked that as human-noticeable I'd rather get rid of the complexity of this closure-based approach and not worry about caching remotes.",
+      "It might be, and you're right that I just guessed that this might be slow.\r\n\r\nThis logic includes shelling out to a subprocess (`git remote -v`) and parsing that and `~/.ssh/config` if it exists. Now that I've actually measured it on my machine (high-end MBP), it usually takes 6-10ms. However, it does get called at least twice for some commands, and I have a hunch some code paths around `pr create` and `pr checkout` that consult remotes a lot might call it even more than twice. That puts the combined cost of the lookup in the 20\u201340ms range, which I think starts being noticeable by humans. However, in most cases this caching only shaves off up to 10ms, so you might be right that the caching is premature.\r\n\r\nWhat are your thoughts now that we know the numbers?",
+      "I was envisioning that this would only be called 1-2 times per command; but good point that it could be a number of times for pr create. It sounds like this can creep into the human-noticeable range so let's keep it for now; it's easy enough to take out later."
+    ]
+  }
+]

@@ -1,0 +1,10 @@
+[
+  {
+    "path": "src/test/java/com/google/devtools/build/lib/analysis/VisibilityTest.java",
+    "line": 104,
+    "original_line": 104,
+    "review_comment": [
+      "Can we update the name of this test to show the fall back to the target?"
+    ]
+  }
+]

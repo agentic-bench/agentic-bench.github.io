@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "zephyr_issue_47242_pr_49946_xl_c9153ee6"
+contextcrbench2_full_name = "zephyrproject-rtos/zephyr"
+contextcrbench2_lang = "c"
+contextcrbench2_issue_number = "47242"
+contextcrbench2_issue_title = "LE Audio: Add subgroup support for broadcast source"
+contextcrbench2_pr_number = "49946"
+contextcrbench2_pr_title = "LE Audio: Broadcast source subgroup support"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "c9153ee655a745c017dc31d08d6d548b8f2d6747"
+contextcrbench2_commit_id = "c9153ee655a745c017dc31d08d6d548b8f2d6747"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2022-11-07T12:27:25Z"
+contextcrbench2_entry_count = "6"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

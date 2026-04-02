@@ -1,0 +1,10 @@
+[
+  {
+    "path": "pandas/core/indexes/period.py",
+    "line": 174,
+    "original_line": 151,
+    "review_comment": [
+      "Could you add a `.. deprecated 2.2.0` directive in the docstring for the fields?"
+    ]
+  }
+]

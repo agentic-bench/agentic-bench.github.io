@@ -1,0 +1,8 @@
+{
+    "task_id": "openssl_issue_20084_pr_20093_sm_359c0f9f",
+    "repo": "openssl",
+    "issue_number": 20084,
+    "pr_number": 20093,
+    "checked_commit_id": "359c0f9f41196ba09abcec87bea75fe12929f7c1",
+    "entry_count": 1
+}

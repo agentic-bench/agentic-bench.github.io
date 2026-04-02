@@ -1,0 +1,11 @@
+[
+  {
+    "path": "src/Orleans.Core/Messaging/GatewayConnection.cs",
+    "line": 278,
+    "original_line": 278,
+    "review_comment": [
+      "what if serialization on this msg failed as well? do we want to add a try catch here, if this exception failed to serialize, we flatten it to a string, or a minimal Exception to return to the caller, stating serialization issue happened?",
+      "SendMessage just enqueues the message, so no serialization happens at that stage. If this also fails to be serialized then something is very wrong.\r\nIn the case that we're failing while sending a request message, the rejection will be handled locally and therefore won't be serialized. For response messages, the entire message body is being replaced by a different exception, so if that doesn't work then we have big issues (catastrophe).\r\n\r\nIf the message still fails then it could be a RequestContext issue, but that means that we won't even be able to deserialize message headers (so we have no information to go by)\r\n\r\nLonger term, I'd like to move RequestContext out of the headers for this very reason."
+    ]
+  }
+]

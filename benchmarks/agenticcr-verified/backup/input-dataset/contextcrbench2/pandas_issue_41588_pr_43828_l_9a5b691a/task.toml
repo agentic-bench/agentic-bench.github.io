@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "pandas_issue_41588_pr_43828_l_9a5b691a"
+contextcrbench2_full_name = "pandas-dev/pandas"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "41588"
+contextcrbench2_issue_title = "TYP: IntervalIndex.right/left might be infered as function"
+contextcrbench2_pr_number = "43828"
+contextcrbench2_pr_title = "TYP: enable disallow_untyped_decorators"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "9a5b691aa14f67e601a23b7b947f4ef8772c1dd6"
+contextcrbench2_commit_id = "bf8026be94b3156d329d64110fb738cdc12b8185"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2021-10-21T10:17:23Z"
+contextcrbench2_entry_count = "3"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

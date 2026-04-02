@@ -1,0 +1,10 @@
+[
+  {
+    "path": "src/transformers/models/auto/configuration_auto.py",
+    "line": 987,
+    "original_line": 987,
+    "review_comment": [
+      "Similar to the `from_pretrained` in `src/transformers/configuration_utils.py`, we want to enable the use of `token`.\r\n\r\n(see `_set_token_in_kwargs` in that file)\r\n\r\nWe keep `use_auth_token` internally however (as the whole `kwargs` are used afterward - and I haven't checked where require to only use `use_auth_token` yet."
+    ]
+  }
+]

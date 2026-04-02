@@ -1,0 +1,35 @@
+[
+  {
+    "path": "acl/src/test/java/org/apache/rocketmq/acl/plain/PlainPermissionManagerTest.java",
+    "line": 369,
+    "original_line": 369,
+    "review_comment": [
+      "It would be better to check actual data version is correct or not."
+    ]
+  },
+  {
+    "path": "acl/src/test/java/org/apache/rocketmq/acl/plain/PlainPermissionManagerTest.java",
+    "line": 385,
+    "original_line": 385,
+    "review_comment": [
+      "You'd better add more checks on `map`."
+    ]
+  },
+  {
+    "path": "acl/src/test/java/org/apache/rocketmq/acl/plain/PlainPermissionManagerTest.java",
+    "line": 421,
+    "original_line": 421,
+    "review_comment": [
+      "You may check the actual content of global white lists."
+    ]
+  },
+  {
+    "path": "common/src/main/java/org/apache/rocketmq/common/PlainAccessConfig.java",
+    "line": 105,
+    "original_line": 105,
+    "review_comment": [
+      "It is awkward and error-prone to manually concatenate strings. Why not use JSON.toJsonString(this)?\r\n\r\nAnother thing, it would be better to omit the access secret part for safety reasons.",
+      "This toString is generated automatically by the editor I'm using, but for security reasons I've omitted the printing of SecretKey\r\n"
+    ]
+  }
+]

@@ -1,0 +1,14 @@
+[
+  {
+    "path": "crates/ruff_python_parser/src/invalid.rs",
+    "line": 44,
+    "original_line": 44,
+    "review_comment": [
+      "Can I ask why you do `match *target` and then `BoolOp(ref e)`, instead of `match target` and `BoolOp(e)`? I'm curious :)",
+      "Yes! I had written Rust for years before \"[match ergonomics](https://rust-lang.github.io/rfcs/2005-match-ergonomics.html)\" landed. That RFC essentially absolved you of needing to worry about using `ref` or `ref mut` or whatever. But I had always found the `ref` and `ref mut` bindings to be helpful for knowing when something was borrowed versus when ownership had been transferred.\r\n\r\nIt's a small matter overall. Do you want me to drop the `ref`? (I wonder if there is a Clippy lint for it.)",
+      "No I don't mind it, I was just curious why, but that makes sense. Unless I really can't help it, I try to avoid asking for changes like this that we can't enforce automatically via tooling.\r\n\r\n(Relatedly we often talk about how we want the box match thing from nightly.)",
+      "> (Relatedly we often talk about how we want the box match thing from nightly.)\r\n\r\nYeah, that one has been unstable since the beginning sadly. I don't think think it's landing any time soon unfortunately. :-(",
+      "We mostly want it in case we choose to `Box` our large AST variants, since we pattern match a lot!"
+    ]
+  }
+]

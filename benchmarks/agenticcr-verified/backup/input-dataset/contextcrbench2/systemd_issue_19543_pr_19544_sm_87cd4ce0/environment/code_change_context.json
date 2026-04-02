@@ -1,0 +1,6 @@
+{
+  "issue_title": "Build error on fedora-rawhide-aarch64",
+  "issue_body": "See packit failure in #19542 (https://copr-be.cloud.fedoraproject.org/results/packit/systemd-systemd-19542/fedora-rawhide-aarch64/02173219-systemd/builder-live.log.gz).\r\n```\r\nIn file included from ../src/basic/af-list.h:6,\r\n                 from ../src/basic/af-list.c:7:\r\n../src/basic/string-util.h: In function \u00e2\u20ac\u02dcchar_is_cc\u00e2\u20ac\u2122:\r\n../src/basic/string-util.h:133:19: error: comparison is always true due to limited range of data type [-Werror=type-limits]\r\n  133 |         return (p >= 0 && p < ' ') || p == 127;\r\n      |                   ^~\r\ncc1: all warnings being treated as errors\r\n```",
+  "pr_title": "string-util: fix build error on aarch64",
+  "pr_body": "This fixes the following error:\r\n```\r\nIn file included from ../src/basic/af-list.h:6,\r\n                 from ../src/basic/af-list.c:7:\r\n../src/basic/string-util.h: In function 'char_is_cc':\r\n../src/basic/string-util.h:133:19: error: comparison is always true due to limited range of data type [-Werror=type-limits]\r\n  133 |         return (p >= 0 && p < ' ') || p == 127;\r\n      |                   ^~\r\ncc1: all warnings being treated as errors\r\n```\r\n\r\nFixes #19543."
+}

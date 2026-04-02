@@ -1,0 +1,10 @@
+[
+  {
+    "path": "OpenRA.Mods.Common/Widgets/Logic/Editor/ActorEditLogic.cs",
+    "line": 249,
+    "original_line": 249,
+    "review_comment": [
+      "Single curly braces must be omitted according to https://github.com/OpenRA/OpenRA/wiki/Coding-Standard"
+    ]
+  }
+]

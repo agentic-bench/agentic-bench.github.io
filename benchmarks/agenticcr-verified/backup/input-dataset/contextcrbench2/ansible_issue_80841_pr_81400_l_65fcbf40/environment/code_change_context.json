@@ -1,0 +1,6 @@
+{
+  "issue_title": "Add type hints to `ansible.utils.display::Display`",
+  "issue_body": "### Summary\r\n\r\nAdd type hints to `ansible.utils.display::Display`\r\n\r\n### Issue Type\r\n\r\nFeature Idea\r\n\r\n### Component Name\r\n\r\nlib/ansible/utils/display.py",
+  "pr_title": "Add type hints to ansible.utils.display::Display",
+  "pr_body": "##### SUMMARY\r\n\r\n<!--- Describe the change below, including rationale and design decisions -->\r\n\r\n<!--- HINT: Include \"Fixes #nnn\" if you are fixing an existing issue -->\r\n\r\nFixes #80841\r\n\r\n##### ISSUE TYPE\r\n\r\n<!--- Pick one below and delete the rest -->\r\n\r\n- Feature Pull Request\r\n"
+}

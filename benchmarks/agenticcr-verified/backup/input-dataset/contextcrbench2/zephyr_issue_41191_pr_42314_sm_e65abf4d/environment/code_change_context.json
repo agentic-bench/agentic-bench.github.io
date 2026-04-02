@@ -1,0 +1,6 @@
+{
+  "issue_title": "LE Audio: Update pac_indicate to actually send data",
+  "issue_body": "pac_indicate has not been implemented to send any actual data, where it should send the PAC records.",
+  "pr_title": "Bluetooth: PACS: Add PAC data to pac_notify",
+  "pr_body": "This fixes the pac_notify (formerly pac_indicate) to actually notify the PAC records to the connected clients. \r\n\r\nfixes https://github.com/zephyrproject-rtos/zephyr/issues/41191\r\nfixes https://github.com/zephyrproject-rtos/zephyr/issues/41192"
+}

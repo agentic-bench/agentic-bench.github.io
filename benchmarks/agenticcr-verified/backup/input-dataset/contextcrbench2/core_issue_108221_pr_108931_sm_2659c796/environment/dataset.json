@@ -1,0 +1,24 @@
+[
+  {
+    "id": 19403,
+    "full_name": "home-assistant/core",
+    "lang": "python",
+    "issue_number": 108221,
+    "pr_number": 108931,
+    "diff_hunk": "@@ -52,9 +52,8 @@ async def async_step_user(\n \n         # Test the connection to the host and get the current status for serial number.\n         coordinator = APCUPSdCoordinator(self.hass, host, port)\n-\n         await coordinator.async_request_refresh()\n-        await self.hass.async_block_till_done()\n+\n         if isinstance(coordinator.last_exception, (UpdateFailed, asyncio.TimeoutError)):\n             errors = {\"base\": \"cannot_connect\"}\n             return self.async_show_form(\n",
+    "diff_hunk_content_with_line_number": "[52][52]  \n[53][53]          # Test the connection to the host and get the current status for serial number.\n[54][54]          coordinator = APCUPSdCoordinator(self.hass, host, port)\n[55][] -\n[56][55]          await coordinator.async_request_refresh()\n[57][] -        await self.hass.async_block_till_done()\n[][56] +\n[58][57]          if isinstance(coordinator.last_exception, (UpdateFailed, asyncio.TimeoutError)):\n[59][58]              errors = {\"base\": \"cannot_connect\"}\n[60][59]              return self.async_show_form(",
+    "checked_commit_id": "2659c7962175059ac6166fd0161a5854c808b19d",
+    "pr_size": "sm"
+  },
+  {
+    "id": 19404,
+    "full_name": "home-assistant/core",
+    "lang": "python",
+    "issue_number": 108221,
+    "pr_number": 108931,
+    "diff_hunk": "@@ -52,9 +52,8 @@ async def async_step_user(\n \n         # Test the connection to the host and get the current status for serial number.\n         coordinator = APCUPSdCoordinator(self.hass, host, port)\n-\n         await coordinator.async_request_refresh()\n-        await self.hass.async_block_till_done()\n+\n         if isinstance(coordinator.last_exception, (UpdateFailed, asyncio.TimeoutError)):\n             errors = {\"base\": \"cannot_connect\"}\n             return self.async_show_form(\n",
+    "diff_hunk_content_with_line_number": "[52][52]  \n[53][53]          # Test the connection to the host and get the current status for serial number.\n[54][54]          coordinator = APCUPSdCoordinator(self.hass, host, port)\n[55][] -\n[56][55]          await coordinator.async_request_refresh()\n[57][] -        await self.hass.async_block_till_done()\n[][56] +\n[58][57]          if isinstance(coordinator.last_exception, (UpdateFailed, asyncio.TimeoutError)):\n[59][58]              errors = {\"base\": \"cannot_connect\"}\n[60][59]              return self.async_show_form(",
+    "checked_commit_id": "2659c7962175059ac6166fd0161a5854c808b19d",
+    "pr_size": "sm"
+  }
+]

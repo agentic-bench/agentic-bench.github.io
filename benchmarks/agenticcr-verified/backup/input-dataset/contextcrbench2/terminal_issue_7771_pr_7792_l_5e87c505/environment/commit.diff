@@ -1,0 +1,187 @@
+diff --git a/src/buffer/out/textBuffer.cpp b/src/buffer/out/textBuffer.cpp
+index cd417dd7034..4d78630a95b 100644
+--- a/src/buffer/out/textBuffer.cpp
++++ b/src/buffer/out/textBuffer.cpp
+@@ -1359,9 +1359,15 @@ const til::point TextBuffer::GetGlyphEnd(const til::point pos) const
+ bool TextBuffer::MoveToNextGlyph(til::point& pos, bool allowBottomExclusive) const
+ {
+     COORD resultPos = pos;
++    const auto bufferSize = GetSize();
++
++    if (resultPos == GetSize().EndExclusive())
++    {
++        // we're already at the end
++        return false;
++    }
+ 
+     // try to move. If we can't, we're done.
+-    const auto bufferSize = GetSize();
+     const bool success = bufferSize.IncrementInBounds(resultPos, allowBottomExclusive);
+     if (resultPos != bufferSize.EndExclusive() && GetCellDataAt(resultPos)->DbcsAttr().IsTrailing())
+     {
+@@ -1376,20 +1382,19 @@ bool TextBuffer::MoveToNextGlyph(til::point& pos, bool allowBottomExclusive) con
+ // - Update pos to be the beginning of the previous glyph/character. This is used for accessibility
+ // Arguments:
+ // - pos - a COORD on the word you are currently on
+-// - allowBottomExclusive - allow the nonexistent end-of-buffer cell to be encountered
+ // Return Value:
+ // - true, if successfully updated pos. False, if we are unable to move (usually due to a buffer boundary)
+ // - pos - The COORD for the first cell of the previous glyph (inclusive)
+-bool TextBuffer::MoveToPreviousGlyph(til::point& pos, bool allowBottomExclusive) const
++bool TextBuffer::MoveToPreviousGlyph(til::point& pos) const
+ {
+     COORD resultPos = pos;
+ 
+     // try to move. If we can't, we're done.
+     const auto bufferSize = GetSize();
+-    const bool success = bufferSize.DecrementInBounds(resultPos, allowBottomExclusive);
++    const bool success = bufferSize.DecrementInBounds(resultPos, true);
+     if (resultPos != bufferSize.EndExclusive() && GetCellDataAt(resultPos)->DbcsAttr().IsLeading())
+     {
+-        bufferSize.DecrementInBounds(resultPos, allowBottomExclusive);
++        bufferSize.DecrementInBounds(resultPos, true);
+     }
+ 
+     pos = resultPos;
+diff --git a/src/buffer/out/textBuffer.hpp b/src/buffer/out/textBuffer.hpp
+index 451a6e0ac01..a17382b2ff5 100644
+--- a/src/buffer/out/textBuffer.hpp
++++ b/src/buffer/out/textBuffer.hpp
+@@ -137,7 +137,7 @@ class TextBuffer final
+     const til::point GetGlyphStart(const til::point pos) const;
+     const til::point GetGlyphEnd(const til::point pos) const;
+     bool MoveToNextGlyph(til::point& pos, bool allowBottomExclusive = false) const;
+-    bool MoveToPreviousGlyph(til::point& pos, bool allowBottomExclusive = false) const;
++    bool MoveToPreviousGlyph(til::point& pos) const;
+ 
+     const std::vector<SMALL_RECT> GetTextRects(COORD start, COORD end, bool blockSelection = false) const;
+ 
+diff --git a/src/interactivity/win32/ut_interactivity_win32/UiaTextRangeTests.cpp b/src/interactivity/win32/ut_interactivity_win32/UiaTextRangeTests.cpp
+index 5082745c48f..35745575512 100644
+--- a/src/interactivity/win32/ut_interactivity_win32/UiaTextRangeTests.cpp
++++ b/src/interactivity/win32/ut_interactivity_win32/UiaTextRangeTests.cpp
+@@ -1136,60 +1136,84 @@ class UiaTextRangeTests
+         // the UTR should refuse to move past the end.
+ 
+         const auto bufferSize{ _pTextBuffer->GetSize() };
+-        const til::point endInclusive = { bufferSize.RightInclusive(), bufferSize.BottomInclusive() };
+-        const auto endExclusive{ bufferSize.EndExclusive() };
++        const COORD origin{ bufferSize.Origin() };
++        const COORD lastLineStart{ bufferSize.Left(), bufferSize.BottomInclusive() };
++        const COORD secondToLastCharacterPos{ bufferSize.RightInclusive() - 1, bufferSize.BottomInclusive() };
++        const COORD endInclusive{ bufferSize.RightInclusive(), bufferSize.BottomInclusive() };
++        const COORD endExclusive{ bufferSize.EndExclusive() };
+ 
+         // Iterate over each TextUnit. If we don't support
+         // the given TextUnit, we're supposed to fallback
+         // to the last one that was defined anyways.
+         BEGIN_TEST_METHOD_PROPERTIES()
+             TEST_METHOD_PROPERTY(L"Data:textUnit", L"{0, 1, 2, 3, 4, 5, 6}")
++            TEST_METHOD_PROPERTY(L"Data:degenerate", L"{false, true}")
+         END_TEST_METHOD_PROPERTIES();
+ 
+         int unit;
++        bool degenerate;
+         VERIFY_SUCCEEDED(TestData::TryGetValue(L"textUnit", unit), L"Get TextUnit variant");
++        VERIFY_SUCCEEDED(TestData::TryGetValue(L"degenerate", degenerate), L"Get degenerate variant");
+         TextUnit textUnit{ static_cast<TextUnit>(unit) };
+ 
+         Microsoft::WRL::ComPtr<UiaTextRange> utr;
+         int moveAmt;
+         Log::Comment(NoThrowString().Format(L"Forward by %s", toString(textUnit)));
+ 
+-        // Create a non-degenerate UTR at EndExclusive
+-        THROW_IF_FAILED(Microsoft::WRL::MakeAndInitialize<UiaTextRange>(&utr, _pUiaData, &_dummyProvider, endInclusive, endExclusive));
++        // Create an UTR at EndExclusive
++        if (degenerate)
++        {
++            THROW_IF_FAILED(Microsoft::WRL::MakeAndInitialize<UiaTextRange>(&utr, _pUiaData, &_dummyProvider, endExclusive, endExclusive));
++        }
++        else
++        {
++            THROW_IF_FAILED(Microsoft::WRL::MakeAndInitialize<UiaTextRange>(&utr, _pUiaData, &_dummyProvider, endInclusive, endExclusive));
++        }
+         THROW_IF_FAILED(utr->Move(textUnit, 1, &moveAmt));
+ 
+         VERIFY_ARE_EQUAL(endExclusive, utr->_end);
+         VERIFY_ARE_EQUAL(0, moveAmt);
+ 
+         // Verify that moving backwards still works properly
++
++        // write "temp" at (2,2)
+         const COORD writeTarget{ 2, 2 };
+         _pTextBuffer->Write({ L"temp" }, writeTarget);
+-        COORD expectedEnd;
++
++        //if (textUnit == TextUnit::TextUnit_Character && !degenerate)
++        //    DebugBreak();
++
++        Log::Comment(NoThrowString().Format(L"Backwards by %s", toString(textUnit)));
++        THROW_IF_FAILED(utr->Move(textUnit, -1, &moveAmt));
++
++        // NOTE: If the range is degenerate, _start == _end before AND after the move.
+         if (textUnit <= TextUnit::TextUnit_Character)
+         {
+-            expectedEnd = endInclusive;
++            // Special case: _end will always be endInclusive, because...
++            // -  degenerate --> it moves with _start to stay degenerate
++            // - !degenerate --> it excludes the last char, to select the second to last char
++            VERIFY_ARE_EQUAL(degenerate ? endInclusive : secondToLastCharacterPos, utr->_start);
++            VERIFY_ARE_EQUAL(endInclusive, utr->_end);
++            VERIFY_ARE_EQUAL(-1, moveAmt);
+         }
+         else if (textUnit <= TextUnit::TextUnit_Word)
+         {
+-            expectedEnd = writeTarget;
++            VERIFY_ARE_EQUAL(origin, utr->_start);
++            VERIFY_ARE_EQUAL(degenerate ? origin : writeTarget, utr->_end);
++            VERIFY_ARE_EQUAL(-1, moveAmt);
+         }
+         else if (textUnit <= TextUnit::TextUnit_Line)
+         {
+-            expectedEnd = endExclusive;
++            VERIFY_ARE_EQUAL(lastLineStart, utr->_start);
++            VERIFY_ARE_EQUAL(degenerate ? lastLineStart : endExclusive, utr->_end);
++            VERIFY_ARE_EQUAL(-1, moveAmt);
+         }
+         else // textUnit <= TextUnit::TextUnit_Document:
+         {
+-            expectedEnd = endExclusive;
++            VERIFY_ARE_EQUAL(origin, utr->_start);
++            VERIFY_ARE_EQUAL(degenerate ? origin : endExclusive, utr->_end);
++            VERIFY_ARE_EQUAL(-1, moveAmt);
+         }
+-
+-        Log::Comment(NoThrowString().Format(L"Backwards by %s", toString(textUnit)));
+-
+-        // Create a non-degenerate UTR at EndExclusive
+-        THROW_IF_FAILED(Microsoft::WRL::MakeAndInitialize<UiaTextRange>(&utr, _pUiaData, &_dummyProvider, endInclusive, endExclusive));
+-        THROW_IF_FAILED(utr->Move(textUnit, -1, &moveAmt));
+-
+-        VERIFY_ARE_EQUAL(expectedEnd, utr->_end);
+-        VERIFY_ARE_EQUAL(-1, moveAmt);
+     }
+ 
+     TEST_METHOD(MoveToPreviousWord)
+diff --git a/src/types/UiaTextRangeBase.cpp b/src/types/UiaTextRangeBase.cpp
+index 506b25cb104..f0f11978295 100644
+--- a/src/types/UiaTextRangeBase.cpp
++++ b/src/types/UiaTextRangeBase.cpp
+@@ -953,7 +953,7 @@ void UiaTextRangeBase::_moveEndpointByUnitCharacter(_In_ const int moveCount,
+             }
+             break;
+         case MovementDirection::Backward:
+-            success = buffer.MoveToPreviousGlyph(target, allowBottomExclusive);
++            success = buffer.MoveToPreviousGlyph(target);
+             if (success)
+             {
+                 (*pAmountMoved)--;
+@@ -1123,7 +1123,7 @@ void UiaTextRangeBase::_moveEndpointByUnitLine(_In_ const int moveCount,
+             }
+ 
+             // NOTE: Automatically detects if we are trying to move past origin
+-            success = bufferSize.DecrementInBounds(nextPos, allowBottomExclusive);
++            success = bufferSize.DecrementInBounds(nextPos, true);
+ 
+             if (success)
+             {

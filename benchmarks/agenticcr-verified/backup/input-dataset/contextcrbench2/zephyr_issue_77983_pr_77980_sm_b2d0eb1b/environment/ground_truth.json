@@ -1,0 +1,13 @@
+[
+  {
+    "path": "include/zephyr/drivers/spi.h",
+    "line": 1305,
+    "original_line": 1305,
+    "review_comment": [
+      "I have a hard time to see how this is SPI specific. \r\nWhat if tomorrow the same use case appear with an i\u00b2c peripheral or a CAN one etc... would we expend each and every APIs with such a workaround? Because it looks to me as a workaround so far.\r\n\r\nPerhaps I am missing something, I never had such use-case at hand myself. \r\nTo me, it seems that the issue is in pinctrl side. PINCTRL_DT_DEFINE() should be called only once, and by the instance that is related to it. \r\nstruct pinctrl_dev_config declared by PINCTRL _DT_DEFINE() is not static, so at this stage: any user of that cfg (like ice40 driver via FPGA_ICE40_PINCTRL_CONFIG() should be good to go.\r\n",
+      "There is actually PINCTRL_DT_DEV_CONFIG_DECLARE which would reference the one instance via extern. But then I still have got the issue, that I can declare this only once. And I really can't get my head around a Macro-Solution which declares the variable within fpga_ice40.c only once per SPI bus master.",
+      "Perhaps auto-generated files could help: a header calling PINCTRL_DT_DEV_CONFIG_DECLARE for each valid pinctrl instance? Something like that, that would be automatically included at the end of pinctrl.h. If necessary even a .c file calling PINCTRL_DT_DEFINE() only once in a central place. \r\n\r\nI don't know much pinctrl actually, but I am pretty sure there is room for improvements here. Let's see what @gmarull has to say.",
+      "I could also create a copy of PINCTRL_DT_DEFINE, e.g. PINCTRL _DT_DEFINE_CUSTOM_NAME, which has as an additional parameter the desired name of the variable. I would of course have to use this custom name then also for the other on the fly created variables (states, ...), but this might actually work. Although not really beautiful as well."
+    ]
+  }
+]

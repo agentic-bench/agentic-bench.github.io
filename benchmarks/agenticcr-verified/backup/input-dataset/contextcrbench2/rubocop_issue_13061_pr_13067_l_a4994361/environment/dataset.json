@@ -1,0 +1,13 @@
+[
+  {
+    "id": 9467,
+    "full_name": "rubocop/rubocop",
+    "lang": "ruby",
+    "issue_number": 13061,
+    "pr_number": 13067,
+    "diff_hunk": "@@ -32,11 +32,12 @@ def uninterpolated_string?(node)\n         node.str_type? || (node.dstr_type? && node.each_descendant(:begin).none?)\n       end\n \n-      def frozen_heredoc?(node)\n+      def uninterpolated_heredoc?(node)\n         return false unless node.dstr_type? && node.heredoc?\n \n         node.children.all?(&:str_type?)\n       end\n+      alias frozen_heredoc? uninterpolated_heredoc?\n \n       def frozen_string_literals_enabled?\n         ruby_version = processed_source.ruby_version\n",
+    "diff_hunk_content_with_line_number": "[32][32]          node.str_type? || (node.dstr_type? && node.each_descendant(:begin).none?)\n[33][33]        end\n[34][34]  \n[35][] -      def frozen_heredoc?(node)\n[][35] +      def uninterpolated_heredoc?(node)\n[36][36]          return false unless node.dstr_type? && node.heredoc?\n[37][37]  \n[38][38]          node.children.all?(&:str_type?)\n[39][39]        end\n[][40] +      alias frozen_heredoc? uninterpolated_heredoc?\n[40][41]  \n[41][42]        def frozen_string_literals_enabled?\n[42][43]          ruby_version = processed_source.ruby_version",
+    "checked_commit_id": "a4994361c02c62533e635100b22d4b922bd1e4a1",
+    "pr_size": "l"
+  }
+]

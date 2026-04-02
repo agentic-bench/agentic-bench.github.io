@@ -1,0 +1,13 @@
+[
+  {
+    "id": 45022,
+    "full_name": "microsoft/terminal",
+    "lang": "cpp",
+    "issue_number": 1339,
+    "pr_number": 1342,
+    "diff_hunk": "@@ -51,6 +51,11 @@ namespace winrt::TerminalApp::implementation\n         // then it might look like App just failed to activate, which will\r\n         // cause you to chase down the rabbit hole of \"why is App not\r\n         // registered?\" when it definitely is.\r\n+\r\n+        // See GH#1339. This is a workaround for MSFT:22116519\r\n+        // We need this to prevent an occasional crash on teardown\r\n+        AddRef();\r\n+        m_inner.as<::IUnknown>()->Release();\r\n     }\r\n \r\n     // Method Description:\r\n",
+    "diff_hunk_content_with_line_number": "[51][51]          // then it might look like App just failed to activate, which will\n[52][52]          // cause you to chase down the rabbit hole of \"why is App not\n[53][53]          // registered?\" when it definitely is.\n[][54] +\n[][55] +        // See GH#1339. This is a workaround for MSFT:22116519\n[][56] +        // We need this to prevent an occasional crash on teardown\n[][57] +        AddRef();\n[][58] +        m_inner.as<::IUnknown>()->Release();\n[54][59]      }\n[55][60]  \n[56][61]      // Method Description:",
+    "checked_commit_id": "14cce6db0cd5067f8ae39471bb6e1f9d3ef7a332",
+    "pr_size": "sm"
+  }
+]

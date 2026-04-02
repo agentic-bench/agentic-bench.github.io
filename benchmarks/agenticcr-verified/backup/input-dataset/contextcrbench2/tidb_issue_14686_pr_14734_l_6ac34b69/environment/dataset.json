@@ -1,0 +1,13 @@
+[
+  {
+    "id": 40400,
+    "full_name": "pingcap/tidb",
+    "lang": "go",
+    "issue_number": 14686,
+    "pr_number": 14734,
+    "diff_hunk": "@@ -325,6 +325,8 @@ const (\n \t// The variable name in mysql.tidb table and it will be used when we want to know\n \t// system timezone.\n \ttidbSystemTZ = \"system_tz\"\n+\t// The variable name in mysql.tidb table and it will indicate if the new collations are enabled in the TiDB cluster.\n+\ttidbNewCollationEnabled = \"new_collation_enabled\"\n \t// Const for TiDB server version 2.\n \tversion2  = 2\n \tversion3  = 3",
+    "diff_hunk_content_with_line_number": "[325][325]  \t// The variable name in mysql.tidb table and it will be used when we want to know\n[326][326]  \t// system timezone.\n[327][327]  \ttidbSystemTZ = \"system_tz\"\n[][328] +\t// The variable name in mysql.tidb table and it will indicate if the new collations are enabled in the TiDB cluster.\n[][329] +\ttidbNewCollationEnabled = \"new_collation_enabled\"\n[328][330]  \t// Const for TiDB server version 2.\n[329][331]  \tversion2  = 2\n[330][332]  \tversion3  = 3",
+    "checked_commit_id": "6ac34b6943ea12f1fb0bd092ef0acfe678ed90fb",
+    "pr_size": "l"
+  }
+]

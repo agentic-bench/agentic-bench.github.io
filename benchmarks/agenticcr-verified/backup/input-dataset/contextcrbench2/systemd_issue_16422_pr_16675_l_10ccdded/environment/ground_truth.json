@@ -1,0 +1,12 @@
+[
+  {
+    "path": "src/core/load-fragment.c",
+    "line": 3245,
+    "original_line": 3245,
+    "review_comment": [
+      "```c\r\nc->syscall_log_allow_list = !invert;\r\n```\r\n?",
+      "While shorter, I think it would make the intent less obvious. Also the longer version matches `config_parse_syscall_filter()` (since it was copied from there) but the comments show the difference between \"allow\" and \"log\" actions when talking about allow-lists or deny-lists. Of course the comments could be retained somehow with the short version.",
+      "The compiler generates the same code without branches, except for -O0, where shorter version produces better code ([godbolt](https://godbolt.org/z/eWj6GP))."
+    ]
+  }
+]

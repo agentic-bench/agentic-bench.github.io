@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "rubocop_issue_13061_pr_13067_l_a4994361"
+contextcrbench2_full_name = "rubocop/rubocop"
+contextcrbench2_lang = "ruby"
+contextcrbench2_issue_number = "13061"
+contextcrbench2_issue_title = "Cop idea: When Ruby >= 3.0, don't unfreeze interpolated strings when frozen magic comment is true"
+contextcrbench2_pr_number = "13067"
+contextcrbench2_pr_title = "[Fix #13061] Add new `Style/RedundantInterpolationUnfreeze` cop"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "a4994361c02c62533e635100b22d4b922bd1e4a1"
+contextcrbench2_commit_id = "b7eb5a601054d173665d20489c799778f3c1f57b"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2024-07-25T11:00:26Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

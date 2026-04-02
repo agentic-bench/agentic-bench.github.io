@@ -1,0 +1,19 @@
+diff --git a/packages/svelte/src/compiler/phases/3-transform/client/utils.js b/packages/svelte/src/compiler/phases/3-transform/client/utils.js
+index 7b7076a69c6b..418231ab41c6 100644
+--- a/packages/svelte/src/compiler/phases/3-transform/client/utils.js
++++ b/packages/svelte/src/compiler/phases/3-transform/client/utils.js
+@@ -430,7 +430,13 @@ export function serialize_hoistable_params(node, context) {
+ 	}
+ 
+ 	params.push(...hoistable_params);
+-	return params;
++
++  const seen = new Set();
++  for (const param of params) {
++    seen.add(param.name);
++  }
++  const uniqueParams = params.filter(param => !seen.has(param.name));
++	return uniqueParams;
+ }
+ 
+ /**

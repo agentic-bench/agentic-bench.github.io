@@ -1,0 +1,72 @@
+[
+  {
+    "path": "crates/bevy_asset/src/asset_changed.rs",
+    "line": 290,
+    "original_line": 285,
+    "review_comment": [
+      "This is correct, but the `WorldQuery::filter_fetch` safety comment needs to be updated to mention mutual exclusion with the return value of `WorldQuery::fetch` .\r\n\r\n- Opened it as a distinct PR #9836 "
+    ]
+  },
+  {
+    "path": "crates/bevy_asset/src/asset_changed.rs",
+    "line": 106,
+    "original_line": 99,
+    "review_comment": [
+      "There should be a linked issue for this one.",
+      "It's not a limitation of the asset system. It's a behavior specific to `AssetChanged`, so the issue should be opened after the PR is merged.\r\n\r\nHowever, I doubt it's something we want. It might be a footgun. What if `AssetChanged<A>` is used to update `ResMut<Assets<A>>` on change? If we trigger `AssetChanged` on `A`, removal, It will panic.\r\n\r\nI think it would make more sense as a separate query filter."
+    ]
+  },
+  {
+    "path": "crates/bevy_asset/src/asset_changed.rs",
+    "line": 107,
+    "original_line": 100,
+    "review_comment": [
+      "This feels like it can and should be fixed \ud83e\udd14 ",
+      "Yeah that sounds like a major footgun. Even if documented here, this is quite the unexpected behavior for users."
+    ]
+  },
+  {
+    "path": "crates/bevy_asset/src/asset_changed.rs",
+    "line": 18,
+    "original_line": 16,
+    "review_comment": [
+      "Why hidden docs? This is a public type.",
+      "I don't want this to be part of the public API. It has to be public because the `asset_events` system accesses it, and is itself public. But otherwise it shouldn't be touched by 3rd parties. Bereft the choice of making the type `pub(crate)`, the second best option is making it `#[doc(hidden)]`.\r\n\r\nWe could probably make `asset_events` private though. What do you think?",
+      "My two cents rule for my own projects is:\r\n- label all systems so users can order theirs relative to mine\r\n- make systems themselves non public\r\n\r\nThat works around the issue here I think. But not sure this is the best approach.\r\n\r\nOtherwise I'm fine with the explanation. Just wanted to confirm this was intended. Maybe leave a comment to explain?",
+      "That's generally my preferred approach as well."
+    ]
+  },
+  {
+    "path": "crates/bevy_asset/src/asset_changed.rs",
+    "line": 35,
+    "original_line": 32,
+    "review_comment": [
+      "Blank line between `impl`s?"
+    ]
+  },
+  {
+    "path": "crates/bevy_asset/src/asset_changed.rs",
+    "line": 67,
+    "original_line": 61,
+    "review_comment": [
+      "Maybe use `AssetChanges::last_change_tick` (which I understand is common to all asset instances of type `A`) as an early out test before hitting the hash map for the particular asset instance? If `A` is a type of asset that doesn't change often, this will completely avoid the hash map lookup most of the time.",
+      "Yep, that's a good idea. We are currently doing this, it's in the `WorldQuery::init_fetch` impl of `AssetChanged`"
+    ]
+  },
+  {
+    "path": "crates/bevy_asset/src/asset_changed.rs",
+    "line": 141,
+    "original_line": 133,
+    "review_comment": [
+      "Blank line here too?"
+    ]
+  },
+  {
+    "path": "crates/bevy_asset/src/asset_changed.rs",
+    "line": 186,
+    "original_line": 179,
+    "review_comment": [
+      "Blank line"
+    ]
+  }
+]

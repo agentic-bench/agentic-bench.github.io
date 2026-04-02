@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "vllm_issue_4257_pr_4271_sm_cd23ad30"
+contextcrbench2_full_name = "vllm-project/vllm"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "4257"
+contextcrbench2_issue_title = "[Bug]: name 'ncclGetVersion' is not defined"
+contextcrbench2_pr_number = "4271"
+contextcrbench2_pr_title = "[Core][Distributed] use absolute path for library file"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "cd23ad308f59de5a72ce5e00a5af9b9b16e91222"
+contextcrbench2_commit_id = "a19b03fe96827ccc6c0d08220596afcfddf9596f"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2024-04-22T18:53:13Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

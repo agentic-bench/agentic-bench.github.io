@@ -1,0 +1,22 @@
+[
+  {
+    "path": "pkg/cmd/extension/command.go",
+    "line": 296,
+    "original_line": 296,
+    "review_comment": [
+      "I don't think there's anything that requires the local directory to be a repository, so this doesn't seem quite right.\r\n\r\nThat said I understand that the short and use indicate that it's a repository, so let's just leave it alone.",
+      "I had this thought too and here is how I rationalized it to myself:\r\n\r\nI saw us using `repository` to describe the directory as a suggestion that we want extension authors to consider their extensions as repositories, even if we don't strictly require it. We especially want them to consider them as _GitHub_ repositories, except in this case it is cloned locally.\r\n\r\nMaybe there's holes on my logic \ud83e\udd2a , but that was my thoughts and why I didn't change it.\r\n\r\nI'll mark this thread as resolved, but feel free to re-open it if you think we have something to do here \ud83d\ude4f "
+    ]
+  },
+  {
+    "path": "pkg/cmd/extension/command.go",
+    "line": 304,
+    "original_line": 304,
+    "review_comment": [
+      "Do you think it's worth doc-ing how this is different on windows?",
+      "@jtmcg and I [also wondered about that](https://github.com/cli/cli/pull/9933#discussion_r1847049096) but landed on it being an implementation detail that may confuse the docs if we try to document it. \r\n\r\nWhat do you think? ",
+      "@williammartin and I talked about this and decided to add a hint to the help text without fully documenting the differences.",
+      "Resolved in 32abca8c381c34a349d7d829d2fcfda2a4da91e6"
+    ]
+  }
+]

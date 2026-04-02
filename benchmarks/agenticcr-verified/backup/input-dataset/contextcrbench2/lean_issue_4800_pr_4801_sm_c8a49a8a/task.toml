@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "lean_issue_4800_pr_4801_sm_c8a49a8a"
+contextcrbench2_full_name = "QuantConnect/Lean"
+contextcrbench2_lang = "c_sharp"
+contextcrbench2_issue_number = "4800"
+contextcrbench2_issue_title = "BacktestingBrokerage.OptionPositionAssigned is raised for exercises"
+contextcrbench2_pr_number = "4801"
+contextcrbench2_pr_title = "Don't raise IBrokerage.OptionPositionAssigned on exercise"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "c8a49a8ab0340738a76c2e9a2c8ad44126381683"
+contextcrbench2_commit_id = "c8a49a8ab0340738a76c2e9a2c8ad44126381683"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2020-10-01T21:53:39Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

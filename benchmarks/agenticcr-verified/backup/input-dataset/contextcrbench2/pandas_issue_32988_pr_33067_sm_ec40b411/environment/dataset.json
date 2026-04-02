@@ -1,0 +1,13 @@
+[
+  {
+    "id": 63170,
+    "full_name": "pandas-dev/pandas",
+    "lang": "python",
+    "issue_number": 32988,
+    "pr_number": 33067,
+    "diff_hunk": "@@ -711,13 +711,24 @@ def replace(\n \n             # try again with a compatible block\n             block = self.astype(object)\n-            return block.replace(\n+            block_replaced = block.replace(\n                 to_replace=to_replace,\n                 value=value,\n                 inplace=inplace,\n                 regex=regex,\n                 convert=convert,\n             )\n+            blocks_converted = []\n+            for ls_elem in block_replaced:\n+                # If a replace was executed block_replaced is list of lists,\n+                # if no replace was necessary block_replaced is only a list\n+                if is_list_like(ls_elem):\n+                    blocks_converted.extend(\n+                        [sub_block.convert() for sub_block in ls_elem]\n+                    )\n+                else:\n+                    blocks_converted.extend([ls_elem.convert()])\n+            return blocks_converted\n \n         values = self.values\n         if lib.is_scalar(to_replace) and isinstance(values, np.ndarray):\n",
+    "diff_hunk_content_with_line_number": "[711][711]  \n[712][712]              # try again with a compatible block\n[713][713]              block = self.astype(object)\n[714][] -            return block.replace(\n[][714] +            block_replaced = block.replace(\n[715][715]                  to_replace=to_replace,\n[716][716]                  value=value,\n[717][717]                  inplace=inplace,\n[718][718]                  regex=regex,\n[719][719]                  convert=convert,\n[720][720]              )\n[][721] +            blocks_converted = []\n[][722] +            for ls_elem in block_replaced:\n[][723] +                # If a replace was executed block_replaced is list of lists,\n[][724] +                # if no replace was necessary block_replaced is only a list\n[][725] +                if is_list_like(ls_elem):\n[][726] +                    blocks_converted.extend(\n[][727] +                        [sub_block.convert() for sub_block in ls_elem]\n[][728] +                    )\n[][729] +                else:\n[][730] +                    blocks_converted.extend([ls_elem.convert()])\n[][731] +            return blocks_converted\n[721][732]  \n[722][733]          values = self.values\n[723][734]          if lib.is_scalar(to_replace) and isinstance(values, np.ndarray):",
+    "checked_commit_id": "ec40b4117e2c0067e10dc113e83da036eb64011d",
+    "pr_size": "sm"
+  }
+]

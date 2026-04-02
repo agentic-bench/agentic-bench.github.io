@@ -1,0 +1,1509 @@
+diff --git a/crates/ruff/src/checkers/ast/mod.rs b/crates/ruff/src/checkers/ast/mod.rs
+index 4cb93819cbd8e0..df93c18b11b50a 100644
+--- a/crates/ruff/src/checkers/ast/mod.rs
++++ b/crates/ruff/src/checkers/ast/mod.rs
+@@ -874,18 +874,20 @@ where
+                 },
+             ) => {
+                 // Visit the default arguments, but avoid the body, which will be deferred.
+-                for ParameterWithDefault {
+-                    default,
+-                    parameter: _,
+-                    range: _,
+-                } in parameters
+-                    .posonlyargs
+-                    .iter()
+-                    .chain(&parameters.args)
+-                    .chain(&parameters.kwonlyargs)
+-                {
+-                    if let Some(expr) = &default {
+-                        self.visit_expr(expr);
++                if let Some(parameters) = parameters {
++                    for ParameterWithDefault {
++                        default,
++                        parameter: _,
++                        range: _,
++                    } in parameters
++                        .posonlyargs
++                        .iter()
++                        .chain(&parameters.args)
++                        .chain(&parameters.kwonlyargs)
++                    {
++                        if let Some(expr) = &default {
++                            self.visit_expr(expr);
++                        }
+                     }
+                 }
+ 
+@@ -1834,7 +1836,9 @@ impl<'a> Checker<'a> {
+                     range: _,
+                 }) = expr
+                 {
+-                    self.visit_parameters(parameters);
++                    if let Some(parameters) = parameters {
++                        self.visit_parameters(parameters);
++                    }
+                     self.visit_expr(body);
+                 } else {
+                     unreachable!("Expected Expr::Lambda");
+diff --git a/crates/ruff/src/rules/flake8_bugbear/rules/function_uses_loop_variable.rs b/crates/ruff/src/rules/flake8_bugbear/rules/function_uses_loop_variable.rs
+index b0291c21b69243..7cbb231fbd3226 100644
+--- a/crates/ruff/src/rules/flake8_bugbear/rules/function_uses_loop_variable.rs
++++ b/crates/ruff/src/rules/flake8_bugbear/rules/function_uses_loop_variable.rs
+@@ -184,7 +184,10 @@ impl<'a> Visitor<'a> for SuspiciousVariablesVisitor<'a> {
+                                 return false;
+                             }
+ 
+-                            if parameters.includes(&loaded.id) {
++                            if parameters
++                                .as_ref()
++                                .is_some_and(|parameters| parameters.includes(&loaded.id))
++                            {
+                                 return false;
+                             }
+ 
+diff --git a/crates/ruff/src/rules/flake8_bugbear/rules/loop_variable_overrides_iterator.rs b/crates/ruff/src/rules/flake8_bugbear/rules/loop_variable_overrides_iterator.rs
+index bee095c0cd2d03..45439b11418c85 100644
+--- a/crates/ruff/src/rules/flake8_bugbear/rules/loop_variable_overrides_iterator.rs
++++ b/crates/ruff/src/rules/flake8_bugbear/rules/loop_variable_overrides_iterator.rs
+@@ -76,17 +76,20 @@ where
+                 range: _,
+             }) => {
+                 visitor::walk_expr(self, body);
+-                for ParameterWithDefault {
+-                    parameter,
+-                    default: _,
+-                    range: _,
+-                } in parameters
+-                    .posonlyargs
+-                    .iter()
+-                    .chain(&parameters.args)
+-                    .chain(&parameters.kwonlyargs)
+-                {
+-                    self.names.remove(parameter.name.as_str());
++
++                if let Some(parameters) = parameters {
++                    for ParameterWithDefault {
++                        parameter,
++                        default: _,
++                        range: _,
++                    } in parameters
++                        .posonlyargs
++                        .iter()
++                        .chain(&parameters.args)
++                        .chain(&parameters.kwonlyargs)
++                    {
++                        self.names.remove(parameter.name.as_str());
++                    }
+                 }
+             }
+             _ => visitor::walk_expr(self, expr),
+diff --git a/crates/ruff/src/rules/flake8_comprehensions/rules/unnecessary_map.rs b/crates/ruff/src/rules/flake8_comprehensions/rules/unnecessary_map.rs
+index c914753be22107..8675682925fb74 100644
+--- a/crates/ruff/src/rules/flake8_comprehensions/rules/unnecessary_map.rs
++++ b/crates/ruff/src/rules/flake8_comprehensions/rules/unnecessary_map.rs
+@@ -103,7 +103,10 @@ pub(crate) fn unnecessary_map(
+                 return;
+             };
+ 
+-            if late_binding(parameters, body) {
++            if parameters
++                .as_ref()
++                .is_some_and(|parameters| late_binding(parameters, body))
++            {
+                 return;
+             }
+         }
+@@ -134,7 +137,10 @@ pub(crate) fn unnecessary_map(
+                 return;
+             };
+ 
+-            if late_binding(parameters, body) {
++            if parameters
++                .as_ref()
++                .is_some_and(|parameters| late_binding(parameters, body))
++            {
+                 return;
+             }
+         }
+@@ -171,7 +177,10 @@ pub(crate) fn unnecessary_map(
+                 return;
+             }
+ 
+-            if late_binding(parameters, body) {
++            if parameters
++                .as_ref()
++                .is_some_and(|parameters| late_binding(parameters, body))
++            {
+                 return;
+             }
+         }
+@@ -240,7 +249,7 @@ struct LateBindingVisitor<'a> {
+     /// The arguments to the current lambda.
+     parameters: &'a Parameters,
+     /// The arguments to any lambdas within the current lambda body.
+-    lambdas: Vec<&'a Parameters>,
++    lambdas: Vec<Option<&'a Parameters>>,
+     /// Whether any names within the current lambda body are late-bound within nested lambdas.
+     late_bound: bool,
+ }
+@@ -261,7 +270,7 @@ impl<'a> Visitor<'a> for LateBindingVisitor<'a> {
+     fn visit_expr(&mut self, expr: &'a Expr) {
+         match expr {
+             Expr::Lambda(ast::ExprLambda { parameters, .. }) => {
+-                self.lambdas.push(parameters);
++                self.lambdas.push(parameters.as_deref());
+                 visitor::walk_expr(self, expr);
+                 self.lambdas.pop();
+             }
+@@ -275,11 +284,11 @@ impl<'a> Visitor<'a> for LateBindingVisitor<'a> {
+                     // If the name is defined in the current lambda...
+                     if self.parameters.includes(id) {
+                         // And isn't overridden by any nested lambdas...
+-                        if !self
+-                            .lambdas
+-                            .iter()
+-                            .any(|parameters| parameters.includes(id))
+-                        {
++                        if !self.lambdas.iter().any(|parameters| {
++                            parameters
++                                .as_ref()
++                                .is_some_and(|parameters| parameters.includes(id))
++                        }) {
+                             // Then it's late-bound.
+                             self.late_bound = true;
+                         }
+diff --git a/crates/ruff/src/rules/flake8_pie/rules/reimplemented_list_builtin.rs b/crates/ruff/src/rules/flake8_pie/rules/reimplemented_list_builtin.rs
+index 18dd2d6e761654..2c5a8bae512314 100644
+--- a/crates/ruff/src/rules/flake8_pie/rules/reimplemented_list_builtin.rs
++++ b/crates/ruff/src/rules/flake8_pie/rules/reimplemented_list_builtin.rs
+@@ -59,12 +59,7 @@ pub(crate) fn reimplemented_list_builtin(checker: &mut Checker, expr: &ExprLambd
+         range: _,
+     } = expr;
+ 
+-    if parameters.args.is_empty()
+-        && parameters.kwonlyargs.is_empty()
+-        && parameters.posonlyargs.is_empty()
+-        && parameters.vararg.is_none()
+-        && parameters.kwarg.is_none()
+-    {
++    if parameters.is_none() {
+         if let Expr::List(ast::ExprList { elts, .. }) = body.as_ref() {
+             if elts.is_empty() {
+                 let mut diagnostic = Diagnostic::new(ReimplementedListBuiltin, expr.range());
+diff --git a/crates/ruff/src/rules/flake8_pytest_style/rules/patch.rs b/crates/ruff/src/rules/flake8_pytest_style/rules/patch.rs
+index cfd9e7d8d35a9f..229c13a28bbacd 100644
+--- a/crates/ruff/src/rules/flake8_pytest_style/rules/patch.rs
++++ b/crates/ruff/src/rules/flake8_pytest_style/rules/patch.rs
+@@ -89,18 +89,19 @@ fn check_patch_call(call: &ast::ExprCall, index: usize) -> Option<Diagnostic> {
+         .find_argument("new", index)?
+         .as_lambda_expr()?;
+ 
+-    // Walk the lambda body.
+-    let mut visitor = LambdaBodyVisitor {
+-        parameters,
+-        uses_args: false,
+-    };
+-    visitor.visit_expr(body);
+-
+-    if visitor.uses_args {
+-        None
+-    } else {
+-        Some(Diagnostic::new(PytestPatchWithLambda, call.func.range()))
++    // Walk the lambda body. If the lambda uses the arguments, then it's valid.
++    if let Some(parameters) = parameters {
++        let mut visitor = LambdaBodyVisitor {
++            parameters,
++            uses_args: false,
++        };
++        visitor.visit_expr(body);
++        if visitor.uses_args {
++            return None;
++        }
+     }
++
++    Some(Diagnostic::new(PytestPatchWithLambda, call.func.range()))
+ }
+ 
+ /// PT008
+diff --git a/crates/ruff/src/rules/flake8_unused_arguments/rules/unused_arguments.rs b/crates/ruff/src/rules/flake8_unused_arguments/rules/unused_arguments.rs
+index f5801839825de9..d2d22e336aa8c0 100644
+--- a/crates/ruff/src/rules/flake8_unused_arguments/rules/unused_arguments.rs
++++ b/crates/ruff/src/rules/flake8_unused_arguments/rules/unused_arguments.rs
+@@ -436,7 +436,10 @@ pub(crate) fn unused_arguments(
+                 }
+             }
+         }
+-        ScopeKind::Lambda(ast::ExprLambda { parameters, .. }) => {
++        ScopeKind::Lambda(ast::ExprLambda {
++            parameters: Some(parameters),
++            ..
++        }) => {
+             if checker.enabled(Argumentable::Lambda.rule_code()) {
+                 function(
+                     Argumentable::Lambda,
+diff --git a/crates/ruff/src/rules/pycodestyle/rules/lambda_assignment.rs b/crates/ruff/src/rules/pycodestyle/rules/lambda_assignment.rs
+index 66b90caeab3500..2ad00759e5c630 100644
+--- a/crates/ruff/src/rules/pycodestyle/rules/lambda_assignment.rs
++++ b/crates/ruff/src/rules/pycodestyle/rules/lambda_assignment.rs
+@@ -91,7 +91,7 @@ pub(crate) fn lambda_assignment(
+             let mut indented = String::new();
+             for (idx, line) in function(
+                 id,
+-                parameters,
++                parameters.as_deref(),
+                 body,
+                 annotation,
+                 checker.semantic(),
+@@ -180,7 +180,7 @@ fn extract_types(annotation: &Expr, semantic: &SemanticModel) -> Option<(Vec<Exp
+ 
+ fn function(
+     name: &str,
+-    parameters: &Parameters,
++    parameters: Option<&Parameters>,
+     body: &Expr,
+     annotation: Option<&Expr>,
+     semantic: &SemanticModel,
+@@ -190,6 +190,9 @@ fn function(
+         value: Some(Box::new(body.clone())),
+         range: TextRange::default(),
+     });
++    let parameters = parameters
++        .cloned()
++        .unwrap_or_else(|| Parameters::empty(TextRange::default()));
+     if let Some(annotation) = annotation {
+         if let Some((arg_types, return_type)) = extract_types(annotation, semantic) {
+             // A `lambda` expression can only have positional and positional-only
+@@ -228,7 +231,7 @@ fn function(
+                 parameters: Box::new(Parameters {
+                     posonlyargs: new_posonlyargs,
+                     args: new_args,
+-                    ..parameters.clone()
++                    ..parameters
+                 }),
+                 body: vec![body],
+                 decorator_list: vec![],
+@@ -242,7 +245,7 @@ fn function(
+     let func = Stmt::FunctionDef(ast::StmtFunctionDef {
+         is_async: false,
+         name: Identifier::new(name.to_string(), TextRange::default()),
+-        parameters: Box::new(parameters.clone()),
++        parameters: Box::new(parameters),
+         body: vec![body],
+         decorator_list: vec![],
+         returns: None,
+diff --git a/crates/ruff_python_ast/src/comparable.rs b/crates/ruff_python_ast/src/comparable.rs
+index a28e6d21905c19..6051ace1d4db19 100644
+--- a/crates/ruff_python_ast/src/comparable.rs
++++ b/crates/ruff_python_ast/src/comparable.rs
+@@ -542,7 +542,7 @@ pub struct ExprUnaryOp<'a> {
+ 
+ #[derive(Debug, PartialEq, Eq, Hash)]
+ pub struct ExprLambda<'a> {
+-    parameters: ComparableParameters<'a>,
++    parameters: Option<ComparableParameters<'a>>,
+     body: Box<ComparableExpr<'a>>,
+ }
+ 
+@@ -773,7 +773,7 @@ impl<'a> From<&'a ast::Expr> for ComparableExpr<'a> {
+                 body,
+                 range: _,
+             }) => Self::Lambda(ExprLambda {
+-                parameters: (parameters.as_ref()).into(),
++                parameters: parameters.as_ref().map(Into::into),
+                 body: body.into(),
+             }),
+             ast::Expr::IfExp(ast::ExprIfExp {
+diff --git a/crates/ruff_python_ast/src/node.rs b/crates/ruff_python_ast/src/node.rs
+index c6a7e7d675404f..b565f86c26b498 100644
+--- a/crates/ruff_python_ast/src/node.rs
++++ b/crates/ruff_python_ast/src/node.rs
+@@ -2038,7 +2038,9 @@ impl AstNode for ast::ExprLambda {
+             range: _,
+         } = self;
+ 
+-        visitor.visit_parameters(parameters);
++        if let Some(parameters) = parameters {
++            visitor.visit_parameters(parameters);
++        }
+         visitor.visit_expr(body);
+     }
+ }
+diff --git a/crates/ruff_python_ast/src/nodes.rs b/crates/ruff_python_ast/src/nodes.rs
+index af9d150f54732f..7e09a2608982fe 100644
+--- a/crates/ruff_python_ast/src/nodes.rs
++++ b/crates/ruff_python_ast/src/nodes.rs
+@@ -632,7 +632,7 @@ impl From<ExprUnaryOp> for Expr {
+ #[derive(Clone, Debug, PartialEq)]
+ pub struct ExprLambda {
+     pub range: TextRange,
+-    pub parameters: Box<Parameters>,
++    pub parameters: Option<Box<Parameters>>,
+     pub body: Box<Expr>,
+ }
+ 
+diff --git a/crates/ruff_python_ast/src/visitor.rs b/crates/ruff_python_ast/src/visitor.rs
+index db9b856eb63c31..be51dda0663a19 100644
+--- a/crates/ruff_python_ast/src/visitor.rs
++++ b/crates/ruff_python_ast/src/visitor.rs
+@@ -354,7 +354,9 @@ pub fn walk_expr<'a, V: Visitor<'a> + ?Sized>(visitor: &mut V, expr: &'a Expr) {
+             body,
+             range: _,
+         }) => {
+-            visitor.visit_parameters(parameters);
++            if let Some(parameters) = parameters {
++                visitor.visit_parameters(parameters);
++            }
+             visitor.visit_expr(body);
+         }
+         Expr::IfExp(ast::ExprIfExp {
+diff --git a/crates/ruff_python_codegen/src/generator.rs b/crates/ruff_python_codegen/src/generator.rs
+index d20d8afa4c3074..4408ff9f05d5eb 100644
+--- a/crates/ruff_python_codegen/src/generator.rs
++++ b/crates/ruff_python_codegen/src/generator.rs
+@@ -878,9 +878,11 @@ impl<'a> Generator<'a> {
+                 range: _,
+             }) => {
+                 group_if!(precedence::LAMBDA, {
+-                    let npos = parameters.args.len() + parameters.posonlyargs.len();
+-                    self.p(if npos > 0 { "lambda " } else { "lambda" });
+-                    self.unparse_parameters(parameters);
++                    self.p("lambda");
++                    if let Some(parameters) = parameters {
++                        self.p(" ");
++                        self.unparse_parameters(parameters);
++                    }
+                     self.p(": ");
+                     self.unparse_expr(body, precedence::LAMBDA);
+                 });
+diff --git a/crates/ruff_python_formatter/resources/test/fixtures/ruff/expression/lambda.py b/crates/ruff_python_formatter/resources/test/fixtures/ruff/expression/lambda.py
+index 5234ce79a08abb..32a57bed4a24bf 100644
+--- a/crates/ruff_python_formatter/resources/test/fixtures/ruff/expression/lambda.py
++++ b/crates/ruff_python_formatter/resources/test/fixtures/ruff/expression/lambda.py
+@@ -56,12 +56,16 @@
+ z)  # Trailing
+ # Trailing
+ 
+-
+ a = (
+     lambda  # Dangling
+            : 1
+ )
+ 
++a = (
++    lambda x # Dangling
++    , y: 1
++)
++
+ # Regression test: lambda empty arguments ranges were too long, leading to unstable
+ # formatting
+ (lambda:(#
+@@ -93,3 +97,24 @@ def f(
+ lambda a, *, b, **kwds,: 0
+ lambda a, /: a
+ lambda a, /, c: a
++
++# Dangling comments without parameters.
++(
++    lambda
++    : # 3
++     None
++)
++
++(
++    lambda
++    # 3
++    : None
++)
++
++(
++    lambda  # 1
++    # 2
++    : # 3
++    # 4
++    None # 5
++)
+diff --git a/crates/ruff_python_formatter/src/comments/placement.rs b/crates/ruff_python_formatter/src/comments/placement.rs
+index 13691a334daf3b..2937f61ba8e12d 100644
+--- a/crates/ruff_python_formatter/src/comments/placement.rs
++++ b/crates/ruff_python_formatter/src/comments/placement.rs
+@@ -11,7 +11,8 @@ use crate::comments::visitor::{CommentPlacement, DecoratedComment};
+ use crate::expression::expr_slice::{assign_comment_in_slice, ExprSliceCommentSection};
+ use crate::expression::expr_tuple::is_tuple_parenthesized;
+ use crate::other::parameters::{
+-    assign_argument_separator_comment_placement, find_parameter_separators,
++    are_parameters_parenthesized, assign_argument_separator_comment_placement,
++    find_parameter_separators,
+ };
+ 
+ /// Manually attach comments to nodes that the default placement gets wrong.
+@@ -162,9 +163,14 @@ fn handle_enclosed_comment<'a>(
+     locator: &Locator,
+ ) -> CommentPlacement<'a> {
+     match comment.enclosing_node() {
+-        AnyNodeRef::Parameters(arguments) => {
+-            handle_parameters_separator_comment(comment, arguments, locator)
+-                .or_else(|comment| handle_bracketed_end_of_line_comment(comment, locator))
++        AnyNodeRef::Parameters(parameters) => {
++            handle_parameters_separator_comment(comment, parameters, locator).or_else(|comment| {
++                if are_parameters_parenthesized(parameters, locator) {
++                    handle_bracketed_end_of_line_comment(comment, locator)
++                } else {
++                    CommentPlacement::Default(comment)
++                }
++            })
+         }
+         AnyNodeRef::Arguments(_) | AnyNodeRef::TypeParams(_) => {
+             handle_bracketed_end_of_line_comment(comment, locator)
+diff --git a/crates/ruff_python_formatter/src/expression/expr_lambda.rs b/crates/ruff_python_formatter/src/expression/expr_lambda.rs
+index d663084f395225..8efb1ec886fde6 100644
+--- a/crates/ruff_python_formatter/src/expression/expr_lambda.rs
++++ b/crates/ruff_python_formatter/src/expression/expr_lambda.rs
+@@ -1,13 +1,14 @@
+-use crate::comments::{dangling_node_comments, SourceComment};
++use ruff_formatter::prelude::{space, text};
++use ruff_formatter::{write, Buffer, FormatResult};
++use ruff_python_ast::node::AnyNodeRef;
++use ruff_python_ast::ExprLambda;
++
++use crate::comments::SourceComment;
+ use crate::context::PyFormatContext;
+ use crate::expression::parentheses::{NeedsParentheses, OptionalParentheses};
+ use crate::other::parameters::ParametersParentheses;
+ use crate::AsFormat;
+ use crate::{FormatNodeRule, PyFormatter};
+-use ruff_formatter::prelude::{space, text};
+-use ruff_formatter::{write, Buffer, FormatResult};
+-use ruff_python_ast::node::AnyNodeRef;
+-use ruff_python_ast::ExprLambda;
+ 
+ #[derive(Default)]
+ pub struct FormatExprLambda;
+@@ -22,11 +23,7 @@ impl FormatNodeRule<ExprLambda> for FormatExprLambda {
+ 
+         write!(f, [text("lambda")])?;
+ 
+-        if !parameters.args.is_empty()
+-            || !parameters.posonlyargs.is_empty()
+-            || parameters.vararg.is_some()
+-            || parameters.kwarg.is_some()
+-        {
++        if let Some(parameters) = parameters {
+             write!(
+                 f,
+                 [
+@@ -38,21 +35,7 @@ impl FormatNodeRule<ExprLambda> for FormatExprLambda {
+             )?;
+         }
+ 
+-        write!(
+-            f,
+-            [
+-                text(":"),
+-                space(),
+-                body.format(),
+-                // It's possible for some `Arguments` of `lambda`s to be assigned dangling comments.
+-                //
+-                // a = (
+-                //     lambda  # Dangling
+-                //     : 1
+-                // )
+-                dangling_node_comments(parameters.as_ref())
+-            ]
+-        )
++        write!(f, [text(":"), space(), body.format()])
+     }
+ 
+     fn fmt_dangling_comments(
+diff --git a/crates/ruff_python_formatter/src/other/parameters.rs b/crates/ruff_python_formatter/src/other/parameters.rs
+index 09fd227ad2038a..fe5bf42e6cea02 100644
+--- a/crates/ruff_python_formatter/src/other/parameters.rs
++++ b/crates/ruff_python_formatter/src/other/parameters.rs
+@@ -4,11 +4,12 @@ use ruff_formatter::{format_args, write, FormatRuleWithOptions};
+ use ruff_python_ast::node::{AnyNodeRef, AstNode};
+ use ruff_python_ast::{Parameters, Ranged};
+ use ruff_python_trivia::{SimpleToken, SimpleTokenKind, SimpleTokenizer};
++use ruff_source_file::Locator;
+ use ruff_text_size::{TextRange, TextSize};
+ 
+ use crate::comments::{
+-    dangling_open_parenthesis_comments, leading_comments, leading_node_comments, trailing_comments,
+-    CommentLinePosition, SourceComment,
++    dangling_comments, dangling_open_parenthesis_comments, leading_comments, leading_node_comments,
++    trailing_comments, CommentLinePosition, SourceComment,
+ };
+ use crate::context::{NodeLevel, WithNodeLevel};
+ use crate::expression::parentheses::empty_parenthesized;
+@@ -242,7 +243,7 @@ impl FormatNodeRule<Parameters> for FormatParameters {
+             + usize::from(kwarg.is_some());
+ 
+         if self.parentheses == ParametersParentheses::Never {
+-            write!(f, [group(&format_inner)])
++            write!(f, [group(&format_inner), dangling_comments(dangling)])
+         } else if num_parameters == 0 {
+             // No parameters, format any dangling comments between `()`
+             write!(f, [empty_parenthesized("(", dangling, ")")])
+@@ -676,3 +677,10 @@ fn has_trailing_comma(
+         .kind()
+         == SimpleTokenKind::Comma
+ }
++
++/// Returns `true` if the parameters are parenthesized (as in a function definition), or `false` if
++/// not (as in a lambda).
++pub(crate) fn are_parameters_parenthesized(parameters: &Parameters, locator: &Locator) -> bool {
++    // A lambda never has parentheses around its parameters, but a function definition always does.
++    locator.slice(parameters.range).starts_with('(')
++}
+diff --git a/crates/ruff_python_formatter/tests/snapshots/format@expression__lambda.py.snap b/crates/ruff_python_formatter/tests/snapshots/format@expression__lambda.py.snap
+index 0c1ec4565e33e9..73e3bcc04d24c3 100644
+--- a/crates/ruff_python_formatter/tests/snapshots/format@expression__lambda.py.snap
++++ b/crates/ruff_python_formatter/tests/snapshots/format@expression__lambda.py.snap
+@@ -62,12 +62,16 @@ lambda x: lambda y: lambda z: (
+ z)  # Trailing
+ # Trailing
+ 
+-
+ a = (
+     lambda  # Dangling
+            : 1
+ )
+ 
++a = (
++    lambda x # Dangling
++    , y: 1
++)
++
+ # Regression test: lambda empty arguments ranges were too long, leading to unstable
+ # formatting
+ (lambda:(#
+@@ -99,6 +103,27 @@ lambda a, *args, b, **kwds,: 0
+ lambda a, *, b, **kwds,: 0
+ lambda a, /: a
+ lambda a, /, c: a
++
++# Dangling comments without parameters.
++(
++    lambda
++    : # 3
++     None
++)
++
++(
++    lambda
++    # 3
++    : None
++)
++
++(
++    lambda  # 1
++    # 2
++    : # 3
++    # 4
++    None # 5
++)
+ ```
+ 
+ ## Output
+@@ -159,9 +184,14 @@ lambda x: lambda y: lambda z: (
+ )  # Trailing
+ # Trailing
+ 
++a = (
++    lambda: # Dangling
++    1
++)
+ 
+ a = (
+-    lambda: 1  # Dangling
++    lambda x,  # Dangling
++    y: 1
+ )
+ 
+ # Regression test: lambda empty arguments ranges were too long, leading to unstable
+@@ -188,7 +218,7 @@ lambda **kwds,: 0
+ lambda a, *args,: 0
+ lambda a, **kwds,: 0
+ lambda *args, b,: 0
+-lambda: 0
++lambda *, b,: 0
+ lambda *args, **kwds,: 0
+ lambda a, *args, b,: 0
+ lambda a, *, b,: 0
+@@ -199,6 +229,25 @@ lambda a, *args, b, **kwds,: 0
+ lambda a, *, b, **kwds,: 0
+ lambda a, /: a
+ lambda a, /, c: a
++
++# Dangling comments without parameters.
++(
++    lambda: # 3
++    None
++)
++
++(
++    lambda: # 3
++    None
++)
++
++(
++    lambda: # 1
++    # 2
++    # 3
++    # 4
++    None  # 5
++)
+ ```
+ 
+ 
+diff --git a/crates/ruff_python_parser/src/python.lalrpop b/crates/ruff_python_parser/src/python.lalrpop
+index 068ddec468d402..fead7393ab1bd6 100644
+--- a/crates/ruff_python_parser/src/python.lalrpop
++++ b/crates/ruff_python_parser/src/python.lalrpop
+@@ -1354,14 +1354,12 @@ NamedExpression: ast::Expr = {
+ };
+ 
+ LambdaDef: ast::Expr = {
+-    <location:@L> "lambda" <location_args:@L> <p:ParameterList<UntypedParameter, StarUntypedParameter, StarUntypedParameter>?> <end_location_args:@R> ":" <body:Test<"all">> <end_location:@R> =>? {
+-        p.as_ref().map(validate_arguments).transpose()?;
+-        let p = p
+-            .unwrap_or_else(|| ast::Parameters::empty((location_args..end_location_args).into()));
++    <location:@L> "lambda" <location_args:@L> <parameters:ParameterList<UntypedParameter, StarUntypedParameter, StarUntypedParameter>?> <end_location_args:@R> ":" <body:Test<"all">> <end_location:@R> =>? {
++        parameters.as_ref().map(validate_arguments).transpose()?;
+ 
+         Ok(ast::Expr::Lambda(
+             ast::ExprLambda {
+-                parameters: Box::new(p),
++                parameters: parameters.map(Box::new),
+                 body: Box::new(body),
+                 range: (location..end_location).into()
+             }
+diff --git a/crates/ruff_python_parser/src/python.rs b/crates/ruff_python_parser/src/python.rs
+index c98a1147b4aa8b..6682cde8db0977 100644
+--- a/crates/ruff_python_parser/src/python.rs
++++ b/crates/ruff_python_parser/src/python.rs
+@@ -1,5 +1,5 @@
+ // auto-generated: "lalrpop 0.20.0"
+-// sha3: e2b75c2709648429269934006c032842f6800678baccab09dedfb746463c30b4
++// sha3: 6ec03d3255ad27917601bff9ad0b1df5f8702124139879a78e7dca689ca1b113
+ use num_bigint::BigInt;
+ use ruff_text_size::TextSize;
+ use ruff_python_ast::{self as ast, Ranged, IpyEscapeKind};
+@@ -35817,7 +35817,7 @@ fn __action184<
+     (_, location, _): (TextSize, TextSize, TextSize),
+     (_, _, _): (TextSize, token::Tok, TextSize),
+     (_, location_args, _): (TextSize, TextSize, TextSize),
+-    (_, p, _): (TextSize, core::option::Option<ast::Parameters>, TextSize),
++    (_, parameters, _): (TextSize, core::option::Option<ast::Parameters>, TextSize),
+     (_, end_location_args, _): (TextSize, TextSize, TextSize),
+     (_, _, _): (TextSize, token::Tok, TextSize),
+     (_, body, _): (TextSize, ast::Expr, TextSize),
+@@ -35825,13 +35825,11 @@ fn __action184<
+ ) -> Result<ast::Expr,__lalrpop_util::ParseError<TextSize,token::Tok,LexicalError>>
+ {
+     {
+-        p.as_ref().map(validate_arguments).transpose()?;
+-        let p = p
+-            .unwrap_or_else(|| ast::Parameters::empty((location_args..end_location_args).into()));
++        parameters.as_ref().map(validate_arguments).transpose()?;
+ 
+         Ok(ast::Expr::Lambda(
+             ast::ExprLambda {
+-                parameters: Box::new(p),
++                parameters: parameters.map(Box::new),
+                 body: Box::new(body),
+                 range: (location..end_location).into()
+             }
+diff --git a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_kw_only_args.snap b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_kw_only_args.snap
+index 880b08b7a3efe6..f5d230cfc2c548 100644
+--- a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_kw_only_args.snap
++++ b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_kw_only_args.snap
+@@ -10,51 +10,53 @@ Ok(
+                 value: Lambda(
+                     ExprLambda {
+                         range: 0..20,
+-                        parameters: Parameters {
+-                            range: 7..17,
+-                            posonlyargs: [],
+-                            args: [],
+-                            vararg: None,
+-                            kwonlyargs: [
+-                                ParameterWithDefault {
+-                                    range: 10..11,
+-                                    parameter: Parameter {
++                        parameters: Some(
++                            Parameters {
++                                range: 7..17,
++                                posonlyargs: [],
++                                args: [],
++                                vararg: None,
++                                kwonlyargs: [
++                                    ParameterWithDefault {
+                                         range: 10..11,
+-                                        name: Identifier {
+-                                            id: "a",
++                                        parameter: Parameter {
+                                             range: 10..11,
++                                            name: Identifier {
++                                                id: "a",
++                                                range: 10..11,
++                                            },
++                                            annotation: None,
+                                         },
+-                                        annotation: None,
++                                        default: None,
+                                     },
+-                                    default: None,
+-                                },
+-                                ParameterWithDefault {
+-                                    range: 13..14,
+-                                    parameter: Parameter {
++                                    ParameterWithDefault {
+                                         range: 13..14,
+-                                        name: Identifier {
+-                                            id: "b",
++                                        parameter: Parameter {
+                                             range: 13..14,
++                                            name: Identifier {
++                                                id: "b",
++                                                range: 13..14,
++                                            },
++                                            annotation: None,
+                                         },
+-                                        annotation: None,
++                                        default: None,
+                                     },
+-                                    default: None,
+-                                },
+-                                ParameterWithDefault {
+-                                    range: 16..17,
+-                                    parameter: Parameter {
++                                    ParameterWithDefault {
+                                         range: 16..17,
+-                                        name: Identifier {
+-                                            id: "c",
++                                        parameter: Parameter {
+                                             range: 16..17,
++                                            name: Identifier {
++                                                id: "c",
++                                                range: 16..17,
++                                            },
++                                            annotation: None,
+                                         },
+-                                        annotation: None,
++                                        default: None,
+                                     },
+-                                    default: None,
+-                                },
+-                            ],
+-                            kwarg: None,
+-                        },
++                                ],
++                                kwarg: None,
++                            },
++                        ),
+                         body: Constant(
+                             ExprConstant {
+                                 range: 19..20,
+diff --git a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_kw_only_args_with_defaults.snap b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_kw_only_args_with_defaults.snap
+index 0e903e5e3c5290..838ab8abd4569f 100644
+--- a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_kw_only_args_with_defaults.snap
++++ b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_kw_only_args_with_defaults.snap
+@@ -10,71 +10,73 @@ Ok(
+                 value: Lambda(
+                     ExprLambda {
+                         range: 0..26,
+-                        parameters: Parameters {
+-                            range: 7..23,
+-                            posonlyargs: [],
+-                            args: [],
+-                            vararg: None,
+-                            kwonlyargs: [
+-                                ParameterWithDefault {
+-                                    range: 10..11,
+-                                    parameter: Parameter {
++                        parameters: Some(
++                            Parameters {
++                                range: 7..23,
++                                posonlyargs: [],
++                                args: [],
++                                vararg: None,
++                                kwonlyargs: [
++                                    ParameterWithDefault {
+                                         range: 10..11,
+-                                        name: Identifier {
+-                                            id: "a",
++                                        parameter: Parameter {
+                                             range: 10..11,
++                                            name: Identifier {
++                                                id: "a",
++                                                range: 10..11,
++                                            },
++                                            annotation: None,
+                                         },
+-                                        annotation: None,
++                                        default: None,
+                                     },
+-                                    default: None,
+-                                },
+-                                ParameterWithDefault {
+-                                    range: 13..17,
+-                                    parameter: Parameter {
+-                                        range: 13..14,
+-                                        name: Identifier {
+-                                            id: "b",
++                                    ParameterWithDefault {
++                                        range: 13..17,
++                                        parameter: Parameter {
+                                             range: 13..14,
+-                                        },
+-                                        annotation: None,
+-                                    },
+-                                    default: Some(
+-                                        Constant(
+-                                            ExprConstant {
+-                                                range: 15..17,
+-                                                value: Int(
+-                                                    20,
+-                                                ),
+-                                                kind: None,
++                                            name: Identifier {
++                                                id: "b",
++                                                range: 13..14,
+                                             },
+-                                        ),
+-                                    ),
+-                                },
+-                                ParameterWithDefault {
+-                                    range: 19..23,
+-                                    parameter: Parameter {
+-                                        range: 19..20,
+-                                        name: Identifier {
+-                                            id: "c",
+-                                            range: 19..20,
++                                            annotation: None,
+                                         },
+-                                        annotation: None,
++                                        default: Some(
++                                            Constant(
++                                                ExprConstant {
++                                                    range: 15..17,
++                                                    value: Int(
++                                                        20,
++                                                    ),
++                                                    kind: None,
++                                                },
++                                            ),
++                                        ),
+                                     },
+-                                    default: Some(
+-                                        Constant(
+-                                            ExprConstant {
+-                                                range: 21..23,
+-                                                value: Int(
+-                                                    30,
+-                                                ),
+-                                                kind: None,
++                                    ParameterWithDefault {
++                                        range: 19..23,
++                                        parameter: Parameter {
++                                            range: 19..20,
++                                            name: Identifier {
++                                                id: "c",
++                                                range: 19..20,
+                                             },
++                                            annotation: None,
++                                        },
++                                        default: Some(
++                                            Constant(
++                                                ExprConstant {
++                                                    range: 21..23,
++                                                    value: Int(
++                                                        30,
++                                                    ),
++                                                    kind: None,
++                                                },
++                                            ),
+                                         ),
+-                                    ),
+-                                },
+-                            ],
+-                            kwarg: None,
+-                        },
++                                    },
++                                ],
++                                kwarg: None,
++                            },
++                        ),
+                         body: Constant(
+                             ExprConstant {
+                                 range: 25..26,
+diff --git a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_no_args.snap b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_no_args.snap
+index daa1f9ae29439b..4b90995b0062c0 100644
+--- a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_no_args.snap
++++ b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_no_args.snap
+@@ -10,14 +10,7 @@ Ok(
+                 value: Lambda(
+                     ExprLambda {
+                         range: 0..9,
+-                        parameters: Parameters {
+-                            range: 6..6,
+-                            posonlyargs: [],
+-                            args: [],
+-                            vararg: None,
+-                            kwonlyargs: [],
+-                            kwarg: None,
+-                        },
++                        parameters: None,
+                         body: Constant(
+                             ExprConstant {
+                                 range: 8..9,
+diff --git a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_pos_and_kw_only_args.snap b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_pos_and_kw_only_args.snap
+index 66f60fe7d400cc..a3eff7188b499d 100644
+--- a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_pos_and_kw_only_args.snap
++++ b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_pos_and_kw_only_args.snap
+@@ -10,76 +10,78 @@ Ok(
+                 value: Lambda(
+                     ExprLambda {
+                         range: 0..26,
+-                        parameters: Parameters {
+-                            range: 7..23,
+-                            posonlyargs: [],
+-                            args: [
+-                                ParameterWithDefault {
+-                                    range: 7..8,
+-                                    parameter: Parameter {
++                        parameters: Some(
++                            Parameters {
++                                range: 7..23,
++                                posonlyargs: [],
++                                args: [
++                                    ParameterWithDefault {
+                                         range: 7..8,
+-                                        name: Identifier {
+-                                            id: "a",
++                                        parameter: Parameter {
+                                             range: 7..8,
++                                            name: Identifier {
++                                                id: "a",
++                                                range: 7..8,
++                                            },
++                                            annotation: None,
+                                         },
+-                                        annotation: None,
++                                        default: None,
+                                     },
+-                                    default: None,
+-                                },
+-                                ParameterWithDefault {
+-                                    range: 10..11,
+-                                    parameter: Parameter {
++                                    ParameterWithDefault {
+                                         range: 10..11,
+-                                        name: Identifier {
+-                                            id: "b",
++                                        parameter: Parameter {
+                                             range: 10..11,
++                                            name: Identifier {
++                                                id: "b",
++                                                range: 10..11,
++                                            },
++                                            annotation: None,
+                                         },
+-                                        annotation: None,
++                                        default: None,
+                                     },
+-                                    default: None,
+-                                },
+-                                ParameterWithDefault {
+-                                    range: 13..14,
+-                                    parameter: Parameter {
++                                    ParameterWithDefault {
+                                         range: 13..14,
+-                                        name: Identifier {
+-                                            id: "c",
++                                        parameter: Parameter {
+                                             range: 13..14,
++                                            name: Identifier {
++                                                id: "c",
++                                                range: 13..14,
++                                            },
++                                            annotation: None,
+                                         },
+-                                        annotation: None,
++                                        default: None,
+                                     },
+-                                    default: None,
+-                                },
+-                            ],
+-                            vararg: None,
+-                            kwonlyargs: [
+-                                ParameterWithDefault {
+-                                    range: 19..20,
+-                                    parameter: Parameter {
++                                ],
++                                vararg: None,
++                                kwonlyargs: [
++                                    ParameterWithDefault {
+                                         range: 19..20,
+-                                        name: Identifier {
+-                                            id: "d",
++                                        parameter: Parameter {
+                                             range: 19..20,
++                                            name: Identifier {
++                                                id: "d",
++                                                range: 19..20,
++                                            },
++                                            annotation: None,
+                                         },
+-                                        annotation: None,
++                                        default: None,
+                                     },
+-                                    default: None,
+-                                },
+-                                ParameterWithDefault {
+-                                    range: 22..23,
+-                                    parameter: Parameter {
++                                    ParameterWithDefault {
+                                         range: 22..23,
+-                                        name: Identifier {
+-                                            id: "e",
++                                        parameter: Parameter {
+                                             range: 22..23,
++                                            name: Identifier {
++                                                id: "e",
++                                                range: 22..23,
++                                            },
++                                            annotation: None,
+                                         },
+-                                        annotation: None,
++                                        default: None,
+                                     },
+-                                    default: None,
+-                                },
+-                            ],
+-                            kwarg: None,
+-                        },
++                                ],
++                                kwarg: None,
++                            },
++                        ),
+                         body: Constant(
+                             ExprConstant {
+                                 range: 25..26,
+diff --git a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_pos_args.snap b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_pos_args.snap
+index 08563620f3179b..1f8c1d0d3a751b 100644
+--- a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_pos_args.snap
++++ b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_pos_args.snap
+@@ -10,51 +10,53 @@ Ok(
+                 value: Lambda(
+                     ExprLambda {
+                         range: 0..17,
+-                        parameters: Parameters {
+-                            range: 7..14,
+-                            posonlyargs: [],
+-                            args: [
+-                                ParameterWithDefault {
+-                                    range: 7..8,
+-                                    parameter: Parameter {
++                        parameters: Some(
++                            Parameters {
++                                range: 7..14,
++                                posonlyargs: [],
++                                args: [
++                                    ParameterWithDefault {
+                                         range: 7..8,
+-                                        name: Identifier {
+-                                            id: "a",
++                                        parameter: Parameter {
+                                             range: 7..8,
++                                            name: Identifier {
++                                                id: "a",
++                                                range: 7..8,
++                                            },
++                                            annotation: None,
+                                         },
+-                                        annotation: None,
++                                        default: None,
+                                     },
+-                                    default: None,
+-                                },
+-                                ParameterWithDefault {
+-                                    range: 10..11,
+-                                    parameter: Parameter {
++                                    ParameterWithDefault {
+                                         range: 10..11,
+-                                        name: Identifier {
+-                                            id: "b",
++                                        parameter: Parameter {
+                                             range: 10..11,
++                                            name: Identifier {
++                                                id: "b",
++                                                range: 10..11,
++                                            },
++                                            annotation: None,
+                                         },
+-                                        annotation: None,
++                                        default: None,
+                                     },
+-                                    default: None,
+-                                },
+-                                ParameterWithDefault {
+-                                    range: 13..14,
+-                                    parameter: Parameter {
++                                    ParameterWithDefault {
+                                         range: 13..14,
+-                                        name: Identifier {
+-                                            id: "c",
++                                        parameter: Parameter {
+                                             range: 13..14,
++                                            name: Identifier {
++                                                id: "c",
++                                                range: 13..14,
++                                            },
++                                            annotation: None,
+                                         },
+-                                        annotation: None,
++                                        default: None,
+                                     },
+-                                    default: None,
+-                                },
+-                            ],
+-                            vararg: None,
+-                            kwonlyargs: [],
+-                            kwarg: None,
+-                        },
++                                ],
++                                vararg: None,
++                                kwonlyargs: [],
++                                kwarg: None,
++                            },
++                        ),
+                         body: Constant(
+                             ExprConstant {
+                                 range: 16..17,
+diff --git a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_pos_args_with_defaults.snap b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_pos_args_with_defaults.snap
+index 138c71343719f2..9760d71f28265f 100644
+--- a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_pos_args_with_defaults.snap
++++ b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__function__tests__lambda_pos_args_with_defaults.snap
+@@ -10,71 +10,73 @@ Ok(
+                 value: Lambda(
+                     ExprLambda {
+                         range: 0..23,
+-                        parameters: Parameters {
+-                            range: 7..20,
+-                            posonlyargs: [],
+-                            args: [
+-                                ParameterWithDefault {
+-                                    range: 7..8,
+-                                    parameter: Parameter {
++                        parameters: Some(
++                            Parameters {
++                                range: 7..20,
++                                posonlyargs: [],
++                                args: [
++                                    ParameterWithDefault {
+                                         range: 7..8,
+-                                        name: Identifier {
+-                                            id: "a",
++                                        parameter: Parameter {
+                                             range: 7..8,
++                                            name: Identifier {
++                                                id: "a",
++                                                range: 7..8,
++                                            },
++                                            annotation: None,
+                                         },
+-                                        annotation: None,
++                                        default: None,
+                                     },
+-                                    default: None,
+-                                },
+-                                ParameterWithDefault {
+-                                    range: 10..14,
+-                                    parameter: Parameter {
+-                                        range: 10..11,
+-                                        name: Identifier {
+-                                            id: "b",
++                                    ParameterWithDefault {
++                                        range: 10..14,
++                                        parameter: Parameter {
+                                             range: 10..11,
+-                                        },
+-                                        annotation: None,
+-                                    },
+-                                    default: Some(
+-                                        Constant(
+-                                            ExprConstant {
+-                                                range: 12..14,
+-                                                value: Int(
+-                                                    20,
+-                                                ),
+-                                                kind: None,
++                                            name: Identifier {
++                                                id: "b",
++                                                range: 10..11,
+                                             },
+-                                        ),
+-                                    ),
+-                                },
+-                                ParameterWithDefault {
+-                                    range: 16..20,
+-                                    parameter: Parameter {
+-                                        range: 16..17,
+-                                        name: Identifier {
+-                                            id: "c",
+-                                            range: 16..17,
++                                            annotation: None,
+                                         },
+-                                        annotation: None,
++                                        default: Some(
++                                            Constant(
++                                                ExprConstant {
++                                                    range: 12..14,
++                                                    value: Int(
++                                                        20,
++                                                    ),
++                                                    kind: None,
++                                                },
++                                            ),
++                                        ),
+                                     },
+-                                    default: Some(
+-                                        Constant(
+-                                            ExprConstant {
+-                                                range: 18..20,
+-                                                value: Int(
+-                                                    30,
+-                                                ),
+-                                                kind: None,
++                                    ParameterWithDefault {
++                                        range: 16..20,
++                                        parameter: Parameter {
++                                            range: 16..17,
++                                            name: Identifier {
++                                                id: "c",
++                                                range: 16..17,
+                                             },
++                                            annotation: None,
++                                        },
++                                        default: Some(
++                                            Constant(
++                                                ExprConstant {
++                                                    range: 18..20,
++                                                    value: Int(
++                                                        30,
++                                                    ),
++                                                    kind: None,
++                                                },
++                                            ),
+                                         ),
+-                                    ),
+-                                },
+-                            ],
+-                            vararg: None,
+-                            kwonlyargs: [],
+-                            kwarg: None,
+-                        },
++                                    },
++                                ],
++                                vararg: None,
++                                kwonlyargs: [],
++                                kwarg: None,
++                            },
++                        ),
+                         body: Constant(
+                             ExprConstant {
+                                 range: 22..23,
+diff --git a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__parser__tests__match_as_identifier.snap b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__parser__tests__match_as_identifier.snap
+index e067e4d36150e3..38a83842e20edd 100644
+--- a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__parser__tests__match_as_identifier.snap
++++ b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__parser__tests__match_as_identifier.snap
+@@ -727,27 +727,29 @@ expression: "parse_suite(source, \"<test>\").unwrap()"
+             value: Lambda(
+                 ExprLambda {
+                     range: 591..619,
+-                    parameters: Parameters {
+-                        range: 598..603,
+-                        posonlyargs: [],
+-                        args: [
+-                            ParameterWithDefault {
+-                                range: 598..603,
+-                                parameter: Parameter {
++                    parameters: Some(
++                        Parameters {
++                            range: 598..603,
++                            posonlyargs: [],
++                            args: [
++                                ParameterWithDefault {
+                                     range: 598..603,
+-                                    name: Identifier {
+-                                        id: "query",
++                                    parameter: Parameter {
+                                         range: 598..603,
++                                        name: Identifier {
++                                            id: "query",
++                                            range: 598..603,
++                                        },
++                                        annotation: None,
+                                     },
+-                                    annotation: None,
++                                    default: None,
+                                 },
+-                                default: None,
+-                            },
+-                        ],
+-                        vararg: None,
+-                        kwonlyargs: [],
+-                        kwarg: None,
+-                    },
++                            ],
++                            vararg: None,
++                            kwonlyargs: [],
++                            kwarg: None,
++                        },
++                    ),
+                     body: Compare(
+                         ExprCompare {
+                             range: 605..619,
+diff --git a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__parser__tests__parse_lambda.snap b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__parser__tests__parse_lambda.snap
+index a7e23a899e8b62..4401fd6c8428af 100644
+--- a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__parser__tests__parse_lambda.snap
++++ b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__parser__tests__parse_lambda.snap
+@@ -9,39 +9,41 @@ expression: parse_ast
+             value: Lambda(
+                 ExprLambda {
+                     range: 0..18,
+-                    parameters: Parameters {
+-                        range: 7..11,
+-                        posonlyargs: [],
+-                        args: [
+-                            ParameterWithDefault {
+-                                range: 7..8,
+-                                parameter: Parameter {
++                    parameters: Some(
++                        Parameters {
++                            range: 7..11,
++                            posonlyargs: [],
++                            args: [
++                                ParameterWithDefault {
+                                     range: 7..8,
+-                                    name: Identifier {
+-                                        id: "x",
++                                    parameter: Parameter {
+                                         range: 7..8,
++                                        name: Identifier {
++                                            id: "x",
++                                            range: 7..8,
++                                        },
++                                        annotation: None,
+                                     },
+-                                    annotation: None,
++                                    default: None,
+                                 },
+-                                default: None,
+-                            },
+-                            ParameterWithDefault {
+-                                range: 10..11,
+-                                parameter: Parameter {
++                                ParameterWithDefault {
+                                     range: 10..11,
+-                                    name: Identifier {
+-                                        id: "y",
++                                    parameter: Parameter {
+                                         range: 10..11,
++                                        name: Identifier {
++                                            id: "y",
++                                            range: 10..11,
++                                        },
++                                        annotation: None,
+                                     },
+-                                    annotation: None,
++                                    default: None,
+                                 },
+-                                default: None,
+-                            },
+-                        ],
+-                        vararg: None,
+-                        kwonlyargs: [],
+-                        kwarg: None,
+-                    },
++                            ],
++                            vararg: None,
++                            kwonlyargs: [],
++                            kwarg: None,
++                        },
++                    ),
+                     body: BinOp(
+                         ExprBinOp {
+                             range: 13..18,
+diff --git a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__parser__tests__parse_lambda_no_args.snap b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__parser__tests__parse_lambda_no_args.snap
+index 970316e846b9ed..c8c73c80c88bbc 100644
+--- a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__parser__tests__parse_lambda_no_args.snap
++++ b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__parser__tests__parse_lambda_no_args.snap
+@@ -9,14 +9,7 @@ expression: parse_ast
+             value: Lambda(
+                 ExprLambda {
+                     range: 0..9,
+-                    parameters: Parameters {
+-                        range: 6..6,
+-                        posonlyargs: [],
+-                        args: [],
+-                        vararg: None,
+-                        kwonlyargs: [],
+-                        kwarg: None,
+-                    },
++                    parameters: None,
+                     body: Constant(
+                         ExprConstant {
+                             range: 8..9,
+diff --git a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__parser__tests__type_as_identifier.snap b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__parser__tests__type_as_identifier.snap
+index 3c2a82b998d78e..8b10562a32c671 100644
+--- a/crates/ruff_python_parser/src/snapshots/ruff_python_parser__parser__tests__type_as_identifier.snap
++++ b/crates/ruff_python_parser/src/snapshots/ruff_python_parser__parser__tests__type_as_identifier.snap
+@@ -663,27 +663,29 @@ expression: "parse_suite(source, \"<test>\").unwrap()"
+             value: Lambda(
+                 ExprLambda {
+                     range: 507..535,
+-                    parameters: Parameters {
+-                        range: 514..519,
+-                        posonlyargs: [],
+-                        args: [
+-                            ParameterWithDefault {
+-                                range: 514..519,
+-                                parameter: Parameter {
++                    parameters: Some(
++                        Parameters {
++                            range: 514..519,
++                            posonlyargs: [],
++                            args: [
++                                ParameterWithDefault {
+                                     range: 514..519,
+-                                    name: Identifier {
+-                                        id: "query",
++                                    parameter: Parameter {
+                                         range: 514..519,
++                                        name: Identifier {
++                                            id: "query",
++                                            range: 514..519,
++                                        },
++                                        annotation: None,
+                                     },
+-                                    annotation: None,
++                                    default: None,
+                                 },
+-                                default: None,
+-                            },
+-                        ],
+-                        vararg: None,
+-                        kwonlyargs: [],
+-                        kwarg: None,
+-                    },
++                            ],
++                            vararg: None,
++                            kwonlyargs: [],
++                            kwarg: None,
++                        },
++                    ),
+                     body: Compare(
+                         ExprCompare {
+                             range: 521..535,

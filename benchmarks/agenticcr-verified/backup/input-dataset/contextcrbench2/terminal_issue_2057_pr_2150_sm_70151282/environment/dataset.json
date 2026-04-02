@@ -1,0 +1,13 @@
+[
+  {
+    "id": 48135,
+    "full_name": "microsoft/terminal",
+    "lang": "cpp",
+    "issue_number": 2057,
+    "pr_number": 2150,
+    "diff_hunk": "@@ -623,6 +623,12 @@ RECT NonClientIslandWindow::GetMaxWindowRectInPixels(const RECT* const prcSugges\n             break;\r\n         }\r\n     }\r\n+    case WM_DPICHANGED:\r\n+    {\r\n+        auto lprcNewScale = reinterpret_cast<RECT*>(lParam);\r\n+        OnSize(RECT_WIDTH(lprcNewScale), RECT_HEIGHT(lprcNewScale));\r\n+        break;\r\n+    }\r\n     }\r\n \r\n     return IslandWindow::MessageHandler(message, wParam, lParam);\r\n",
+    "diff_hunk_content_with_line_number": "[623][623]              break;\n[624][624]          }\n[625][625]      }\n[][626] +    case WM_DPICHANGED:\n[][627] +    {\n[][628] +        auto lprcNewScale = reinterpret_cast<RECT*>(lParam);\n[][629] +        OnSize(RECT_WIDTH(lprcNewScale), RECT_HEIGHT(lprcNewScale));\n[][630] +        break;\n[][631] +    }\n[626][632]      }\n[627][633]  \n[628][634]      return IslandWindow::MessageHandler(message, wParam, lParam);",
+    "checked_commit_id": "70151282dd6415b71cf9c0934a24c8dcc80dbd34",
+    "pr_size": "sm"
+  }
+]

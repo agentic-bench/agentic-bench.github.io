@@ -1,0 +1,11 @@
+[
+  {
+    "path": "homeassistant/components/unifi/device_tracker.py",
+    "line": 35,
+    "original_line": 35,
+    "review_comment": [
+      "Did you mean to remove site_id?",
+      "Yes, it is unique per integration so no need to keep it"
+    ]
+  }
+]

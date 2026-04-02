@@ -1,0 +1,21 @@
+[
+  {
+    "path": "include/bluetooth/audio/audio.h",
+    "line": 234,
+    "original_line": 234,
+    "review_comment": [
+      "Even though it makes sense to group these together, I do not think using an enum is a good way to do it. \r\nEnums contains a finite number of possible values - hence you would need to suppress compiler warnings to be able to OR multiple values together - or you would need to typecast the result back to the enum type - which could result in errors if the compiler have made assumptions about the finite number of values (for example a switch statement do not need a default case when doing switch on an enum type and all possible cases are handled). I do not know if newer c-versions have support for this though?\r\nI have seen others define a type and then typecast to this in the define:\r\n\r\n`typedef uint32_t bt_audio_loc_t`\r\n`#define BT_AUDIO_LOCATION_FRONT_LEFT ((bt_audio_loc_t) BIT(0))`\r\n\r\nthen you can use bt_audio_loc_t rather than uint32_t for function parameters that expect audio location(s). And you can freely OR multiple together as the result would still be uint32_t.\r\n\r\nTo group them together in the API documentation use the `@name Audio Locations @{ ... @} `grouping feature",
+      "I hear your concerns and see what issues this may cause. \r\n\r\nThe reasoning behind this approach is:\r\n\r\n1. (named) `enum`s provide an easy way for an API to express the \"group\" of values expected, without relying on doxygen-specific grouping\r\n2. https://www.kernel.org/doc/html/v4.10/process/coding-style.html#macros-enums-and-rtl (which we follow) express that `enum`s are preferred for groups of constants\r\n3. This is the approach (although without the name) used by e.g. `BT_LE_ADV_OPT_`, and other option `enum`s in `bluetooth.h`. \r\n\r\nIf we see compiler issues, then this is indeed something we need to fix. If the issue is caused by using the `enum` type in the APIs, then we can replace the `enum` type with `uint32_t` (similar to how the `BT_LE_ADV_OPT_` are used), and simply add a reference to the `enum` in the function description. \r\n\r\nIf the issue is caused by just using the `enum` keyword, then this problem exist in many places in the code base, and we need a general fix as well as an exception to the Linux kernel code guideline. \r\n\r\nDo you have any references to the compiler issues (warnings) you are experiencing that I can read? ",
+      "If this is an accepted way to do it in Zephyr, I'm OK with it.\r\nI do not have a reference, but in my early days I was told to refactor a full FM radio API I made due to this issue (not a GCC based compiler) - hence I always try to avoid using enums when I specify bit-values. \r\nI had a look at the different enum related warnings that GCC support, and non of them covers this issue, hence I think we can go ahead using enums in this case.",
+      "Otherwise refactoring to a group of `#define`s can be done without breaking the API if we just change the API from `enum bt_audio_location` to `uint32_t bt_audio_location`. "
+    ]
+  },
+  {
+    "path": "include/bluetooth/audio/audio.h",
+    "line": 204,
+    "original_line": 204,
+    "review_comment": [
+      "I would like to have a reference to the assigned numbers here, to make it clear where these come from."
+    ]
+  }
+]

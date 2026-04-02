@@ -1,0 +1,22 @@
+[
+  {
+    "path": "pandas/core/groupby/generic.py",
+    "line": 1556,
+    "original_line": 1556,
+    "review_comment": [
+      "The removal of args and kwargs at this point seems to have been a design decision made in 2014 in https://github.com/pandas-dev/pandas/pull/6718 to address a bug when using UDF\r\n\r\nThere have been considerable changes since and `agg` generally seems to pass on kwargs well now. When updating just this line, all tests passed so I assume this change would be okay.\r\n\r\n\r\n",
+      "Agreed that this is okay - but not just because all tests pass. It is not good behavior to silently ignore args/kwargs, and it seems to me users are reasonable to expect that these would be passed through."
+    ]
+  },
+  {
+    "path": "pandas/core/groupby/generic.py",
+    "line": 1549,
+    "original_line": 1549,
+    "review_comment": [
+      "Why do you need this extra condition? With this modification, I am thinking we should hold off on merging this PR. `_aggregate_frame` passes the entire DataFrame rather than column-by-column that the rest of the code paths do. So this could cause breakage in user code.",
+      "Thanks Richard, \r\n\r\nThat was the intent, because the bug currently occurs when multiple columns to be aggregated are passed into `_aggregate_frame`, the aggregation operates on all columns and provides duplicate (and incorrect) values such as this (full example in #58146 - and is the output of the test case in this PR for the main branch):\r\n\r\n```\r\nA\tB\r\ngroupby1\t\t\r\ndiamond\t13.25\t13.25\r\nspade\t27.00\t27.00\r\n```\r\n\r\nInstead of using that method when there are multiple columns, I thought passing it to the next code path that does column-by-column would address the issue.\r\n\r\nThat said, I don't have the skills and knowledge of the codebase the maintainers have to fully appreciate the extent of impact this change might have on the users' codebase, but I couldn't find examples where it would be desired behaviour to pass in the entire DataFrame to `_aggregate_frame` when there are multiple columns to aggregate (with the exception of passing in `numpy` functions with kwarg `axis=0` which manages it well).\r\n\r\nJust thought I might put this idea forward as a change that would address the issue of multiple columns getting aggregated together.",
+      "I see - thanks! Yes, we discussed this on the last dev meeting. I think we want to look to see if we can deprecate this behavior instead of changing it as a bug fix because it has the risk of quietly changing the value in the result without failing.",
+      "I see, no worries! Just thought it might be an appropriate workaround\r\n\r\nI was hoping to get a workaround in so I might be able to work on the `numeric_only` support as having a kwarg pushes the code down this pathway more frequently. Which then would allow me to address an issue in Geopandas. It sounds like it might be best to wait for the deprecation before working on the downstream items.\r\n\r\nI'l update my PR to only address the `GroupByApply`.\r\n\r\nThanks for your time and feedback.\r\n\r\n"
+    ]
+  }
+]

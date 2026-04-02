@@ -1,0 +1,191 @@
+diff --git a/configs/config.go b/configs/config.go
+index cc88981781e4..6f1603bfa79a 100644
+--- a/configs/config.go
++++ b/configs/config.go
+@@ -329,6 +329,53 @@ func (c *Config) addProviderRequirements(reqs getproviders.Requirements, recurse
+ 	return diags
+ }
+ 
++// resolveProviderTypes walks through the providers in the module and ensures
++// the true types are assigned based on the provider requirements for the
++// module.
++func (c *Config) resolveProviderTypes() {
++	for _, child := range c.Children {
++		child.resolveProviderTypes()
++	}
++
++	// collect the required_providers, and then add any missing default providers
++	providers := map[string]addrs.Provider{}
++	for name, p := range c.Module.ProviderRequirements.RequiredProviders {
++		providers[name] = p.Type
++	}
++
++	// ensure all provider configs know their correct type
++	for _, p := range c.Module.ProviderConfigs {
++		addr, required := providers[p.Name]
++		if required {
++			p.providerType = addr
++		} else {
++			addr := addrs.NewDefaultProvider(p.Name)
++			p.providerType = addr
++			providers[p.Name] = addr
++		}
++	}
++
++	// connect module call providers to the correct type
++	for _, mod := range c.Module.ModuleCalls {
++		for _, p := range mod.Providers {
++			if addr, known := providers[p.InParent.Name]; known {
++				p.InParent.providerType = addr
++			}
++		}
++	}
++
++	// fill in parent module calls too
++	if c.Parent != nil {
++		for _, mod := range c.Parent.Module.ModuleCalls {
++			for _, p := range mod.Providers {
++				if addr, known := providers[p.InChild.Name]; known {
++					p.InChild.providerType = addr
++				}
++			}
++		}
++	}
++}
++
+ // ProviderTypes returns the FQNs of each distinct provider type referenced
+ // in the receiving configuration.
+ //
+diff --git a/configs/config_build.go b/configs/config_build.go
+index 345c67814486..1083a1a2d38b 100644
+--- a/configs/config_build.go
++++ b/configs/config_build.go
+@@ -23,6 +23,10 @@ func BuildConfig(root *Module, walker ModuleWalker) (*Config, hcl.Diagnostics) {
+ 	cfg.Root = cfg // Root module is self-referential.
+ 	cfg.Children, diags = buildChildModules(cfg, walker)
+ 
++	// Now that the config is built, we can connect the provider names to all
++	// the known types for validation.
++	cfg.resolveProviderTypes()
++
+ 	diags = append(diags, validateProviderConfigs(nil, cfg, false)...)
+ 
+ 	return cfg, diags
+diff --git a/configs/provider.go b/configs/provider.go
+index 7fd39b174f6c..3bbba3052108 100644
+--- a/configs/provider.go
++++ b/configs/provider.go
+@@ -25,6 +25,13 @@ type Provider struct {
+ 	Config hcl.Body
+ 
+ 	DeclRange hcl.Range
++
++	// TODO: this may not be set in some cases, so it is not yet suitable for
++	// use outside of this package. We currently only use it for internal
++	// validation, but once we verify that this can be set in all cases, we can
++	// export this so providers don't need to be re-resolved.
++	// This same field is also added to the ProviderConfigRef struct.
++	providerType addrs.Provider
+ }
+ 
+ func decodeProviderBlock(block *hcl.Block) (*Provider, hcl.Diagnostics) {
+diff --git a/configs/provider_validation.go b/configs/provider_validation.go
+index 57ad0fcdf849..ec8bda2f308f 100644
+--- a/configs/provider_validation.go
++++ b/configs/provider_validation.go
+@@ -136,9 +136,18 @@ func validateProviderConfigs(call *ModuleCall, cfg *Config, noProviderConfig boo
+ 
+ 	// You cannot pass in a provider that cannot be used
+ 	for name, passed := range passedIn {
++		childTy := passed.InChild.providerType
++		// get a default type if there was none set
++		if childTy.IsZero() {
++			// This means the child module is only using an inferred
++			// provider type. We allow this but will generate a warning to
++			// declare provider_requirements below.
++			childTy = addrs.NewDefaultProvider(passed.InChild.Name)
++		}
++
+ 		providerAddr := addrs.AbsProviderConfig{
+ 			Module:   cfg.Path,
+-			Provider: addrs.NewDefaultProvider(passed.InChild.Name),
++			Provider: childTy,
+ 			Alias:    passed.InChild.Alias,
+ 		}
+ 
+@@ -172,9 +181,12 @@ func validateProviderConfigs(call *ModuleCall, cfg *Config, noProviderConfig boo
+ 		}
+ 
+ 		// The provider being passed in must also be of the correct type.
+-		// While we would like to ensure required_providers exists here,
+-		// implied default configuration is still allowed.
+-		pTy := addrs.NewDefaultProvider(passed.InParent.Name)
++		pTy := passed.InParent.providerType
++		if pTy.IsZero() {
++			// While we would like to ensure required_providers exists here,
++			// implied default configuration is still allowed.
++			pTy = addrs.NewDefaultProvider(passed.InParent.Name)
++		}
+ 
+ 		// use the full address for a nice diagnostic output
+ 		parentAddr := addrs.AbsProviderConfig{
+diff --git a/configs/resource.go b/configs/resource.go
+index 05bb60c3aff9..73c0d7c897fe 100644
+--- a/configs/resource.go
++++ b/configs/resource.go
+@@ -374,6 +374,13 @@ type ProviderConfigRef struct {
+ 	NameRange  hcl.Range
+ 	Alias      string
+ 	AliasRange *hcl.Range // nil if alias not set
++
++	// TODO: this may not be set in some cases, so it is not yet suitable for
++	// use outside of this package. We currently only use it for internal
++	// validation, but once we verify that this can be set in all cases, we can
++	// export this so providers don't need to be re-resolved.
++	// This same field is also added to the Provider struct.
++	providerType addrs.Provider
+ }
+ 
+ func decodeProviderConfigRef(expr hcl.Expression, argName string) (*ProviderConfigRef, hcl.Diagnostics) {
+diff --git a/configs/testdata/valid-modules/nested-providers-fqns/child/main.tf b/configs/testdata/valid-modules/nested-providers-fqns/child/main.tf
+index 1973912d5ceb..79e449bf4626 100644
+--- a/configs/testdata/valid-modules/nested-providers-fqns/child/main.tf
++++ b/configs/testdata/valid-modules/nested-providers-fqns/child/main.tf
+@@ -3,11 +3,13 @@ terraform {
+     bar-test = {
+       source = "bar/test"
+     }
++    foo-test = {
++      source = "foo/test"
++      configuration_aliases = [foo-test.other]
++    }
+   }
+ }
+ 
+-provider "bar-test" {}
+-
+ resource "test_instance" "explicit" {
+   // explicitly setting provider bar-test
+   provider = bar-test
+@@ -17,3 +19,7 @@ resource "test_instance" "implicit" {
+   // since the provider type name "test" does not match an entry in
+   // required_providers, the default provider "test" should be used
+ }
++
++resource "test_instance" "other" {
++  provider = foo-test.other
++}
+diff --git a/configs/testdata/valid-modules/nested-providers-fqns/main.tf b/configs/testdata/valid-modules/nested-providers-fqns/main.tf
+index 3a9dc4a13ec1..27988f42b28a 100644
+--- a/configs/testdata/valid-modules/nested-providers-fqns/main.tf
++++ b/configs/testdata/valid-modules/nested-providers-fqns/main.tf
+@@ -10,6 +10,9 @@ provider "foo-test" {}
+ 
+ module "child" {
+   source = "./child"
++  providers = {
++    foo-test.other = foo-test
++  }
+ }
+ 
+ resource "test_instance" "explicit" {

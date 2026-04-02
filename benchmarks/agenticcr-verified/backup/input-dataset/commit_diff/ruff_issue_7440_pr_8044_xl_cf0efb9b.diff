@@ -1,0 +1,705 @@
+diff --git a/crates/ruff_python_formatter/tests/fixtures.rs b/crates/ruff_python_formatter/tests/fixtures.rs
+index 6314532afea0d..604d79bbaee9f 100644
+--- a/crates/ruff_python_formatter/tests/fixtures.rs
++++ b/crates/ruff_python_formatter/tests/fixtures.rs
+@@ -1,5 +1,5 @@
+ use ruff_formatter::FormatOptions;
+-use ruff_python_formatter::{format_module_source, PyFormatOptions};
++use ruff_python_formatter::{format_module_source, PreviewMode, PyFormatOptions};
+ use similar::TextDiff;
+ use std::fmt::{Formatter, Write};
+ use std::io::BufReader;
+@@ -142,16 +142,40 @@ fn format() {
+         } else {
+             let printed =
+                 format_module_source(&content, options.clone()).expect("Formatting to succeed");
+-            let formatted_code = printed.as_code();
++            let formatted = printed.as_code();
+ 
+-            ensure_stability_when_formatting_twice(formatted_code, options, input_path);
++            ensure_stability_when_formatting_twice(formatted, options.clone(), input_path);
+ 
+-            writeln!(
+-                snapshot,
+-                "## Output\n{}",
+-                CodeFrame::new("py", &formatted_code)
+-            )
+-            .unwrap();
++            // We want to capture the differences in the preview style in our fixtures
++            let options_preview = options.with_preview(PreviewMode::Enabled);
++            let printed_preview = format_module_source(&content, options_preview.clone())
++                .expect("Formatting to succeed");
++            let formatted_preview = printed_preview.as_code();
++
++            ensure_stability_when_formatting_twice(
++                formatted_preview,
++                options_preview.clone(),
++                input_path,
++            );
++
++            if formatted == formatted_preview {
++                writeln!(snapshot, "## Output\n{}", CodeFrame::new("py", &formatted)).unwrap();
++            } else {
++                // Having both snapshots makes it hard to see the difference, so we're keeping only
++                // diff.
++                writeln!(
++                    snapshot,
++                    "## Output\n{}\n## Preview changes\n{}",
++                    CodeFrame::new("py", &formatted),
++                    CodeFrame::new(
++                        "diff",
++                        TextDiff::from_lines(formatted, formatted_preview)
++                            .unified_diff()
++                            .header("Stable", "Preview")
++                    )
++                )
++                .unwrap();
++            }
+         }
+ 
+         insta::with_settings!({
+diff --git a/crates/ruff_python_formatter/tests/snapshots/format@fmt_on_off__trailing_comments.py.snap b/crates/ruff_python_formatter/tests/snapshots/format@fmt_on_off__trailing_comments.py.snap
+index e80951bd3ac25..89308b0d8a99d 100644
+--- a/crates/ruff_python_formatter/tests/snapshots/format@fmt_on_off__trailing_comments.py.snap
++++ b/crates/ruff_python_formatter/tests/snapshots/format@fmt_on_off__trailing_comments.py.snap
+@@ -93,4 +93,21 @@ def test3  ():
+ ```
+ 
+ 
++## Preview changes
++```diff
++--- Stable
+++++ Preview
++@@ -21,8 +21,7 @@
++ 
++ 
++ # formatted
++-def test2():
++-    ...
+++def test2(): ...
++ 
++ 
++ a = 10
++```
++
++
+ 
+diff --git a/crates/ruff_python_formatter/tests/snapshots/format@newlines.py.snap b/crates/ruff_python_formatter/tests/snapshots/format@newlines.py.snap
+index 68f3674034ec5..eacf5fe7938d4 100644
+--- a/crates/ruff_python_formatter/tests/snapshots/format@newlines.py.snap
++++ b/crates/ruff_python_formatter/tests/snapshots/format@newlines.py.snap
+@@ -549,4 +549,27 @@ if True:
+ ```
+ 
+ 
++## Preview changes
++```diff
++--- Stable
+++++ Preview
++@@ -245,13 +245,11 @@
++ class Path:
++     if sys.version_info >= (3, 11):
++ 
++-        def joinpath(self):
++-            ...
+++        def joinpath(self): ...
++ 
++     # The .open method comes from pathlib.pyi and should be kept in sync.
++     @overload
++-    def open(self):
++-        ...
+++    def open(self): ...
++ 
++ 
++ def fakehttp():
++```
++
++
+ 
+diff --git a/crates/ruff_python_formatter/tests/snapshots/format@statement__class_definition.py.snap b/crates/ruff_python_formatter/tests/snapshots/format@statement__class_definition.py.snap
+index 9258c1ca71d98..b4d8af39ec2e8 100644
+--- a/crates/ruff_python_formatter/tests/snapshots/format@statement__class_definition.py.snap
++++ b/crates/ruff_python_formatter/tests/snapshots/format@statement__class_definition.py.snap
+@@ -494,4 +494,45 @@ class QuerySet(AltersData):
+ ```
+ 
+ 
++## Preview changes
++```diff
++--- Stable
+++++ Preview
++@@ -25,8 +25,7 @@
++     pass
++ 
++ 
++-class Test((Aaaa)):
++-    ...
+++class Test((Aaaa)): ...
++ 
++ 
++ class Test(
++@@ -156,20 +155,17 @@
++ 
++ @dataclass
++ # Copied from transformers.models.clip.modeling_clip.CLIPOutput with CLIP->AltCLIP
++-class AltCLIPOutput(ModelOutput):
++-    ...
+++class AltCLIPOutput(ModelOutput): ...
++ 
++ 
++ @dataclass
++-class AltCLIPOutput:  # Copied from transformers.models.clip.modeling_clip.CLIPOutput with CLIP->AltCLIP
++-    ...
+++class AltCLIPOutput: ...  # Copied from transformers.models.clip.modeling_clip.CLIPOutput with CLIP->AltCLIP
++ 
++ 
++ @dataclass
++ class AltCLIPOutput(
++     # Copied from transformers.models.clip.modeling_clip.CLIPOutput with CLIP->AltCLIP
++-):
++-    ...
+++): ...
++ 
++ 
++ class TestTypeParams[
++```
++
++
+ 
+diff --git a/crates/ruff_python_formatter/tests/snapshots/format@statement__function.py.snap b/crates/ruff_python_formatter/tests/snapshots/format@statement__function.py.snap
+index 391948f2ed453..a5ef8fe28fab8 100644
+--- a/crates/ruff_python_formatter/tests/snapshots/format@statement__function.py.snap
++++ b/crates/ruff_python_formatter/tests/snapshots/format@statement__function.py.snap
+@@ -996,4 +996,167 @@ def default_arg_comments2(  #
+ ```
+ 
+ 
++## Preview changes
++```diff
++--- Stable
+++++ Preview
++@@ -2,8 +2,7 @@
++ def test(
++     # comment
++     # another
++-):
++-    ...
+++): ...
++ 
++ 
++ # Argument empty line spacing
++@@ -12,8 +11,7 @@
++     a,
++     # another
++     b,
++-):
++-    ...
+++): ...
++ 
++ 
++ ### Different function argument wrappings
++@@ -57,8 +55,7 @@
++     b,
++     # comment
++     *args,
++-):
++-    ...
+++): ...
++ 
++ 
++ def kwarg_with_leading_comments(
++@@ -66,8 +63,7 @@
++     b,
++     # comment
++     **kwargs,
++-):
++-    ...
+++): ...
++ 
++ 
++ def argument_with_long_default(
++@@ -75,8 +71,7 @@
++     b=ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
++     + [dddddddddddddddddddd, eeeeeeeeeeeeeeeeeeee, ffffffffffffffffffffffff],
++     h=[],
++-):
++-    ...
+++): ...
++ 
++ 
++ def argument_with_long_type_annotation(
++@@ -85,12 +80,10 @@
++     | yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
++     | zzzzzzzzzzzzzzzzzzz = [0, 1, 2, 3],
++     h=[],
++-):
++-    ...
+++): ...
++ 
++ 
++-def test():
++-    ...
+++def test(): ...
++ 
++ 
++ # Type parameter empty line spacing
++@@ -99,8 +92,7 @@
++     A,
++     # another
++     B,
++-]():
++-    ...
+++](): ...
++ 
++ 
++ # Type parameter comments
++@@ -159,8 +151,7 @@
++ 
++ 
++ # Comment
++-def with_leading_comment():
++-    ...
+++def with_leading_comment(): ...
++ 
++ 
++ # Comment that could be mistaken for a trailing comment of the function declaration when
++@@ -192,8 +183,7 @@
++ # Regression test for https://github.com/astral-sh/ruff/issues/5176#issuecomment-1598171989
++ def foo(
++     b=3 + 2,  # comment
++-):
++-    ...
+++): ...
++ 
++ 
++ # Comments on the slash or the star, both of which don't have a node
++@@ -454,8 +444,7 @@
++ def f(
++     # first
++     # second
++-):
++-    ...
+++): ...
++ 
++ 
++ def f(  # first
++@@ -475,8 +464,7 @@
++     # first
++     b,
++     # second
++-):
++-    ...
+++): ...
++ 
++ 
++ def f(  # first
++@@ -484,8 +472,7 @@
++     # second
++     b,
++     # third
++-):
++-    ...
+++): ...
++ 
++ 
++ def f(  # first
++@@ -494,8 +481,7 @@
++     # third
++     b,
++     # fourth
++-):
++-    ...
+++): ...
++ 
++ 
++ def f(  # first
++@@ -522,17 +508,14 @@
++     a,
++     # third
++     /,  # second
++-):
++-    ...
+++): ...
++ 
++ 
++ # Walrus operator in return type.
++-def this_is_unusual() -> (please := no):
++-    ...
+++def this_is_unusual() -> (please := no): ...
++ 
++ 
++-def this_is_unusual(x) -> (please := no):
++-    ...
+++def this_is_unusual(x) -> (please := no): ...
++ 
++ 
++ # Regression test for: https://github.com/astral-sh/ruff/issues/7465
++```
++
++
+ 
+diff --git a/crates/ruff_python_formatter/tests/snapshots/format@statement__return_annotation.py.snap b/crates/ruff_python_formatter/tests/snapshots/format@statement__return_annotation.py.snap
+index 2f8f6b710a718..1f331852019ec 100644
+--- a/crates/ruff_python_formatter/tests/snapshots/format@statement__return_annotation.py.snap
++++ b/crates/ruff_python_formatter/tests/snapshots/format@statement__return_annotation.py.snap
+@@ -544,4 +544,298 @@ def process_board_action(
+ ```
+ 
+ 
++## Preview changes
++```diff
++--- Stable
+++++ Preview
++@@ -7,8 +7,7 @@
++     start: int | None = None,
++     num: int | None = None,
++ ) -> (  # type: ignore[override]
++-):
++-    ...
+++): ...
++ 
++ 
++ def zrevrangebylex(
++@@ -20,8 +19,7 @@
++     num: int | None = None,
++ ) -> (  # type: ignore[override]
++     # comment
++-):
++-    ...
+++): ...
++ 
++ 
++ def zrevrangebylex(
++@@ -33,8 +31,7 @@
++     num: int | None = None,
++ ) -> (  # type: ignore[override]
++     1
++-):
++-    ...
+++): ...
++ 
++ 
++ def zrevrangebylex(
++@@ -47,8 +44,7 @@
++ ) -> (  # type: ignore[override]
++     1,
++     2,
++-):
++-    ...
+++): ...
++ 
++ 
++ def zrevrangebylex(
++@@ -60,14 +56,12 @@
++     num: int | None = None,
++ ) -> (  # type: ignore[override]
++     (1, 2)
++-):
++-    ...
+++): ...
++ 
++ 
++ def handleMatch(  # type: ignore[override] # https://github.com/python/mypy/issues/10197
++     self, m: Match[str], data: str
++-) -> Union[Tuple[None, None, None], Tuple[Element, int, int]]:
++-    ...
+++) -> Union[Tuple[None, None, None], Tuple[Element, int, int]]: ...
++ 
++ 
++ def double(
++@@ -95,50 +89,44 @@
++ # function arguments break here with a single argument; we do not.)
++ def f(
++     aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
++-) -> aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:
++-    ...
+++) -> aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: ...
++ 
++ 
++ def f(
++     aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, a
++-) -> aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:
++-    ...
+++) -> aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: ...
++ 
++ 
++ def f(
++     aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
++-) -> a:
++-    ...
+++) -> a: ...
++ 
++ 
++ def f(
++     a
++-) -> aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:
++-    ...
+++) -> (
+++    aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+++): ...
++ 
++ 
++ def f[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa]() -> (
++     aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
++-):
++-    ...
+++): ...
++ 
++ 
++ def f[
++     aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
++-]() -> a:
++-    ...
+++]() -> a: ...
++ 
++ 
++ def f[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa](
++     aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
++-) -> aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa:
++-    ...
+++) -> aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: ...
++ 
++ 
++ def f[aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa](
++     aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
++-) -> a:
++-    ...
+++) -> a: ...
++ 
++ 
++ # Breaking return type annotations. Black adds parentheses if the parameters are
++@@ -147,137 +135,126 @@
++     Set[
++         "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
++     ]
++-):
++-    ...
+++): ...
++ 
++ 
++ def xxxxxxxxxxxxxxxxxxxxxxxxxxxx() -> (
++     Set[
++         "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
++     ]
++-):
++-    ...
+++): ...
++ 
++ 
++ def xxxxxxxxxxxxxxxxxxxxxxxxxxxx() -> (
++     Set[
++         "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
++     ]
++-):
++-    ...
+++): ...
++ 
++ 
++ def xxxxxxxxxxxxxxxxxxxxxxxxxxxx() -> (
++     Set[
++         "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
++     ]
++-):
++-    ...
+++): ...
++ 
++ 
++ def xxxxxxxxxxxxxxxxxxxxxxxxxxxx(
++     x
++ ) -> Set[
++     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
++-]:
++-    ...
+++]: ...
++ 
++ 
++ def xxxxxxxxxxxxxxxxxxxxxxxxxxxx(
++     x
++ ) -> Set[
++     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
++-]:
++-    ...
+++]: ...
++ 
++ 
++ def xxxxxxxxxxxxxxxxxxxxxxxxxxxx(
++     *args
++ ) -> Set[
++     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
++-]:
++-    ...
+++]: ...
++ 
++ 
++ def xxxxxxxxxxxxxxxxxxxxxxxxxxxx(  # foo
++ ) -> Set[
++     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
++-]:
++-    ...
+++]: ...
++ 
++ 
++ def xxxxxxxxxxxxxxxxxxxxxxxxxxxx(
++     # bar
++ ) -> Set[
++     "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
++-]:
++-    ...
+++]: ...
++ 
++ 
++ def xxxxxxxxxxxxxxxxxxxxxxxxxxxx() -> (
++     xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
++-):
++-    ...
+++): ...
++ 
++ 
++ def xxxxxxxxxxxxxxxxxxxxxxxxxxxx() -> (
++     xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
++-):
++-    ...
+++): ...
++ 
++ 
++ def xxxxxxxxxxxxxxxxxxxxxxxxxxxx(
++     x
++-) -> xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx:
++-    ...
+++) -> xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx: ...
++ 
++ 
++ def xxxxxxxxxxxxxxxxxxxxxxxxxxxx(
++     x
++-) -> xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx:
++-    ...
+++) -> (
+++    xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+++): ...
++ 
++ 
++-def xxxxxxxxxxxxxxxxxxxxxxxxxxxx() -> X + Y + foooooooooooooooooooooooooooooooooooo():
++-    ...
+++def xxxxxxxxxxxxxxxxxxxxxxxxxxxx() -> (
+++    X + Y + foooooooooooooooooooooooooooooooooooo()
+++): ...
++ 
++ 
++-def xxxxxxxxxxxxxxxxxxxxxxxxxxxx(x) -> X + Y + foooooooooooooooooooooooooooooooooooo():
++-    ...
+++def xxxxxxxxxxxxxxxxxxxxxxxxxxxx(
+++    x
+++) -> X + Y + foooooooooooooooooooooooooooooooooooo(): ...
++ 
++ 
++ def xxxxxxxxxxxxxxxxxxxxxxxxxxxx() -> (
++     X and Y and foooooooooooooooooooooooooooooooooooo()
++-):
++-    ...
+++): ...
++ 
++ 
++ def xxxxxxxxxxxxxxxxxxxxxxxxxxxx(
++     x
++-) -> X and Y and foooooooooooooooooooooooooooooooooooo():
++-    ...
+++) -> X and Y and foooooooooooooooooooooooooooooooooooo(): ...
++ 
++ 
++-def xxxxxxxxxxxxxxxxxxxxxxxxxxxx() -> X | Y | foooooooooooooooooooooooooooooooooooo():
++-    ...
+++def xxxxxxxxxxxxxxxxxxxxxxxxxxxx() -> (
+++    X | Y | foooooooooooooooooooooooooooooooooooo()
+++): ...
++ 
++ 
++-def xxxxxxxxxxxxxxxxxxxxxxxxxxxx(x) -> X | Y | foooooooooooooooooooooooooooooooooooo():
++-    ...
+++def xxxxxxxxxxxxxxxxxxxxxxxxxxxx(
+++    x
+++) -> X | Y | foooooooooooooooooooooooooooooooooooo(): ...
++ 
++ 
++ def xxxxxxxxxxxxxxxxxxxxxxxxxxxx() -> (
++     X | Y | foooooooooooooooooooooooooooooooooooo()  # comment
++-):
++-    ...
+++): ...
++ 
++ 
++ def xxxxxxxxxxxxxxxxxxxxxxxxxxxx(
++     x
++ ) -> (
++     X | Y | foooooooooooooooooooooooooooooooooooo()  # comment
++-):
++-    ...
+++): ...
++ 
++ 
++ def double() -> (
++```
++
++
+ 
+diff --git a/crates/ruff_python_formatter/tests/snapshots/format@statement__top_level.py.snap b/crates/ruff_python_formatter/tests/snapshots/format@statement__top_level.py.snap
+index 735d40d806f28..7549ab861ed48 100644
+--- a/crates/ruff_python_formatter/tests/snapshots/format@statement__top_level.py.snap
++++ b/crates/ruff_python_formatter/tests/snapshots/format@statement__top_level.py.snap
+@@ -115,4 +115,57 @@ def quuz():
+ ```
+ 
+ 
++## Preview changes
++```diff
++--- Stable
+++++ Preview
++@@ -12,25 +12,20 @@
++     pass
++ 
++ 
++-class Del(expr_context):
++-    ...
+++class Del(expr_context): ...
++ 
++ 
++-class Load(expr_context):
++-    ...
+++class Load(expr_context): ...
++ 
++ 
++ # Some comment.
++-class Other(expr_context):
++-    ...
+++class Other(expr_context): ...
++ 
++ 
++-class Store(expr_context):
++-    ...
+++class Store(expr_context): ...
++ 
++ 
++-class Foo(Bar):
++-    ...
+++class Foo(Bar): ...
++ 
++ 
++ class Baz(Qux):
++@@ -49,12 +44,10 @@
++         pass
++ 
++ 
++-def bar():
++-    ...
+++def bar(): ...
++ 
++ 
++-def baz():
++-    ...
+++def baz(): ...
++ 
++ 
++ def quux():
++```
++
++
+ 

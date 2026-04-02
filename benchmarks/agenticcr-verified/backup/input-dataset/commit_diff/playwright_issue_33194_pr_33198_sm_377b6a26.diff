@@ -1,0 +1,82 @@
+diff --git a/packages/playwright-core/src/server/injected/highlight.ts b/packages/playwright-core/src/server/injected/highlight.ts
+index c89df54a6fec2..c06e58f5291c2 100644
+--- a/packages/playwright-core/src/server/injected/highlight.ts
++++ b/packages/playwright-core/src/server/injected/highlight.ts
+@@ -287,7 +287,7 @@ export class Highlight {
+     return this._injectedScript.document.createElement('x-pw-highlight');
+   }
+ 
+-  appendChild(element: HTMLElement) {
++  appendChild(element: Element) {
+     this._glassPaneShadow.appendChild(element);
+   }
+ }
+diff --git a/packages/playwright-core/src/server/injected/recorder/recorder.ts b/packages/playwright-core/src/server/injected/recorder/recorder.ts
+index c82f55c984487..7c38c6386e88d 100644
+--- a/packages/playwright-core/src/server/injected/recorder/recorder.ts
++++ b/packages/playwright-core/src/server/injected/recorder/recorder.ts
+@@ -825,7 +825,6 @@ class Overlay {
+     this._recorder = recorder;
+     const document = this._recorder.document;
+     this._overlayElement = document.createElement('x-pw-overlay');
+-    this._overlayElement.appendChild(createSvgElement(this._recorder.document, clipPaths));
+     const toolsListElement = document.createElement('x-pw-tools-list');
+     this._overlayElement.appendChild(toolsListElement);
+ 
+@@ -1094,6 +1093,7 @@ export class Recorder {
+     recreationInterval = this.injectedScript.builtinSetTimeout(recreate, 500);
+     this._listeners.push(() => clearInterval(recreationInterval));
+ 
++    this.highlight.appendChild(createSvgElement(this.document, clipPaths));
+     this.overlay?.install();
+     this.document.adoptedStyleSheets.push(this._stylesheet);
+   }
+diff --git a/tests/library/inspector/cli-codegen-3.spec.ts b/tests/library/inspector/cli-codegen-3.spec.ts
+index ddc44914b9dc1..a57e7d5405429 100644
+--- a/tests/library/inspector/cli-codegen-3.spec.ts
++++ b/tests/library/inspector/cli-codegen-3.spec.ts
+@@ -810,6 +810,19 @@ await page.GetByLabel("Coun\\"try").ClickAsync();`);
+     await expect(recorder.page.getByText('Post-Hydration Content')).toBeVisible();
+     await expect(recorder.page.locator('x-pw-glass')).toBeVisible();
+   });
++
++  test('should display inline svg icons on text assertion dialog inside iframe', async ({ openRecorder, server }) => {
++    const { page, recorder } = await openRecorder();
++    await recorder.page.click('x-pw-tool-item.text');
++
++    const { frameHello1 } = await createFrameHierarchy(page, recorder, server);
++    await recorder.trustedMove(frameHello1.locator('div'));
++    await recorder.trustedClick();
++
++    const glassPane = frameHello1.locator('x-pw-glass');
++    await expect(glassPane.locator('> x-pw-dialog .accept > x-div').evaluate(elem => getComputedStyle(elem).clipPath)).resolves.toBe('url("#icon-check")');
++    await expect(glassPane.locator('> svg > defs > clipPath#icon-check')).toBeAttached();
++  });
+ });
+ 
+ async function createFrameHierarchy(page: Page, recorder: Recorder, server: TestServer) {
+diff --git a/tests/library/inspector/inspectorTest.ts b/tests/library/inspector/inspectorTest.ts
+index d77ad866977a8..a90f73fcdfb46 100644
+--- a/tests/library/inspector/inspectorTest.ts
++++ b/tests/library/inspector/inspectorTest.ts
+@@ -15,7 +15,7 @@
+  */
+ 
+ import { contextTest } from '../../config/browserTest';
+-import type { Page } from 'playwright-core';
++import type { Locator, Page } from 'playwright-core';
+ import { step } from '../../config/baseTest';
+ import * as path from 'path';
+ import type { Source } from '../../../packages/recorder/src/recorderTypes';
+@@ -209,8 +209,9 @@ export class Recorder {
+     });
+   }
+ 
+-  async trustedMove(selector: string) {
+-    const box = await this.page.locator(selector).first().boundingBox();
++  async trustedMove(selector: string | Locator) {
++    const locator = typeof selector === 'string' ? this.page.locator(selector).first() : selector;
++    const box = await locator.boundingBox();
+     await this.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+   }
+ 

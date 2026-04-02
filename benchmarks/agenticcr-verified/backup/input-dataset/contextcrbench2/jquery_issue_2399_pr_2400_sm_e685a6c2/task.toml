@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "jquery_issue_2399_pr_2400_sm_e685a6c2"
+contextcrbench2_full_name = "jquery/jquery"
+contextcrbench2_lang = "javascript"
+contextcrbench2_issue_number = "2399"
+contextcrbench2_issue_title = "The build process requires no space between closing `}` and `)`"
+contextcrbench2_pr_number = "2400"
+contextcrbench2_pr_title = "Build: space between curly and paren is optional"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "e685a6c2cd4a36738d2ff4feb27e1278344e4ee6"
+contextcrbench2_commit_id = "e685a6c2cd4a36738d2ff4feb27e1278344e4ee6"
+contextcrbench2_created_at = "2015-06-16T16:18:18Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

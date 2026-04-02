@@ -1,0 +1,8 @@
+{
+    "task_id": "bazel_issue_19330_pr_19141_sm_a32cc803",
+    "repo": "bazel",
+    "issue_number": 19330,
+    "pr_number": 19141,
+    "checked_commit_id": "a32cc803af863bcd5a004a32f9d4ec68cdd234c3",
+    "entry_count": 1
+}

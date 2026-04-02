@@ -1,0 +1,5253 @@
+diff --git a/OpenRA.Mods.Cnc/Activities/LayMines.cs b/OpenRA.Mods.Cnc/Activities/LayMines.cs
+index f45632f91c8b..8749fe0e86a7 100644
+--- a/OpenRA.Mods.Cnc/Activities/LayMines.cs
++++ b/OpenRA.Mods.Cnc/Activities/LayMines.cs
+@@ -26,20 +26,16 @@ public class LayMines : Activity
+ 		readonly Minelayer minelayer;
+ 		readonly AmmoPool[] ammoPools;
+ 		readonly IMove movement;
+-		readonly IMoveInfo moveInfo;
+-		readonly RearmableInfo rearmableInfo;
++		readonly Rearmable rearmable;
+ 
+ 		List<CPos> minefield;
+-		bool returnToBase;
+-		Actor rearmTarget;
+ 
+ 		public LayMines(Actor self, List<CPos> minefield = null)
+ 		{
+ 			minelayer = self.Trait<Minelayer>();
+ 			ammoPools = self.TraitsImplementing<AmmoPool>().ToArray();
+ 			movement = self.Trait<IMove>();
+-			moveInfo = self.Info.TraitInfo<IMoveInfo>();
+-			rearmableInfo = self.Info.TraitInfoOrDefault<RearmableInfo>();
++			rearmable = self.TraitOrDefault<Rearmable>();
+ 			this.minefield = minefield;
+ 		}
+ 
+@@ -61,27 +57,14 @@ protected override void OnFirstRun(Actor self)
+ 
+ 		public override bool Tick(Actor self)
+ 		{
+-			returnToBase = false;
+-
+ 			if (IsCanceling)
+ 				return true;
+ 
+ 			if ((minefield == null || minefield.Contains(self.Location)) && CanLayMine(self, self.Location))
+ 			{
+-				if (rearmableInfo != null && ammoPools.Any(p => p.Info.Name == minelayer.Info.AmmoPoolName && !p.HasAmmo))
++				if (rearmable != null && ammoPools.Any(p => p.Info.Name == minelayer.Info.AmmoPoolName && !p.HasAmmo))
+ 				{
+-					// Rearm (and possibly repair) at rearm building, then back out here to refill the minefield some more
+-					rearmTarget = self.World.Actors.Where(a => self.Owner.RelationshipWith(a.Owner) == PlayerRelationship.Ally && rearmableInfo.RearmActors.Contains(a.Info.Name))
+-						.ClosestTo(self);
+-
+-					if (rearmTarget == null)
+-						return true;
+-
+-					// Add a CloseEnough range of 512 to the Rearm/Repair activities in order to ensure that we're at the host actor
+-					QueueChild(new MoveAdjacentTo(self, Target.FromActor(rearmTarget)));
+-					QueueChild(movement.MoveTo(self.World.Map.CellContaining(rearmTarget.CenterPosition), ignoreActor: rearmTarget));
+-					QueueChild(new Resupply(self, rearmTarget));
+-					returnToBase = true;
++					QueueChild(new DockActivity(self.Trait<DockManager>(), rearmable, null));
+ 					return false;
+ 				}
+ 
+@@ -119,9 +102,6 @@ public void CleanMineField(Actor self)
+ 
+ 		public override IEnumerable<TargetLineNode> TargetLineNodes(Actor self)
+ 		{
+-			if (returnToBase)
+-				yield return new TargetLineNode(Target.FromActor(rearmTarget), moveInfo.GetTargetLineColor());
+-
+ 			if (minefield == null || minefield.Count == 0)
+ 				yield break;
+ 
+diff --git a/OpenRA.Mods.Cnc/Activities/VoxelHarvesterDockSequence.cs b/OpenRA.Mods.Cnc/Activities/VoxelHarvesterDockSequence.cs
+deleted file mode 100644
+index a310dbaa1583..000000000000
+--- a/OpenRA.Mods.Cnc/Activities/VoxelHarvesterDockSequence.cs
++++ /dev/null
+@@ -1,88 +0,0 @@
+-#region Copyright & License Information
+-/*
+- * Copyright 2007-2022 The OpenRA Developers (see AUTHORS)
+- * This file is part of OpenRA, which is free software. It is made
+- * available to you under the terms of the GNU General Public License
+- * as published by the Free Software Foundation, either version 3 of
+- * the License, or (at your option) any later version. For more
+- * information, see COPYING.
+- */
+-#endregion
+-
+-using OpenRA.Mods.Cnc.Traits.Render;
+-using OpenRA.Mods.Common.Activities;
+-using OpenRA.Mods.Common.Traits;
+-
+-namespace OpenRA.Mods.Cnc.Activities
+-{
+-	public class VoxelHarvesterDockSequence : HarvesterDockSequence
+-	{
+-		readonly WithVoxelUnloadBody body;
+-		readonly WithDockingOverlay spriteOverlay;
+-
+-		public VoxelHarvesterDockSequence(Actor self, Actor refinery, WAngle dockAngle, bool isDragRequired, in WVec dragOffset, int dragLength)
+-			: base(self, refinery, dockAngle, isDragRequired, dragOffset, dragLength)
+-		{
+-			body = self.Trait<WithVoxelUnloadBody>();
+-			spriteOverlay = refinery.TraitOrDefault<WithDockingOverlay>();
+-		}
+-
+-		public override void OnStateDock(Actor self)
+-		{
+-			body.Docked = true;
+-			foreach (var trait in self.TraitsImplementing<INotifyDockable>())
+-				trait.Docked();
+-			foreach (var nd in Refinery.TraitsImplementing<INotifyDock>())
+-				nd.Docked();
+-
+-			if (spriteOverlay != null && !spriteOverlay.Visible)
+-			{
+-				spriteOverlay.Visible = true;
+-				spriteOverlay.WithOffset.Animation.PlayThen(spriteOverlay.Info.Sequence, () =>
+-				{
+-					dockingState = DockingState.Loop;
+-					spriteOverlay.Visible = false;
+-				});
+-			}
+-			else
+-				dockingState = DockingState.Loop;
+-		}
+-
+-		public override void OnStateUndock(Actor self)
+-		{
+-			// If body.Docked wasn't set, we didn't actually dock and have to skip the undock overlay
+-			if (!body.Docked)
+-				dockingState = DockingState.Complete;
+-			else if (Refinery.IsInWorld && !Refinery.IsDead && spriteOverlay != null && !spriteOverlay.Visible)
+-			{
+-				dockingState = DockingState.Wait;
+-				spriteOverlay.Visible = true;
+-				spriteOverlay.WithOffset.Animation.PlayBackwardsThen(spriteOverlay.Info.Sequence, () =>
+-				{
+-					dockingState = DockingState.Complete;
+-					body.Docked = false;
+-					spriteOverlay.Visible = false;
+-
+-					foreach (var trait in self.TraitsImplementing<INotifyDockable>())
+-						trait.Undocked();
+-
+-					if (Refinery.IsInWorld && !Refinery.IsDead)
+-						foreach (var nd in Refinery.TraitsImplementing<INotifyDock>())
+-							nd.Undocked();
+-				});
+-			}
+-			else
+-			{
+-				dockingState = DockingState.Complete;
+-				body.Docked = false;
+-
+-				foreach (var trait in self.TraitsImplementing<INotifyDockable>())
+-					trait.Undocked();
+-
+-				if (Refinery.IsInWorld && !Refinery.IsDead)
+-					foreach (var nd in Refinery.TraitsImplementing<INotifyDock>())
+-						nd.Undocked();
+-			}
+-		}
+-	}
+-}
+diff --git a/OpenRA.Mods.Cnc/Traits/Buildings/TiberianSunRefinery.cs b/OpenRA.Mods.Cnc/Traits/Buildings/TiberianSunRefinery.cs
+deleted file mode 100644
+index c6ebb6aaf77a..000000000000
+--- a/OpenRA.Mods.Cnc/Traits/Buildings/TiberianSunRefinery.cs
++++ /dev/null
+@@ -1,33 +0,0 @@
+-#region Copyright & License Information
+-/*
+- * Copyright 2007-2022 The OpenRA Developers (see AUTHORS)
+- * This file is part of OpenRA, which is free software. It is made
+- * available to you under the terms of the GNU General Public License
+- * as published by the Free Software Foundation, either version 3 of
+- * the License, or (at your option) any later version. For more
+- * information, see COPYING.
+- */
+-#endregion
+-
+-using OpenRA.Activities;
+-using OpenRA.Mods.Cnc.Activities;
+-using OpenRA.Mods.Common.Traits;
+-
+-namespace OpenRA.Mods.Cnc.Traits
+-{
+-	public class TiberianSunRefineryInfo : RefineryInfo
+-	{
+-		public override object Create(ActorInitializer init) { return new TiberianSunRefinery(init.Self, this); }
+-	}
+-
+-	public class TiberianSunRefinery : Refinery
+-	{
+-		public TiberianSunRefinery(Actor self, RefineryInfo info)
+-			: base(self, info) { }
+-
+-		public override Activity DockSequence(Actor harv, Actor self)
+-		{
+-			return new VoxelHarvesterDockSequence(harv, self, DeliveryAngle, IsDragRequired, DragOffset, DragLength);
+-		}
+-	}
+-}
+diff --git a/OpenRA.Mods.Common/AIUtils.cs b/OpenRA.Mods.Common/AIUtils.cs
+index 96f16c2611e0..0bc0fc9b2e32 100644
+--- a/OpenRA.Mods.Common/AIUtils.cs
++++ b/OpenRA.Mods.Common/AIUtils.cs
+@@ -12,6 +12,7 @@
+ using System.Collections.Generic;
+ using System.Linq;
+ using OpenRA.Mods.Common.Traits;
++using OpenRA.Primitives;
+ using OpenRA.Traits;
+ 
+ namespace OpenRA.Mods.Common
+@@ -51,6 +52,11 @@ public static int CountActorsWithTrait<T>(string actorName, Player owner)
+ 			return GetActorsWithTrait<T>(owner.World).Count(a => a.Owner == owner && a.Info.Name == actorName);
+ 		}
+ 
++		public static int CountActorsWithTrait<T>(BitSet<DockType> dockType, Player owner)
++		{
++			return GetActorsWithTrait<T>(owner.World).Count(a => a.Owner == owner && (a.TraitOrDefault<IDockable>()?.DockingPossible(dockType) ?? false));
++		}
++
+ 		public static int CountActorByCommonName(HashSet<string> commonNames, Player owner)
+ 		{
+ 			return owner.World.Actors.Count(a => !a.IsDead && a.Owner == owner &&
+diff --git a/OpenRA.Mods.Common/Activities/Air/FlyAttack.cs b/OpenRA.Mods.Common/Activities/Air/FlyAttack.cs
+index eec84caed666..d5a18b7fda87 100644
+--- a/OpenRA.Mods.Common/Activities/Air/FlyAttack.cs
++++ b/OpenRA.Mods.Common/Activities/Air/FlyAttack.cs
+@@ -131,7 +131,7 @@ public override bool Tick(Actor self)
+ 				if (attackAircraft.Info.AbortOnResupply)
+ 					NextActivity?.Cancel(self);
+ 
+-				QueueChild(new ReturnToBase(self));
++				QueueChild(new DockActivity(rearmable.DockManager, rearmable));
+ 				returnToBase = true;
+ 				return attackAircraft.Info.AbortOnResupply;
+ 			}
+diff --git a/OpenRA.Mods.Common/Activities/Air/ReturnToBase.cs b/OpenRA.Mods.Common/Activities/Air/ReturnToBase.cs
+deleted file mode 100644
+index f3c85f125b46..000000000000
+--- a/OpenRA.Mods.Common/Activities/Air/ReturnToBase.cs
++++ /dev/null
+@@ -1,140 +0,0 @@
+-#region Copyright & License Information
+-/*
+- * Copyright 2007-2022 The OpenRA Developers (see AUTHORS)
+- * This file is part of OpenRA, which is free software. It is made
+- * available to you under the terms of the GNU General Public License
+- * as published by the Free Software Foundation, either version 3 of
+- * the License, or (at your option) any later version. For more
+- * information, see COPYING.
+- */
+-#endregion
+-
+-using System.Collections.Generic;
+-using System.Linq;
+-using OpenRA.Activities;
+-using OpenRA.Mods.Common.Traits;
+-using OpenRA.Primitives;
+-using OpenRA.Traits;
+-
+-namespace OpenRA.Mods.Common.Activities
+-{
+-	public class ReturnToBase : Activity
+-	{
+-		readonly Aircraft aircraft;
+-		readonly RepairableInfo repairableInfo;
+-		readonly Rearmable rearmable;
+-		readonly bool alwaysLand;
+-		Actor dest;
+-		WAngle? facing;
+-
+-		public ReturnToBase(Actor self, Actor dest = null, bool alwaysLand = false)
+-		{
+-			this.dest = dest;
+-			this.alwaysLand = alwaysLand;
+-			aircraft = self.Trait<Aircraft>();
+-			repairableInfo = self.Info.TraitInfoOrDefault<RepairableInfo>();
+-			rearmable = self.TraitOrDefault<Rearmable>();
+-		}
+-
+-		public static Actor ChooseResupplier(Actor self, bool unreservedOnly)
+-		{
+-			var rearmInfo = self.Info.TraitInfoOrDefault<RearmableInfo>();
+-			if (rearmInfo == null)
+-				return null;
+-
+-			return self.World.ActorsHavingTrait<Reservable>()
+-				.Where(a => !a.IsDead
+-					&& a.Owner == self.Owner
+-					&& rearmInfo.RearmActors.Contains(a.Info.Name)
+-					&& (!unreservedOnly || Reservable.IsAvailableFor(a, self)))
+-				.ClosestTo(self);
+-		}
+-
+-		bool ShouldLandAtBuilding(Actor self, Actor dest)
+-		{
+-			if (alwaysLand)
+-				return true;
+-
+-			if (repairableInfo != null && repairableInfo.RepairActors.Contains(dest.Info.Name) && self.GetDamageState() != DamageState.Undamaged)
+-				return true;
+-
+-			return rearmable != null && rearmable.Info.RearmActors.Contains(dest.Info.Name)
+-					&& rearmable.RearmableAmmoPools.Any(p => !p.HasFullAmmo);
+-		}
+-
+-		public override bool Tick(Actor self)
+-		{
+-			// Refuse to take off if it would land immediately again.
+-			// Special case: Don't kill other deploy hotkey activities.
+-			if (aircraft.ForceLanding)
+-				return true;
+-
+-			if (IsCanceling || self.IsDead)
+-				return true;
+-
+-			if (dest == null || dest.IsDead || !Reservable.IsAvailableFor(dest, self))
+-				dest = ChooseResupplier(self, true);
+-
+-			if (dest == null)
+-			{
+-				var nearestResupplier = ChooseResupplier(self, false);
+-
+-				if (nearestResupplier != null)
+-				{
+-					if (aircraft.Info.CanHover)
+-					{
+-						var distanceFromResupplier = (nearestResupplier.CenterPosition - self.CenterPosition).HorizontalLength;
+-						var distanceLength = aircraft.Info.WaitDistanceFromResupplyBase.Length;
+-
+-						// If no pad is available, move near one and wait
+-						if (distanceFromResupplier > distanceLength)
+-						{
+-							var randomPosition = WVec.FromPDF(self.World.SharedRandom, 2) * distanceLength / 1024;
+-							var target = Target.FromPos(nearestResupplier.CenterPosition + randomPosition);
+-
+-							QueueChild(new Fly(self, target, WDist.Zero, aircraft.Info.WaitDistanceFromResupplyBase, targetLineColor: Color.Green));
+-						}
+-
+-						return false;
+-					}
+-
+-					QueueChild(new Fly(self, Target.FromActor(nearestResupplier), WDist.Zero, aircraft.Info.WaitDistanceFromResupplyBase, targetLineColor: Color.Green));
+-					QueueChild(new FlyIdle(self, aircraft.Info.NumberOfTicksToVerifyAvailableAirport));
+-					return false;
+-				}
+-
+-				// Prevent an infinite loop in case we'd return to the activity that called ReturnToBase in the first place. Go idle instead.
+-				self.CancelActivity();
+-				return true;
+-			}
+-
+-			if (ShouldLandAtBuilding(self, dest))
+-			{
+-				var exit = dest.NearestExitOrDefault(self.CenterPosition);
+-				var offset = WVec.Zero;
+-				if (exit != null)
+-				{
+-					offset = exit.Info.SpawnOffset;
+-					facing = exit.Info.Facing;
+-				}
+-
+-				aircraft.MakeReservation(dest);
+-				QueueChild(new Land(self, Target.FromActor(dest), offset, facing, Color.Green));
+-				QueueChild(new Resupply(self, dest, alwaysLand));
+-				return true;
+-			}
+-
+-			QueueChild(new Fly(self, Target.FromActor(dest), targetLineColor: Color.Green));
+-			return true;
+-		}
+-
+-		public override IEnumerable<TargetLineNode> TargetLineNodes(Actor self)
+-		{
+-			if (ChildActivity == null)
+-				yield return new TargetLineNode(Target.FromActor(dest), aircraft.Info.TargetLineColor);
+-			else
+-				foreach (var n in ChildActivity.TargetLineNodes(self))
+-					yield return n;
+-		}
+-	}
+-}
+diff --git a/OpenRA.Mods.Common/Activities/DeliverResources.cs b/OpenRA.Mods.Common/Activities/DeliverResources.cs
+deleted file mode 100644
+index ed39c57e9e2a..000000000000
+--- a/OpenRA.Mods.Common/Activities/DeliverResources.cs
++++ /dev/null
+@@ -1,95 +0,0 @@
+-#region Copyright & License Information
+-/*
+- * Copyright 2007-2022 The OpenRA Developers (see AUTHORS)
+- * This file is part of OpenRA, which is free software. It is made
+- * available to you under the terms of the GNU General Public License
+- * as published by the Free Software Foundation, either version 3 of
+- * the License, or (at your option) any later version. For more
+- * information, see COPYING.
+- */
+-#endregion
+-
+-using System.Collections.Generic;
+-using System.Linq;
+-using OpenRA.Activities;
+-using OpenRA.Mods.Common.Traits;
+-using OpenRA.Traits;
+-
+-namespace OpenRA.Mods.Common.Activities
+-{
+-	public class DeliverResources : Activity
+-	{
+-		readonly IMove movement;
+-		readonly Harvester harv;
+-		readonly Actor targetActor;
+-		readonly INotifyHarvesterAction[] notifyHarvesterActions;
+-
+-		Actor proc;
+-
+-		public DeliverResources(Actor self, Actor targetActor = null)
+-		{
+-			movement = self.Trait<IMove>();
+-			harv = self.Trait<Harvester>();
+-			this.targetActor = targetActor;
+-			notifyHarvesterActions = self.TraitsImplementing<INotifyHarvesterAction>().ToArray();
+-		}
+-
+-		protected override void OnFirstRun(Actor self)
+-		{
+-			if (targetActor != null && targetActor.IsInWorld)
+-				harv.LinkProc(targetActor);
+-		}
+-
+-		public override bool Tick(Actor self)
+-		{
+-			if (harv.IsTraitDisabled)
+-				Cancel(self, true);
+-
+-			if (IsCanceling)
+-				return true;
+-
+-			// Find the nearest best refinery if not explicitly ordered to a specific refinery:
+-			if (harv.LinkedProc == null || !harv.LinkedProc.IsInWorld)
+-				harv.ChooseNewProc(self, null);
+-
+-			// No refineries exist; check again after delay defined in Harvester.
+-			if (harv.LinkedProc == null)
+-			{
+-				QueueChild(new Wait(harv.Info.SearchForDeliveryBuildingDelay));
+-				return false;
+-			}
+-
+-			proc = harv.LinkedProc;
+-			var iao = proc.Trait<IAcceptResources>();
+-
+-			if (self.Location != proc.Location + iao.DeliveryOffset)
+-			{
+-				foreach (var n in notifyHarvesterActions)
+-					n.MovingToRefinery(self, proc);
+-
+-				QueueChild(movement.MoveTo(proc.Location + iao.DeliveryOffset, 0));
+-				return false;
+-			}
+-
+-			QueueChild(new Wait(10));
+-			iao.OnDock(self, this);
+-			return true;
+-		}
+-
+-		public override void Cancel(Actor self, bool keepQueue = false)
+-		{
+-			foreach (var n in notifyHarvesterActions)
+-				n.MovementCancelled(self);
+-
+-			base.Cancel(self, keepQueue);
+-		}
+-
+-		public override IEnumerable<TargetLineNode> TargetLineNodes(Actor self)
+-		{
+-			if (proc != null)
+-				yield return new TargetLineNode(Target.FromActor(proc), harv.Info.DeliverLineColor);
+-			else
+-				yield return new TargetLineNode(Target.FromActor(harv.LinkedProc), harv.Info.DeliverLineColor);
+-		}
+-	}
+-}
+diff --git a/OpenRA.Mods.Common/Activities/DockActivity.cs b/OpenRA.Mods.Common/Activities/DockActivity.cs
+new file mode 100644
+index 000000000000..a4d1dc313b8d
+--- /dev/null
++++ b/OpenRA.Mods.Common/Activities/DockActivity.cs
+@@ -0,0 +1,161 @@
++#region Copyright & License Information
++/*
++ * Copyright 2007-2022 The OpenRA Developers (see AUTHORS)
++ * This file is part of OpenRA, which is free software. It is made
++ * available to you under the terms of the GNU General Public License
++ * as published by the Free Software Foundation, either version 3 of
++ * the License, or (at your option) any later version. For more
++ * information, see COPYING.
++ */
++#endregion
++
++using System;
++using System.Collections.Generic;
++using System.Linq;
++using OpenRA.Activities;
++using OpenRA.Mods.Common.Traits;
++using OpenRA.Mods.Common.Traits.Render;
++using OpenRA.Primitives;
++using OpenRA.Traits;
++
++namespace OpenRA.Mods.Common.Activities
++{
++	public class DockActivity : Activity
++	{
++		readonly IMove movement;
++		readonly DockManager dockManager;
++		readonly Actor self;
++		readonly Aircraft aircraft;
++		readonly INotifyDockableAction[] notifyDockActions;
++		readonly ICallForTransport[] transportCallers;
++		readonly BitSet<DockType> desiredTypes;
++		Dock dock;
++
++		public DockActivity(DockManager dockManager, IDockable desired = null, Dock dock = null)
++			: this(dockManager, desired?.MyDockType ?? default, dock) { }
++
++		public DockActivity(DockManager dockManager, BitSet<DockType> desired, Dock dock = null)
++		{
++			this.dockManager = dockManager;
++			this.dock = dock;
++			desiredTypes = desired;
++			self = dockManager.Self;
++			aircraft = self.TraitOrDefault<Aircraft>();
++			movement = dockManager.Self.Trait<IMove>();
++			notifyDockActions = self.TraitsImplementing<INotifyDockableAction>().ToArray();
++			transportCallers = self.TraitsImplementing<ICallForTransport>().ToArray();
++			Console.WriteLine("DockActivity called " + self.Info.Name + ":" + self.ActorID);
++		}
++
++		protected override void OnFirstRun(Actor self)
++		{
++			if (dock != null && dock.IsAliveAndInWorld)
++				dockManager.LinkDock(dock);
++		}
++
++		public override bool Tick(Actor self)
++		{
++			// This ensures transports are also cancelled when the host becomes invalid
++			if (!dockManager.IsAliveAndInWorld)
++				Cancel(self, true);
++
++			if (IsCanceling)
++				return true;
++
++			// Find the nearest best dock if not explicitly ordered to a specific dock
++			if (dock == null || dockManager.LinkedDock == null)
++				dock = dockManager.ChooseNewDock(null, desiredTypes);
++
++			// No docks exist; check again after delay defined in dockable.
++			if (dock == null || dockManager.LinkedDock == null)
++			{
++				var nearestDock = dockManager.ChooseNewDock(null, desiredTypes, true);
++				if (nearestDock != null)
++				{
++					var nearestDelta = (nearestDock.Position - self.CenterPosition).LengthSquared;
++					var dist = nearestDock.Info.WaitDistanceFromResupplyBase.Length;
++
++					// If no dock is available, move near one and wait
++					if (nearestDelta > dist)
++					{
++						var randomPosition = WVec.FromPDF(self.World.SharedRandom, 2) * dist / 1024;
++						var target = Target.FromPos(nearestDock.Position + randomPosition);
++
++						QueueChild(movement.MoveTo(nearestDock.Location, nearestDock.Info.CloseEnough < WDist.Zero ? 0 : nearestDock.Info.CloseEnough.Length, targetLineColor: dockManager.DockLineColor));
++					}
++					else
++						QueueChild(new Wait(dockManager.Info.SearchForDockDelay));
++				}
++				else
++					QueueChild(new Wait(dockManager.Info.SearchForDockDelay));
++
++				return false;
++			}
++
++			bool isCloseEnough;
++
++			// var delta = (dock.Position + (aircraft == null ? WVec.Zero : dock.Info.AircraftOffset) - self.CenterPosition).LengthSquared;
++			var delta = (dock.Position - self.CenterPosition).LengthSquared;
++
++			// Negative means there's no distance limit.
++			if (dock.Info.CloseEnough < WDist.Zero)
++				isCloseEnough = true;
++			else
++				isCloseEnough = self.Location == dock.Location;
++				// isCloseEnough = delta <= dock.Info.CloseEnough.LengthSquared;
++
++			if (!isCloseEnough)
++			{
++				foreach (var n in notifyDockActions)
++					n.MovingToDock(dockManager, dock);
++
++				// if (aircraft != null)
++				// {
++				// 	// QueueChild(movement.MoveWithinRange(Target.FromCell(self.World, dock.Location), WDist.Zero, targetLineColor: dockManager.DockLineColor));
++				// 	QueueChild(new Land(self, Target.FromCell(self.World, dock.Location), dock.Info.AircraftOffset, dock.Info.Facing, dockManager.DockLineColor));
++				// }
++				// else
++				QueueChild(movement.MoveTo(dock.Location, dock.Info.CloseEnough <= WDist.Zero ? 0 : dock.Info.CloseEnough.Length, targetLineColor: dockManager.DockLineColor));
++				transportCallers.FirstOrDefault(t => t.MinimumDistance.LengthSquared < delta)?.RequestTransport(self, dock.Location);
++
++				return false;
++			}
++
++			if (aircraft != null)
++				QueueChild(new Land(self, Target.FromActor(dock.Self), dock.Info.Facing, dockManager.DockLineColor));
++
++			QueueChild(new CallFunc(() => dock.DockedUnit = dockManager, false));
++			if (self.TraitOrDefault<WithVoxelUnloadBody>() == null)
++				QueueChild(new SpriteDockSequence(dockManager, dock));
++			else
++				QueueChild(new VoxelDockSequence(dockManager, dock));
++			QueueChild(new CallFunc(() => dock.DockedUnit = null, false));
++			return true;
++		}
++
++		public override void Cancel(Actor self, bool keepQueue = false)
++		{
++			foreach (var n in notifyDockActions)
++				n.MovementCancelled(dockManager);
++
++			// HACK: force move activities to ignore the transit-only cells when cancelling
++			// The idle handler will take over and move them into a safe cell
++			if (ChildActivity != null)
++				foreach (var c in ChildActivity.ActivitiesImplementing<Move>())
++					c.Cancel(self, false, true);
++
++			foreach (var t in transportCallers)
++				t.MovementCancelled(self);
++
++			base.Cancel(self, keepQueue);
++		}
++
++		public override IEnumerable<TargetLineNode> TargetLineNodes(Actor self)
++		{
++			if (dock != null)
++				yield return new TargetLineNode(Target.FromActor(dock.Self), dockManager.DockLineColor);
++			else
++				yield return new TargetLineNode(Target.FromActor(dockManager.LinkedDock?.Self), dockManager.DockLineColor);
++		}
++	}
++}
+diff --git a/OpenRA.Mods.Common/Activities/DockSequence.cs b/OpenRA.Mods.Common/Activities/DockSequence.cs
+new file mode 100644
+index 000000000000..f7b6337082c5
+--- /dev/null
++++ b/OpenRA.Mods.Common/Activities/DockSequence.cs
+@@ -0,0 +1,220 @@
++#region Copyright & License Information
++/*
++ * Copyright 2007-2022 The OpenRA Developers (see AUTHORS)
++ * This file is part of OpenRA, which is free software. It is made
++ * available to you under the terms of the GNU General Public License
++ * as published by the Free Software Foundation, either version 3 of
++ * the License, or (at your option) any later version. For more
++ * information, see COPYING.
++ */
++#endregion
++
++using System;
++using System.Collections.Generic;
++using System.Linq;
++using OpenRA.Activities;
++using OpenRA.Mods.Common.Traits;
++using OpenRA.Primitives;
++using OpenRA.Traits;
++
++namespace OpenRA.Mods.Common.Activities
++{
++	public abstract class DockSequence : Activity
++	{
++		protected enum DockingState { Wait, Turn, Drag, Dock, Loop, Undock, Complete }
++
++		protected readonly Dock Dock;
++		protected readonly DockManager DockManager;
++		protected readonly Actor Self;
++		protected readonly WAngle? DockFascing;
++		protected readonly bool IsDragRequired;
++		protected readonly WVec DragOffset;
++		protected readonly int DragLength;
++		protected readonly WPos StartDrag;
++		protected readonly WPos EndDrag;
++
++		readonly IMove move;
++		readonly IMoveInfo moveInfo;
++
++		protected DockingState dockingState;
++		readonly bool stayOnResupplier;
++
++		protected IEnumerable<IDockable> dockables;
++		protected INotifyDock[] notifyDocks;
++		protected INotifyDockable[] notifyDockables;
++
++		bool successfulDock = false;
++
++		public DockSequence(DockManager dockManager, Dock dock)
++		{
++			dockingState = DockingState.Turn;
++			stayOnResupplier = !dockManager.Info.TakeOffOnResupply;
++			Dock = dock;
++			DockFascing = dock.Info.Facing;
++			IsDragRequired = dock.Info.IsDragRequired;
++			DragOffset = dock.Info.DragOffset;
++			DragLength = dock.Info.DragLength;
++			DockManager = dockManager;
++			dockables = dockManager.AvailableDockables(dock);
++
++			Self = dockManager.Self;
++			StartDrag = Self.CenterPosition;
++			EndDrag = dock.Self.CenterPosition + DragOffset;
++			move = Self.Trait<IMove>();
++			moveInfo = Self.Info.TraitInfo<IMoveInfo>();
++
++			notifyDocks = dock.Self.TraitsImplementing<INotifyDock>().ToArray();
++			notifyDockables = Self.TraitsImplementing<INotifyDockable>().ToArray();
++			Console.WriteLine("DockSequence called " + Self.Info.Name + ":" + Self.ActorID);
++		}
++
++		public override bool Tick(Actor self)
++		{
++			switch (dockingState)
++			{
++				case DockingState.Wait:
++					return false;
++
++				case DockingState.Turn:
++					dockingState = DockingState.Drag;
++					if (DockFascing != null)
++						QueueChild(new Turn(self, DockFascing ?? WAngle.Zero));
++
++					return false;
++
++				case DockingState.Drag:
++					if (IsCanceling || !CanStillDock())
++						return true;
++
++					dockingState = DockingState.Dock;
++					if (IsDragRequired)
++						QueueChild(new Drag(self, StartDrag, EndDrag, DragLength));
++
++					return false;
++
++				case DockingState.Dock:
++					if (!IsCanceling && CanStillDock())
++						OnStateDock();
++					else
++						dockingState = DockingState.Undock;
++
++					return false;
++
++				case DockingState.Loop:
++					if (!IsCanceling || !CanStillDock())
++					{
++						dockables = dockables.Where(d => !d.TickDock(Dock));
++						notifyDocks.Do(n => n.DockTick(DockManager, Dock));
++						notifyDockables.Do(n => n.DockTick(DockManager, Dock));
++
++						if (!dockables.Any())
++							dockingState = DockingState.Undock;
++					}
++					else
++						dockingState = DockingState.Undock;
++
++					return false;
++
++				case DockingState.Undock:
++					OnStateUndock();
++					return false;
++
++				case DockingState.Complete:
++					if (IsDragRequired)
++						QueueChild(new Drag(self, EndDrag, StartDrag, DragLength));
++
++					OnResupplyComplete(self);
++					return true;
++			}
++
++			throw new InvalidOperationException("Invalid harvester dock state");
++		}
++
++		bool CanStillDock()
++		{
++			return dockables.Any(d => Dock.CanStillDock(d));
++		}
++
++		public override IEnumerable<Target> GetTargets(Actor self)
++		{
++			yield return Target.FromActor(Dock.Self);
++		}
++
++		public override IEnumerable<TargetLineNode> TargetLineNodes(Actor self)
++		{
++			yield return new TargetLineNode(Target.FromActor(Dock.Self), Color.Green);
++		}
++
++		public virtual void OnStateDock()
++		{
++			notifyDocks.Do(n => n.Docked(DockManager, Dock));
++			notifyDockables.Do(n => n.Docked(DockManager, Dock));
++			DockManager.DockStarted(dockables, Dock);
++		}
++
++		public virtual void OnStateUndock()
++		{
++			dockingState = DockingState.Complete;
++			successfulDock = true;
++		}
++
++		protected override void OnLastRun(Actor self)
++		{
++			Console.WriteLine("Last " + Self.Info.Name + ":" + Self.ActorID);
++			OnResupplyEnding();
++			base.OnLastRun(self);
++		}
++
++		public override void Cancel(Actor self, bool keepQueue = false)
++		{
++			Console.WriteLine("Cancel " + Self.Info.Name + ":" + Self.ActorID);
++			OnResupplyEnding();
++			base.Cancel(self, keepQueue);
++		}
++
++		void OnResupplyComplete(Actor self)
++		{
++			var isHostValid = CanStillDock();
++			var rp = isHostValid ? Dock.Self.TraitOrDefault<RallyPoint>() : null;
++			var aircraft = Self.TraitOrDefault<Aircraft>();
++			if (aircraft != null)
++			{
++				if (successfulDock || !isHostValid || (!stayOnResupplier))
++				{
++					if ((self.CurrentActivity.NextActivity == null) && rp != null && rp.Path.Count > 0)
++						foreach (var cell in rp.Path)
++							QueueChild(new AttackMoveActivity(self, () => move.MoveTo(cell, 1, ignoreActor: GetActorBelow() ?? Dock.Self, targetLineColor: aircraft.Info.TargetLineColor)));
++					else
++						QueueChild(new TakeOff(self));
++				}
++			}
++			else if (!stayOnResupplier && isHostValid)
++			{
++				// If we are on host, first leave host if the next activity is not a Move.
++				if (self.CurrentActivity.NextActivity == null)
++				{
++					if (rp != null && rp.Path.Count > 0)
++						foreach (var cell in rp.Path)
++							QueueChild(new AttackMoveActivity(self, () => move.MoveTo(cell, 1, GetActorBelow() ?? Dock.Self, true, moveInfo.GetTargetLineColor())));
++					else if (GetActorBelow() != null)
++						QueueChild(move.MoveTo(Dock.Location));
++				}
++				else if (GetActorBelow() != null && !(self.CurrentActivity.NextActivity is Move))
++					QueueChild(move.MoveTo(Dock.Location));
++			}
++		}
++
++		Actor GetActorBelow()
++		{
++			return Self.World.ActorMap.GetActorsAt(Self.Location)
++				.FirstOrDefault(a => a.Info.HasTraitInfo<RepairableInfo>());
++		}
++
++		void OnResupplyEnding()
++		{
++			notifyDocks.Do(n => n.Undocked(DockManager, Dock));
++			notifyDockables.Do(n => n.Undocked(DockManager, Dock));
++			DockManager.DockCompleted(Dock);
++		}
++	}
++}
+diff --git a/OpenRA.Mods.Common/Activities/FindAndDeliverResources.cs b/OpenRA.Mods.Common/Activities/FindAndDeliverResources.cs
+index 179389ca70c3..6938cc845785 100644
+--- a/OpenRA.Mods.Common/Activities/FindAndDeliverResources.cs
++++ b/OpenRA.Mods.Common/Activities/FindAndDeliverResources.cs
+@@ -22,10 +22,11 @@ public class FindAndDeliverResources : Activity
+ 	{
+ 		readonly Harvester harv;
+ 		readonly HarvesterInfo harvInfo;
++		readonly DockManager dockManager;
+ 		readonly Mobile mobile;
+ 		readonly ResourceClaimLayer claimLayer;
+ 
+-		Actor deliverActor;
++		Dock proc;
+ 		CPos? orderLocation;
+ 		CPos? lastHarvestedCell;
+ 		bool hasDeliveredLoad;
+@@ -34,17 +35,18 @@ public class FindAndDeliverResources : Activity
+ 
+ 		public bool LastSearchFailed { get; private set; }
+ 
+-		public FindAndDeliverResources(Actor self, Actor deliverActor = null)
++		public FindAndDeliverResources(Harvester harv, Dock proc = null)
+ 		{
+-			harv = self.Trait<Harvester>();
+-			harvInfo = self.Info.TraitInfo<HarvesterInfo>();
+-			mobile = self.Trait<Mobile>();
+-			claimLayer = self.World.WorldActor.Trait<ResourceClaimLayer>();
+-			this.deliverActor = deliverActor;
++			this.harv = harv;
++			harvInfo = harv.Self.Info.TraitInfo<HarvesterInfo>();
++			mobile = harv.Self.Trait<Mobile>();
++			claimLayer = harv.Self.World.WorldActor.Trait<ResourceClaimLayer>();
++			dockManager = harv.Self.Trait<DockManager>();
++			this.proc = proc;
+ 		}
+ 
+-		public FindAndDeliverResources(Actor self, CPos orderLocation)
+-			: this(self, null)
++		public FindAndDeliverResources(Harvester harv, CPos orderLocation)
++			: this(harv, null)
+ 		{
+ 			this.orderLocation = orderLocation;
+ 		}
+@@ -61,15 +63,15 @@ protected override void OnFirstRun(Actor self)
+ 				// We have to make sure the actual "harvest" order is not skipped if a third order is queued,
+ 				// so we keep deliveredLoad false.
+ 				if (harv.IsFull)
+-					QueueChild(new DeliverResources(self));
++					QueueChild(new DockActivity(dockManager, harv));
+ 			}
+ 
+ 			// If an explicit "deliver" order is given, the harvester goes immediately to the refinery.
+-			if (deliverActor != null)
++			if (proc != null)
+ 			{
+-				QueueChild(new DeliverResources(self, deliverActor));
++				QueueChild(new DockActivity(dockManager, harv, proc));
+ 				hasDeliveredLoad = true;
+-				deliverActor = null;
++				proc = null;
+ 			}
+ 		}
+ 
+@@ -92,7 +94,7 @@ public override bool Tick(Actor self)
+ 			// Are we full or have nothing more to gather? Deliver resources.
+ 			if (harv.IsFull || (!harv.IsEmpty && LastSearchFailed))
+ 			{
+-				QueueChild(new DeliverResources(self));
++				QueueChild(new DockActivity(dockManager, harv));
+ 				hasDeliveredLoad = true;
+ 				return false;
+ 			}
+@@ -128,13 +130,12 @@ public override bool Tick(Actor self)
+ 			// of the refinery entrance.
+ 			if (LastSearchFailed)
+ 			{
+-				var lastproc = harv.LastLinkedProc ?? harv.LinkedProc;
+-				if (lastproc != null && !lastproc.Disposed)
++				var lastproc = dockManager.LinkedDock;
++				if (lastproc != null)
+ 				{
+-					var deliveryLoc = lastproc.Location + lastproc.Trait<IAcceptResources>().DeliveryOffset;
+-					if (self.Location == deliveryLoc && harv.IsEmpty)
++					if (self.Location == lastproc.Location && harv.IsEmpty)
+ 					{
+-						var unblockCell = deliveryLoc + harv.Info.UnblockCell;
++						var unblockCell = lastproc.Location + harv.Info.UnblockCell;
+ 						var moveTo = mobile.NearestMoveableCell(unblockCell, 1, 5);
+ 						QueueChild(mobile.MoveTo(moveTo, 1));
+ 					}
+@@ -171,7 +172,7 @@ public override bool Tick(Actor self)
+ 			}
+ 
+ 			// Determine where to search from and how far to search:
+-			var procLoc = GetSearchFromProcLocation();
++			var procLoc = dockManager.LinkedDock?.Location;
+ 			var searchFromLoc = lastHarvestedCell ?? procLoc ?? self.Location;
+ 			var searchRadius = lastHarvestedCell.HasValue ? harvInfo.SearchFromHarvesterRadius : harvInfo.SearchFromProcRadius;
+ 
+@@ -239,19 +240,8 @@ public override IEnumerable<TargetLineNode> TargetLineNodes(Actor self)
+ 
+ 			if (orderLocation != null)
+ 				yield return new TargetLineNode(Target.FromCell(self.World, orderLocation.Value), harvInfo.HarvestLineColor);
+-			else if (deliverActor != null)
+-				yield return new TargetLineNode(Target.FromActor(deliverActor), harvInfo.DeliverLineColor);
+-		}
+-
+-		CPos? GetSearchFromProcLocation()
+-		{
+-			if (harv.LastLinkedProc != null && !harv.LastLinkedProc.IsDead && harv.LastLinkedProc.IsInWorld)
+-				return harv.LastLinkedProc.Location + harv.LastLinkedProc.Trait<IAcceptResources>().DeliveryOffset;
+-
+-			if (harv.LinkedProc != null && !harv.LinkedProc.IsDead && harv.LinkedProc.IsInWorld)
+-				return harv.LinkedProc.Location + harv.LinkedProc.Trait<IAcceptResources>().DeliveryOffset;
+-
+-			return null;
++			else if (proc != null)
++				yield return new TargetLineNode(Target.FromActor(proc.Self), dockManager.DockLineColor);
+ 		}
+ 	}
+ }
+diff --git a/OpenRA.Mods.Common/Activities/HarvestResource.cs b/OpenRA.Mods.Common/Activities/HarvestResource.cs
+index 466a6a881af1..8ce774ce5e11 100644
+--- a/OpenRA.Mods.Common/Activities/HarvestResource.cs
++++ b/OpenRA.Mods.Common/Activities/HarvestResource.cs
+@@ -32,7 +32,7 @@ public class HarvestResource : Activity
+ 		public HarvestResource(Actor self, CPos targetCell)
+ 		{
+ 			harv = self.Trait<Harvester>();
+-			harvInfo = self.Info.TraitInfo<HarvesterInfo>();
++			harvInfo = harv.Info;
+ 			facing = self.Trait<IFacing>();
+ 			body = self.Trait<BodyOrientation>();
+ 			move = self.Trait<IMove>();
+@@ -104,7 +104,7 @@ protected override void OnLastRun(Actor self)
+ 		public override void Cancel(Actor self, bool keepQueue = false)
+ 		{
+ 			foreach (var n in notifyHarvesterActions)
+-				n.MovementCancelled(self);
++				n.MovementCancelled(self.TraitOrDefault<DockManager>());
+ 
+ 			base.Cancel(self, keepQueue);
+ 		}
+diff --git a/OpenRA.Mods.Common/Activities/HarvesterDockSequence.cs b/OpenRA.Mods.Common/Activities/HarvesterDockSequence.cs
+deleted file mode 100644
+index f8385a7a3608..000000000000
+--- a/OpenRA.Mods.Common/Activities/HarvesterDockSequence.cs
++++ /dev/null
+@@ -1,115 +0,0 @@
+-#region Copyright & License Information
+-/*
+- * Copyright 2007-2022 The OpenRA Developers (see AUTHORS)
+- * This file is part of OpenRA, which is free software. It is made
+- * available to you under the terms of the GNU General Public License
+- * as published by the Free Software Foundation, either version 3 of
+- * the License, or (at your option) any later version. For more
+- * information, see COPYING.
+- */
+-#endregion
+-
+-using System;
+-using System.Collections.Generic;
+-using OpenRA.Activities;
+-using OpenRA.Mods.Common.Traits;
+-using OpenRA.Primitives;
+-using OpenRA.Traits;
+-
+-namespace OpenRA.Mods.Common.Activities
+-{
+-	public abstract class HarvesterDockSequence : Activity
+-	{
+-		protected enum DockingState { Wait, Turn, Drag, Dock, Loop, Undock, Complete }
+-
+-		protected readonly Actor Refinery;
+-		protected readonly Harvester Harv;
+-		protected readonly WAngle DockAngle;
+-		protected readonly bool IsDragRequired;
+-		protected readonly WVec DragOffset;
+-		protected readonly int DragLength;
+-		protected readonly WPos StartDrag;
+-		protected readonly WPos EndDrag;
+-
+-		protected DockingState dockingState;
+-
+-		public HarvesterDockSequence(Actor self, Actor refinery, WAngle dockAngle, bool isDragRequired, in WVec dragOffset, int dragLength)
+-		{
+-			dockingState = DockingState.Turn;
+-			Refinery = refinery;
+-			DockAngle = dockAngle;
+-			IsDragRequired = isDragRequired;
+-			DragOffset = dragOffset;
+-			DragLength = dragLength;
+-			Harv = self.Trait<Harvester>();
+-			StartDrag = self.CenterPosition;
+-			EndDrag = refinery.CenterPosition + DragOffset;
+-		}
+-
+-		public override bool Tick(Actor self)
+-		{
+-			switch (dockingState)
+-			{
+-				case DockingState.Wait:
+-					return false;
+-
+-				case DockingState.Turn:
+-					dockingState = DockingState.Drag;
+-					QueueChild(new Turn(self, DockAngle));
+-					return false;
+-
+-				case DockingState.Drag:
+-					if (IsCanceling || !Refinery.IsInWorld || Refinery.IsDead || Harv.IsTraitDisabled)
+-						return true;
+-
+-					dockingState = DockingState.Dock;
+-					if (IsDragRequired)
+-						QueueChild(new Drag(self, StartDrag, EndDrag, DragLength));
+-
+-					return false;
+-
+-				case DockingState.Dock:
+-					if (!IsCanceling && Refinery.IsInWorld && !Refinery.IsDead && !Harv.IsTraitDisabled)
+-						OnStateDock(self);
+-					else
+-						dockingState = DockingState.Undock;
+-
+-					return false;
+-
+-				case DockingState.Loop:
+-					if (IsCanceling || !Refinery.IsInWorld || Refinery.IsDead || Harv.IsTraitDisabled || Harv.TickUnload(self, Refinery))
+-						dockingState = DockingState.Undock;
+-
+-					return false;
+-
+-				case DockingState.Undock:
+-					OnStateUndock(self);
+-					return false;
+-
+-				case DockingState.Complete:
+-					Harv.LastLinkedProc = Harv.LinkedProc;
+-					Harv.LinkProc(null);
+-					if (IsDragRequired)
+-						QueueChild(new Drag(self, EndDrag, StartDrag, DragLength));
+-
+-					return true;
+-			}
+-
+-			throw new InvalidOperationException("Invalid harvester dock state");
+-		}
+-
+-		public override IEnumerable<Target> GetTargets(Actor self)
+-		{
+-			yield return Target.FromActor(Refinery);
+-		}
+-
+-		public override IEnumerable<TargetLineNode> TargetLineNodes(Actor self)
+-		{
+-			yield return new TargetLineNode(Target.FromActor(Refinery), Color.Green);
+-		}
+-
+-		public abstract void OnStateDock(Actor self);
+-
+-		public abstract void OnStateUndock(Actor self);
+-	}
+-}
+diff --git a/OpenRA.Mods.Common/Activities/Resupply.cs b/OpenRA.Mods.Common/Activities/Resupply.cs
+deleted file mode 100644
+index 0e924e55621c..000000000000
+--- a/OpenRA.Mods.Common/Activities/Resupply.cs
++++ /dev/null
+@@ -1,330 +0,0 @@
+-#region Copyright & License Information
+-/*
+- * Copyright 2007-2022 The OpenRA Developers (see AUTHORS)
+- * This file is part of OpenRA, which is free software. It is made
+- * available to you under the terms of the GNU General Public License
+- * as published by the Free Software Foundation, either version 3 of
+- * the License, or (at your option) any later version. For more
+- * information, see COPYING.
+- */
+-#endregion
+-
+-using System;
+-using System.Collections.Generic;
+-using System.Linq;
+-using OpenRA.Activities;
+-using OpenRA.Mods.Common.Traits;
+-using OpenRA.Traits;
+-
+-namespace OpenRA.Mods.Common.Activities
+-{
+-	public class Resupply : Activity
+-	{
+-		readonly IHealth health;
+-		readonly RepairsUnits[] allRepairsUnits;
+-		readonly Target host;
+-		readonly WDist closeEnough;
+-		readonly Repairable repairable;
+-		readonly Rearmable rearmable;
+-		readonly INotifyDock[] notifyDocks;
+-		readonly INotifyDockResupply[] notifyDockResupplies;
+-		readonly INotifyDockable[] notifyDockables;
+-		readonly ICallForTransport[] transportCallers;
+-		readonly IMove move;
+-		readonly Aircraft aircraft;
+-		readonly IMoveInfo moveInfo;
+-		readonly bool stayOnResupplier;
+-		readonly bool wasRepaired;
+-		readonly PlayerResources playerResources;
+-		readonly int unitCost;
+-		readonly Actor self;
+-
+-		int remainingTicks;
+-		bool played;
+-		bool actualResupplyStarted;
+-		ResupplyType activeResupplyTypes = ResupplyType.None;
+-
+-		public Resupply(Actor self, Actor host, bool stayOnResupplier = false)
+-		{
+-			this.self = self;
+-			this.host = Target.FromActor(host);
+-			this.stayOnResupplier = stayOnResupplier;
+-			allRepairsUnits = host.TraitsImplementing<RepairsUnits>().ToArray();
+-			health = self.TraitOrDefault<IHealth>();
+-			repairable = self.TraitOrDefault<Repairable>();
+-			closeEnough = repairable?.Info.CloseEnough ?? new WDist(512);
+-			rearmable = self.TraitOrDefault<Rearmable>();
+-			notifyDocks = host.TraitsImplementing<INotifyDock>().ToArray();
+-			notifyDockResupplies = host.TraitsImplementing<INotifyDockResupply>().ToArray();
+-			notifyDockables = self.TraitsImplementing<INotifyDockable>().ToArray();
+-			transportCallers = self.TraitsImplementing<ICallForTransport>().ToArray();
+-			move = self.Trait<IMove>();
+-			aircraft = move as Aircraft;
+-			moveInfo = self.Info.TraitInfo<IMoveInfo>();
+-			playerResources = self.Owner.PlayerActor.Trait<PlayerResources>();
+-
+-			var valued = self.Info.TraitInfoOrDefault<ValuedInfo>();
+-			unitCost = valued != null ? valued.Cost : 0;
+-
+-			var cannotRepairAtHost = health == null || health.DamageState == DamageState.Undamaged
+-				|| allRepairsUnits.Length == 0
+-				|| repairable == null || !repairable.Info.RepairActors.Contains(host.Info.Name);
+-
+-			if (!cannotRepairAtHost)
+-			{
+-				activeResupplyTypes |= ResupplyType.Repair;
+-
+-				// HACK: Reservable logic can't handle repairs, so force a take-off if resupply included repairs.
+-				// TODO: Make reservation logic or future docking logic properly handle this.
+-				wasRepaired = true;
+-			}
+-
+-			var cannotRearmAtHost = rearmable == null || !rearmable.Info.RearmActors.Contains(host.Info.Name) || rearmable.RearmableAmmoPools.All(p => p.HasFullAmmo);
+-			if (!cannotRearmAtHost)
+-				activeResupplyTypes |= ResupplyType.Rearm;
+-		}
+-
+-		public override bool Tick(Actor self)
+-		{
+-			// Wait for the cooldown to expire before releasing the unit if this was cancelled
+-			if (IsCanceling && remainingTicks > 0)
+-			{
+-				remainingTicks--;
+-				return false;
+-			}
+-
+-			var isHostInvalid = host.Type != TargetType.Actor || !host.Actor.IsInWorld;
+-			var isCloseEnough = false;
+-			if (!isHostInvalid)
+-			{
+-				// Negative means there's no distance limit.
+-				if (closeEnough < WDist.Zero)
+-					isCloseEnough = true;
+-				else
+-					isCloseEnough = (host.CenterPosition - self.CenterPosition).HorizontalLengthSquared <= closeEnough.LengthSquared;
+-			}
+-
+-			// This ensures transports are also cancelled when the host becomes invalid
+-			if (!IsCanceling && isHostInvalid)
+-				Cancel(self, true);
+-
+-			if (IsCanceling || isHostInvalid)
+-			{
+-				// Only tick host INotifyResupply traits one last time if host is still alive
+-				if (!isHostInvalid)
+-					foreach (var notifyResupply in notifyDockResupplies)
+-						notifyResupply.ResupplyTick(ResupplyType.None);
+-
+-				// HACK: If the activity is cancelled while we're on the host resupplying (or about to start resupplying),
+-				// move actor outside the resupplier footprint to prevent it from blocking other actors.
+-				// Additionally, if the host is no longer valid, make aircraft take off.
+-				if (isCloseEnough || isHostInvalid)
+-					OnResupplyEnding(self, isHostInvalid);
+-
+-				return true;
+-			}
+-			else if (activeResupplyTypes != 0 && aircraft == null && !isCloseEnough)
+-			{
+-				var targetCell = self.World.Map.CellContaining(host.Actor.CenterPosition);
+-
+-				// HACK: `MoveWithinRange` doesn't work on `Mobile`
+-				if (aircraft == null)
+-					QueueChild(move.MoveTo(targetCell, closeEnough.Length, targetLineColor: moveInfo.GetTargetLineColor()));
+-				else
+-					QueueChild(move.MoveWithinRange(host, closeEnough, targetLineColor: moveInfo.GetTargetLineColor()));
+-
+-				var delta = (self.CenterPosition - host.CenterPosition).LengthSquared;
+-				transportCallers.FirstOrDefault(t => t.MinimumDistance.LengthSquared < delta)?.RequestTransport(self, targetCell);
+-
+-				return false;
+-			}
+-
+-			// We don't want to trigger this until we've reached the resupplier and can start resupplying
+-			if (!actualResupplyStarted && activeResupplyTypes > 0)
+-			{
+-				actualResupplyStarted = true;
+-				foreach (var notifyResupply in notifyDockResupplies)
+-					notifyResupply.BeforeResupply(self, activeResupplyTypes);
+-
+-				foreach (var nd in notifyDockables)
+-					nd.Docked();
+-
+-				foreach (var nd in notifyDocks)
+-					nd.Docked();
+-			}
+-
+-			if (activeResupplyTypes.HasFlag(ResupplyType.Repair))
+-				RepairTick(self);
+-
+-			if (activeResupplyTypes.HasFlag(ResupplyType.Rearm))
+-				RearmTick(self);
+-
+-			foreach (var notifyResupply in notifyDockResupplies)
+-				notifyResupply.ResupplyTick(activeResupplyTypes);
+-
+-			if (activeResupplyTypes == 0)
+-			{
+-				OnResupplyEnding(self);
+-				return true;
+-			}
+-
+-			return false;
+-		}
+-
+-		public override void Cancel(Actor self, bool keepQueue = false)
+-		{
+-			// HACK: force move activities to ignore the transit-only cells when cancelling
+-			// The idle handler will take over and move them into a safe cell
+-			if (ChildActivity != null)
+-				foreach (var c in ChildActivity.ActivitiesImplementing<Move>())
+-					c.Cancel(self, false, true);
+-
+-			foreach (var t in transportCallers)
+-				t.MovementCancelled(self);
+-
+-			base.Cancel(self, keepQueue);
+-		}
+-
+-		public override IEnumerable<TargetLineNode> TargetLineNodes(Actor self)
+-		{
+-			if (ChildActivity == null)
+-				yield return new TargetLineNode(host, moveInfo.GetTargetLineColor());
+-			else
+-			{
+-				var current = ChildActivity;
+-				while (current != null)
+-				{
+-					foreach (var n in current.TargetLineNodes(self))
+-						yield return n;
+-
+-					current = current.NextActivity;
+-				}
+-			}
+-		}
+-
+-		void OnResupplyEnding(Actor self, bool isHostInvalid = false)
+-		{
+-			var rp = !isHostInvalid ? host.Actor.TraitOrDefault<RallyPoint>() : null;
+-			if (aircraft != null)
+-			{
+-				if (wasRepaired || isHostInvalid || (!stayOnResupplier && aircraft.Info.TakeOffOnResupply))
+-				{
+-					if (self.CurrentActivity.NextActivity == null && rp != null && rp.Path.Count > 0)
+-						foreach (var cell in rp.Path)
+-							QueueChild(new AttackMoveActivity(self, () => move.MoveTo(cell, 1, aircraft.GetActorBelow(), targetLineColor: aircraft.Info.TargetLineColor)));
+-					else
+-						QueueChild(new TakeOff(self));
+-
+-					aircraft.UnReserve();
+-				}
+-
+-				// Aircraft without TakeOffOnResupply remain on the resupplier until something else needs it
+-				// The rally point location is queried by the aircraft before it takes off
+-				else
+-					aircraft.AllowYieldingReservation();
+-			}
+-			else if (!stayOnResupplier && !isHostInvalid)
+-			{
+-				// If there's no next activity, move to rallypoint if available, else just leave host if Repairable.
+-				// If we are on host, first leave host if the next activity is not a Move.
+-				if (self.CurrentActivity.NextActivity == null)
+-				{
+-					if (rp != null && rp.Path.Count > 0)
+-						foreach (var cell in rp.Path)
+-							QueueChild(new AttackMoveActivity(self, () => move.MoveTo(cell, 1, GetActorBelow() ?? host.Actor, true, moveInfo.GetTargetLineColor())));
+-					else if (GetActorBelow() != null)
+-						QueueChild(move.MoveToTarget(self, host));
+-				}
+-				else if (GetActorBelow() != null && !(self.CurrentActivity.NextActivity is Move))
+-					QueueChild(move.MoveToTarget(self, host));
+-			}
+-
+-			foreach (var nd in notifyDockables)
+-				nd.Undocked();
+-
+-			foreach (var nd in notifyDocks)
+-				nd.Undocked();
+-		}
+-
+-		void RepairTick(Actor self)
+-		{
+-			var repairsUnits = allRepairsUnits.FirstOrDefault(r => !r.IsTraitDisabled && !r.IsTraitPaused);
+-			if (repairsUnits == null)
+-			{
+-				if (!allRepairsUnits.Any(r => r.IsTraitPaused))
+-					activeResupplyTypes &= ~ResupplyType.Repair;
+-
+-				return;
+-			}
+-
+-			if (health.DamageState == DamageState.Undamaged)
+-			{
+-				if (host.Actor.Owner != self.Owner)
+-					host.Actor.Owner.PlayerActor.TraitOrDefault<PlayerExperience>()?.GiveExperience(repairsUnits.Info.PlayerExperience);
+-
+-				Game.Sound.PlayNotification(self.World.Map.Rules, self.Owner, "Speech", repairsUnits.Info.FinishRepairingNotification, self.Owner.Faction.InternalName);
+-				TextNotificationsManager.AddTransientLine(repairsUnits.Info.FinishRepairingTextNotification, self.Owner);
+-
+-				activeResupplyTypes &= ~ResupplyType.Repair;
+-				return;
+-			}
+-
+-			if (remainingTicks == 0)
+-			{
+-				var hpToRepair = repairable != null && repairable.Info.HpPerStep > 0 ? repairable.Info.HpPerStep : repairsUnits.Info.HpPerStep;
+-
+-				// Cast to long to avoid overflow when multiplying by the health
+-				var value = (long)unitCost * repairsUnits.Info.ValuePercentage;
+-				var cost = value == 0 ? 0 : Math.Max(1, (int)(hpToRepair * value / (health.MaxHP * 100L)));
+-
+-				if (!played)
+-				{
+-					played = true;
+-					Game.Sound.PlayNotification(self.World.Map.Rules, self.Owner, "Speech", repairsUnits.Info.StartRepairingNotification, self.Owner.Faction.InternalName);
+-					TextNotificationsManager.AddTransientLine(repairsUnits.Info.StartRepairingTextNotification, self.Owner);
+-				}
+-
+-				if (!playerResources.TakeCash(cost, true))
+-				{
+-					remainingTicks = 1;
+-					return;
+-				}
+-
+-				self.InflictDamage(host.Actor, new Damage(-hpToRepair, repairsUnits.Info.RepairDamageTypes));
+-				remainingTicks = repairsUnits.Info.Interval;
+-			}
+-			else
+-				--remainingTicks;
+-		}
+-
+-		void RearmTick(Actor self)
+-		{
+-			var rearmComplete = true;
+-			foreach (var ammoPool in rearmable.RearmableAmmoPools)
+-			{
+-				if (!ammoPool.HasFullAmmo)
+-				{
+-					if (--ammoPool.RemainingTicks <= 0)
+-					{
+-						ammoPool.RemainingTicks = ammoPool.Info.ReloadDelay;
+-						if (!string.IsNullOrEmpty(ammoPool.Info.RearmSound))
+-							Game.Sound.PlayToPlayer(SoundType.World, self.Owner, ammoPool.Info.RearmSound, self.CenterPosition);
+-
+-						ammoPool.GiveAmmo(self, ammoPool.Info.ReloadCount);
+-					}
+-
+-					rearmComplete = false;
+-				}
+-			}
+-
+-			if (rearmComplete)
+-				activeResupplyTypes &= ~ResupplyType.Rearm;
+-		}
+-
+-		public Actor GetActorBelow()
+-		{
+-			return self.World.ActorMap.GetActorsAt(self.Location)
+-				.FirstOrDefault(a => a.Info.HasTraitInfo<RepairableInfo>());
+-		}
+-	}
+-}
+diff --git a/OpenRA.Mods.Common/Activities/SpriteDockSequence.cs b/OpenRA.Mods.Common/Activities/SpriteDockSequence.cs
+new file mode 100644
+index 000000000000..c2df4d747ce5
+--- /dev/null
++++ b/OpenRA.Mods.Common/Activities/SpriteDockSequence.cs
+@@ -0,0 +1,58 @@
++#region Copyright & License Information
++/*
++ * Copyright 2007-2022 The OpenRA Developers (see AUTHORS)
++ * This file is part of OpenRA, which is free software. It is made
++ * available to you under the terms of the GNU General Public License
++ * as published by the Free Software Foundation, either version 3 of
++ * the License, or (at your option) any later version. For more
++ * information, see COPYING.
++ */
++#endregion
++
++using OpenRA.Mods.Common.Traits;
++using OpenRA.Mods.Common.Traits.Render;
++
++namespace OpenRA.Mods.Common.Activities
++{
++	public class SpriteDockSequence : DockSequence
++	{
++		readonly WithSpriteBody wsb;
++		readonly WithDockingAnimationInfo wda;
++		protected bool dockAnimPlayed;
++
++		public SpriteDockSequence(DockManager dockManager, Dock dock)
++			: base(dockManager, dock)
++		{
++			wsb = dockManager.Self.Trait<WithSpriteBody>();
++			wda = dockManager.Self.Info.TraitInfoOrDefault<WithDockingAnimationInfo>();
++		}
++
++		public override void OnStateDock()
++		{
++			base.OnStateDock();
++
++			if (wda != null)
++				wsb.PlayCustomAnimation(DockManager.Self, wda.DockSequence, () => wsb.PlayCustomAnimationRepeating(DockManager.Self, wda.DockLoopSequence));
++
++			dockAnimPlayed = true;
++			dockingState = DockingState.Loop;
++		}
++
++		public override void OnStateUndock()
++		{
++			// If dock animation hasn't played, we didn't actually dock and have to skip the undock anim and notification
++			if (!dockAnimPlayed)
++			{
++				base.OnStateUndock();
++				return;
++			}
++
++			dockingState = DockingState.Wait;
++
++			if (wda == null)
++				base.OnStateUndock();
++			else
++				wsb.PlayCustomAnimationBackwards(DockManager.Self, wda.DockSequence, () => base.OnStateUndock());
++		}
++	}
++}
+diff --git a/OpenRA.Mods.Common/Activities/SpriteHarvesterDockSequence.cs b/OpenRA.Mods.Common/Activities/SpriteHarvesterDockSequence.cs
+deleted file mode 100644
+index bc08ae0cb605..000000000000
+--- a/OpenRA.Mods.Common/Activities/SpriteHarvesterDockSequence.cs
++++ /dev/null
+@@ -1,73 +0,0 @@
+-#region Copyright & License Information
+-/*
+- * Copyright 2007-2022 The OpenRA Developers (see AUTHORS)
+- * This file is part of OpenRA, which is free software. It is made
+- * available to you under the terms of the GNU General Public License
+- * as published by the Free Software Foundation, either version 3 of
+- * the License, or (at your option) any later version. For more
+- * information, see COPYING.
+- */
+-#endregion
+-
+-using OpenRA.Mods.Common.Traits;
+-using OpenRA.Mods.Common.Traits.Render;
+-
+-namespace OpenRA.Mods.Common.Activities
+-{
+-	public class SpriteHarvesterDockSequence : HarvesterDockSequence
+-	{
+-		readonly WithSpriteBody wsb;
+-		readonly WithDockingAnimationInfo wda;
+-		protected bool dockAnimPlayed;
+-
+-		public SpriteHarvesterDockSequence(Actor self, Actor refinery, WAngle dockAngle, bool isDragRequired, in WVec dragOffset, int dragLength)
+-			: base(self, refinery, dockAngle, isDragRequired, dragOffset, dragLength)
+-		{
+-			wsb = self.Trait<WithSpriteBody>();
+-			wda = self.Info.TraitInfoOrDefault<WithDockingAnimationInfo>();
+-		}
+-
+-		public override void OnStateDock(Actor self)
+-		{
+-			foreach (var trait in self.TraitsImplementing<INotifyDockable>())
+-				trait.Docked();
+-
+-			foreach (var nd in Refinery.TraitsImplementing<INotifyDock>())
+-				nd.Docked();
+-
+-			if (wda != null)
+-				wsb.PlayCustomAnimation(self, wda.DockSequence, () => wsb.PlayCustomAnimationRepeating(self, wda.DockLoopSequence));
+-
+-			dockAnimPlayed = true;
+-			dockingState = DockingState.Loop;
+-		}
+-
+-		public override void OnStateUndock(Actor self)
+-		{
+-			// If dock animation hasn't played, we didn't actually dock and have to skip the undock anim and notification
+-			if (!dockAnimPlayed)
+-			{
+-				dockingState = DockingState.Complete;
+-				return;
+-			}
+-
+-			dockingState = DockingState.Wait;
+-
+-			if (wda == null)
+-				NotifyUndock(self);
+-			else
+-				wsb.PlayCustomAnimationBackwards(self, wda.DockSequence, () => NotifyUndock(self));
+-		}
+-
+-		void NotifyUndock(Actor self)
+-		{
+-			dockingState = DockingState.Complete;
+-			foreach (var trait in self.TraitsImplementing<INotifyDockable>())
+-				trait.Undocked();
+-
+-			if (Refinery.IsInWorld && !Refinery.IsDead)
+-				foreach (var nd in Refinery.TraitsImplementing<INotifyDock>())
+-					nd.Undocked();
+-		}
+-	}
+-}
+diff --git a/OpenRA.Mods.Common/Activities/VoxelDockSequence.cs b/OpenRA.Mods.Common/Activities/VoxelDockSequence.cs
+new file mode 100644
+index 000000000000..eaa5dc9e2d9a
+--- /dev/null
++++ b/OpenRA.Mods.Common/Activities/VoxelDockSequence.cs
+@@ -0,0 +1,72 @@
++#region Copyright & License Information
++/*
++ * Copyright 2007-2022 The OpenRA Developers (see AUTHORS)
++ * This file is part of OpenRA, which is free software. It is made
++ * available to you under the terms of the GNU General Public License
++ * as published by the Free Software Foundation, either version 3 of
++ * the License, or (at your option) any later version. For more
++ * information, see COPYING.
++ */
++#endregion
++
++using OpenRA.Mods.Common.Traits;
++using OpenRA.Mods.Common.Traits.Render;
++
++namespace OpenRA.Mods.Common.Activities
++{
++	public class VoxelDockSequence : DockSequence
++	{
++		readonly WithVoxelUnloadBody body;
++		readonly WithDockingOverlay spriteOverlay;
++
++		public VoxelDockSequence(DockManager dockManager, Dock dock)
++			: base(dockManager, dock)
++		{
++			body = dockManager.Self.Trait<WithVoxelUnloadBody>();
++			spriteOverlay = dock.Self.TraitOrDefault<WithDockingOverlay>();
++		}
++
++		public override void OnStateDock()
++		{
++			base.OnStateDock();
++
++			body.Docked = true;
++
++			if (spriteOverlay != null && !spriteOverlay.Visible)
++			{
++				spriteOverlay.Visible = true;
++				spriteOverlay.WithOffset.Animation.PlayThen(spriteOverlay.Info.Sequence, () =>
++				{
++					dockingState = DockingState.Loop;
++					spriteOverlay.Visible = false;
++				});
++			}
++			else
++				dockingState = DockingState.Loop;
++		}
++
++		public override void OnStateUndock()
++		{
++			// If body.Docked wasn't set, we didn't actually dock and have to skip the undock overlay
++			if (!body.Docked)
++				base.OnStateUndock();
++			else if (Dock.IsAliveAndInWorld && spriteOverlay != null && !spriteOverlay.Visible)
++			{
++				dockingState = DockingState.Wait;
++				spriteOverlay.Visible = true;
++				spriteOverlay.WithOffset.Animation.PlayBackwardsThen(spriteOverlay.Info.Sequence, () =>
++				{
++					body.Docked = false;
++					spriteOverlay.Visible = false;
++
++					base.OnStateUndock();
++				});
++			}
++			else
++			{
++				body.Docked = false;
++				base.OnStateUndock();
++			}
++		}
++	}
++}
+diff --git a/OpenRA.Mods.Common/Orders/RepairOrderGenerator.cs b/OpenRA.Mods.Common/Orders/RepairOrderGenerator.cs
+index 31c0fe220a02..9d7975c9d523 100644
+--- a/OpenRA.Mods.Common/Orders/RepairOrderGenerator.cs
++++ b/OpenRA.Mods.Common/Orders/RepairOrderGenerator.cs
+@@ -50,18 +50,12 @@ static IEnumerable<Order> OrderInner(World world, MouseInput mi)
+ 			if (underCursor.Owner != world.LocalPlayer)
+ 				yield break;
+ 
+-			Actor repairBuilding = null;
+-			var orderId = "Repair";
++			var dock = underCursor.TraitOrDefault<Repairable>()?.FindDock();
+ 
+-			// Test for generic Repairable (used on units).
+-			var repairable = underCursor.TraitOrDefault<Repairable>();
+-			if (repairable != null)
+-				repairBuilding = repairable.FindRepairBuilding(underCursor);
+-
+-			if (repairBuilding == null)
++			if (dock == null)
+ 				yield break;
+ 
+-			yield return new Order(orderId, underCursor, Target.FromActor(repairBuilding), Target.FromActor(underCursor), mi.Modifiers.HasModifier(Modifiers.Shift));
++			yield return new Order("Dock", underCursor, Target.FromActor(dock.Self), Target.FromActor(underCursor), mi.Modifiers.HasModifier(Modifiers.Shift));
+ 		}
+ 
+ 		protected override void Tick(World world)
+diff --git a/OpenRA.Mods.Common/Scripting/Properties/AircraftProperties.cs b/OpenRA.Mods.Common/Scripting/Properties/AircraftProperties.cs
+index 3f0ef530281b..d96428459b6b 100644
+--- a/OpenRA.Mods.Common/Scripting/Properties/AircraftProperties.cs
++++ b/OpenRA.Mods.Common/Scripting/Properties/AircraftProperties.cs
+@@ -9,6 +9,7 @@
+  */
+ #endregion
+ 
++using System.Collections.Generic;
+ using OpenRA.Mods.Common.Activities;
+ using OpenRA.Mods.Common.Traits;
+ using OpenRA.Scripting;
+@@ -19,12 +20,14 @@ namespace OpenRA.Mods.Common.Scripting
+ 	[ScriptPropertyGroup("Movement")]
+ 	public class AircraftProperties : ScriptActorProperties, Requires<AircraftInfo>
+ 	{
+-		readonly Aircraft aircraft;
++		readonly DockManager dockManager;
++		readonly Rearmable rearmable;
+ 
+ 		public AircraftProperties(ScriptContext context, Actor self)
+ 			: base(context, self)
+ 		{
+-			aircraft = self.Trait<Aircraft>();
++			dockManager = self.TraitOrDefault<DockManager>();
++			rearmable = self.TraitOrDefault<Rearmable>();
+ 		}
+ 
+ 		[ScriptActorPropertyActivity]
+@@ -36,9 +39,9 @@ public void Move(CPos cell)
+ 
+ 		[ScriptActorPropertyActivity]
+ 		[Desc("Return to the base, which is either the destination given, or an auto-selected one otherwise.")]
+-		public void ReturnToBase(Actor destination = null)
++		public void ReturnToBase(Dock destination = null)
+ 		{
+-			Self.QueueActivity(new ReturnToBase(Self, destination, true));
++			Self.QueueActivity(new DockActivity(dockManager, rearmable, destination));
+ 		}
+ 
+ 		[ScriptActorPropertyActivity]
+@@ -47,15 +50,5 @@ public void Land(Actor landOn)
+ 		{
+ 			Self.QueueActivity(new Land(Self, Target.FromActor(landOn)));
+ 		}
+-
+-		[ScriptActorPropertyActivity]
+-		[Desc("Starts the resupplying activity when being on a host building.")]
+-		public void Resupply()
+-		{
+-			var atLandAltitude = Self.World.Map.DistanceAboveTerrain(Self.CenterPosition) == aircraft.Info.LandAltitude;
+-			var host = aircraft.GetActorBelow();
+-			if (atLandAltitude && host != null)
+-				Self.QueueActivity(new Resupply(Self, host));
+-		}
+ 	}
+ }
+diff --git a/OpenRA.Mods.Common/Scripting/Properties/HarvesterProperties.cs b/OpenRA.Mods.Common/Scripting/Properties/HarvesterProperties.cs
+index 42d72a75752d..0f33d8e5b1bb 100644
+--- a/OpenRA.Mods.Common/Scripting/Properties/HarvesterProperties.cs
++++ b/OpenRA.Mods.Common/Scripting/Properties/HarvesterProperties.cs
+@@ -27,7 +27,7 @@ public HarvesterProperties(ScriptContext context, Actor self)
+ 		[Desc("Search for nearby resources and begin harvesting.")]
+ 		public void FindResources()
+ 		{
+-			Self.QueueActivity(new FindAndDeliverResources(Self));
++			Self.QueueActivity(new FindAndDeliverResources(Self.Trait<Harvester>()));
+ 		}
+ 	}
+ }
+diff --git a/OpenRA.Mods.Common/Traits/Air/Aircraft.cs b/OpenRA.Mods.Common/Traits/Air/Aircraft.cs
+index a27962f0d1f0..98616490bea3 100644
+--- a/OpenRA.Mods.Common/Traits/Air/Aircraft.cs
++++ b/OpenRA.Mods.Common/Traits/Air/Aircraft.cs
+@@ -14,7 +14,6 @@
+ using System.Linq;
+ using OpenRA.Activities;
+ using OpenRA.Mods.Common.Activities;
+-using OpenRA.Mods.Common.Orders;
+ using OpenRA.Primitives;
+ using OpenRA.Support;
+ using OpenRA.Traits;
+@@ -117,9 +116,6 @@ public class AircraftInfo : PausableConditionalTraitInfo, IPositionableInfo, IFa
+ 		[Desc("Does this VTOL actor need to turn before landing (on terrain)?")]
+ 		public readonly bool TurnToLand = false;
+ 
+-		[Desc("Does this actor automatically take off after resupplying?")]
+-		public readonly bool TakeOffOnResupply = false;
+-
+ 		[Desc("Does this actor automatically take off after creation?")]
+ 		public readonly bool TakeOffOnCreation = true;
+ 
+@@ -144,9 +140,6 @@ public class AircraftInfo : PausableConditionalTraitInfo, IPositionableInfo, IFa
+ 		[Desc("Sounds to play when the actor is landing.")]
+ 		public readonly string[] LandingSounds = Array.Empty<string>();
+ 
+-		[Desc("The distance of the resupply base that the aircraft will wait for its turn.")]
+-		public readonly WDist WaitDistanceFromResupplyBase = new WDist(3072);
+-
+ 		[Desc("The number of ticks that a airplane will wait to make a new search for an available airport.")]
+ 		public readonly int NumberOfTicksToVerifyAvailableAirport = 150;
+ 
+@@ -221,15 +214,13 @@ IEnumerable<EditorActorOption> IEditorActorOptions.ActorOptions(ActorInfo ai, Wo
+ 	}
+ 
+ 	public class Aircraft : PausableConditionalTrait<AircraftInfo>, ITick, ISync, IFacing, IPositionable, IMove,
+-		INotifyAddedToWorld, INotifyRemovedFromWorld, INotifyActorDisposing, INotifyBecomingIdle, ICreationActivity,
+-		IActorPreviewInitModifier, IDeathActorInitModifier, IIssueDeployOrder, IIssueOrder, IResolveOrder, IOrderVoice
++		INotifyAddedToWorld, INotifyRemovedFromWorld, INotifyBecomingIdle, ICreationActivity,
++		IActorPreviewInitModifier, IDeathActorInitModifier, IIssueOrder, IResolveOrder, IOrderVoice
+ 	{
+ 		readonly Actor self;
+-
+-		Repairable repairable;
+-		Rearmable rearmable;
++		readonly DockManager dockManager;
++		readonly Rearmable rearmable;
+ 		IAircraftCenterPositionOffset[] positionOffsets;
+-		IDisposable reservation;
+ 		IEnumerable<int> speedModifiers;
+ 		INotifyMoving[] notifyMoving;
+ 		INotifyCenterPositionChanged[] notifyCenterPositionChanged;
+@@ -277,8 +268,6 @@ public WAngle GetTurnSpeed(bool isIdleTurn)
+ 			return new WAngle(Util.ApplyPercentageModifiers(turnSpeed.Angle, speedModifiers).Clamp(1, 1024));
+ 		}
+ 
+-		public Actor ReservedActor { get; private set; }
+-		public bool MayYieldReservation { get; private set; }
+ 		public bool ForceLanding { get; private set; }
+ 
+ 		IEnumerable<CPos> landingCells = Enumerable.Empty<CPos>();
+@@ -319,6 +308,9 @@ public Aircraft(ActorInitializer init, AircraftInfo info)
+ 
+ 			Facing = init.GetValue<FacingInit, WAngle>(Info.InitialFacing);
+ 			creationActivityDelay = init.GetValue<CreationActivityDelayInit, int>(0);
++
++			dockManager = self.TraitOrDefault<DockManager>();
++			rearmable = self.TraitOrDefault<Rearmable>();
+ 		}
+ 
+ 		public WDist LandAltitude
+@@ -358,8 +350,6 @@ void RequireForceMoveConditionChanged(Actor self, IReadOnlyDictionary<string, in
+ 
+ 		protected override void Created(Actor self)
+ 		{
+-			repairable = self.TraitOrDefault<Repairable>();
+-			rearmable = self.TraitOrDefault<Rearmable>();
+ 			speedModifiers = self.TraitsImplementing<ISpeedModifier>().ToArray().Select(sm => sm.GetSpeedModifier());
+ 			cachedPosition = self.CenterPosition;
+ 			notifyMoving = self.TraitsImplementing<INotifyMoving>().ToArray();
+@@ -392,7 +382,6 @@ void INotifyRemovedFromWorld.RemovedFromWorld(Actor self)
+ 
+ 		protected virtual void RemovedFromWorld(Actor self)
+ 		{
+-			UnReserve();
+ 			self.World.RemoveFromMaps(self, this);
+ 
+ 			OnCruisingAltitudeLeft();
+@@ -473,10 +462,10 @@ public virtual WVec GetRepulsionForce()
+ 			if (!Info.Repulsable)
+ 				return WVec.Zero;
+ 
+-			if (reservation != null)
++			if (dockManager != null && dockManager.LinkedDock != null)
+ 			{
+-				var distanceFromReservationActor = (ReservedActor.CenterPosition - self.CenterPosition).HorizontalLength;
+-				if (distanceFromReservationActor < Info.WaitDistanceFromResupplyBase.Length)
++				var distanceFromReservationActor = (dockManager.LinkedDock.Position - self.CenterPosition).HorizontalLength;
++				if (distanceFromReservationActor < dockManager.LinkedDock.Info.WaitDistanceFromResupplyBase.Length)
+ 					return WVec.Zero;
+ 			}
+ 
+@@ -542,80 +531,6 @@ public WVec GetRepulsionForce(Actor other)
+ 			return (d * 1024 * 8) / (int)distSq;
+ 		}
+ 
+-		public Actor GetActorBelow()
+-		{
+-			// Map.DistanceAboveTerrain(WPos pos) is called directly because Aircraft is an IPositionable trait
+-			// and all calls occur in Tick methods.
+-			if (self.World.Map.DistanceAboveTerrain(CenterPosition) != LandAltitude)
+-				return null; // Not on the resupplier.
+-
+-			return self.World.ActorMap.GetActorsAt(self.Location)
+-				.FirstOrDefault(a => a.Info.HasTraitInfo<ReservableInfo>());
+-		}
+-
+-		public void MakeReservation(Actor target)
+-		{
+-			UnReserve();
+-			var reservable = target.TraitOrDefault<Reservable>();
+-			if (reservable != null)
+-			{
+-				reservation = reservable.Reserve(target, self, this);
+-				ReservedActor = target;
+-			}
+-		}
+-
+-		public void AllowYieldingReservation()
+-		{
+-			if (reservation == null)
+-				return;
+-
+-			MayYieldReservation = true;
+-		}
+-
+-		public void UnReserve()
+-		{
+-			if (reservation == null)
+-				return;
+-
+-			reservation.Dispose();
+-			reservation = null;
+-			ReservedActor = null;
+-			MayYieldReservation = false;
+-		}
+-
+-		bool AircraftCanEnter(Actor a, TargetModifiers modifiers)
+-		{
+-			if (requireForceMove && !modifiers.HasModifier(TargetModifiers.ForceMove))
+-				return false;
+-
+-			return AircraftCanEnter(a);
+-		}
+-
+-		bool AircraftCanEnter(Actor a)
+-		{
+-			if (self.AppearsHostileTo(a))
+-				return false;
+-
+-			var canRearmAtActor = rearmable != null && rearmable.Info.RearmActors.Contains(a.Info.Name);
+-			var canRepairAtActor = repairable != null && repairable.Info.RepairActors.Contains(a.Info.Name);
+-
+-			return canRearmAtActor || canRepairAtActor;
+-		}
+-
+-		bool AircraftCanResupplyAt(Actor a, bool allowedToForceEnter = false)
+-		{
+-			if (self.AppearsHostileTo(a))
+-				return false;
+-
+-			var canRearmAtActor = rearmable != null && rearmable.Info.RearmActors.Contains(a.Info.Name);
+-			var canRepairAtActor = repairable != null && repairable.Info.RepairActors.Contains(a.Info.Name);
+-
+-			var allowedToEnterRearmer = canRearmAtActor && (allowedToForceEnter || rearmable.RearmableAmmoPools.Any(p => !p.HasFullAmmo));
+-			var allowedToEnterRepairer = canRepairAtActor && (allowedToForceEnter || self.GetDamageState() != DamageState.Undamaged);
+-
+-			return allowedToEnterRearmer || allowedToEnterRepairer;
+-		}
+-
+ 		public int MovementSpeed => !IsTraitDisabled && !IsTraitPaused ? Util.ApplyPercentageModifiers(Info.Speed, speedModifiers) : 0;
+ 		public int IdleMovementSpeed => Info.IdleSpeed < 0 ? MovementSpeed :
+ 			!IsTraitDisabled && !IsTraitPaused ? Util.ApplyPercentageModifiers(Info.IdleSpeed, speedModifiers) : 0;
+@@ -721,16 +636,6 @@ bool IsBlockedBy(Actor self, Actor otherActor, Actor ignoreActor, bool blockedBy
+ 			return true;
+ 		}
+ 
+-		public bool CanRearmAt(Actor host)
+-		{
+-			return rearmable != null && rearmable.Info.RearmActors.Contains(host.Info.Name) && rearmable.RearmableAmmoPools.Any(p => !p.HasFullAmmo);
+-		}
+-
+-		public bool CanRepairAt(Actor host)
+-		{
+-			return repairable != null && repairable.Info.RepairActors.Contains(host.Info.Name) && self.GetDamageState() != DamageState.Undamaged;
+-		}
+-
+ 		public void ModifyDeathActorInit(Actor self, TypeDictionary init)
+ 		{
+ 			init.Add(new FacingInit(Facing));
+@@ -754,14 +659,14 @@ protected virtual void OnBecomingIdle(Actor self)
+ 				self.QueueActivity(new FlyOffMap(self, Target.FromCell(self.World, edgeCell)));
+ 				self.QueueActivity(new RemoveSelf());
+ 			}
+-			else if (Info.IdleBehavior == IdleBehaviorType.ReturnToBase && GetActorBelow() == null)
+-				self.QueueActivity(new ReturnToBase(self, null, !Info.TakeOffOnResupply));
++			else if (Info.IdleBehavior == IdleBehaviorType.ReturnToBase && dockManager?.LinkedDock == null) // error
++				self.QueueActivity(new DockActivity(dockManager, rearmable));
+ 			else
+ 			{
+ 				var dat = self.World.Map.DistanceAboveTerrain(CenterPosition);
+ 				if (dat == LandAltitude)
+ 				{
+-					if (!CanLand(self.Location) && ReservedActor == null)
++					if (!CanLand(self.Location) && dockManager?.LinkedDock == null)
+ 						self.QueueActivity(new TakeOff(self));
+ 
+ 					// All remaining idle behaviors rely on not being at LandAltitude, so unconditionally return
+@@ -969,7 +874,6 @@ public bool CanEnterTargetNow(Actor self, in Target target)
+ 			if (target.Positions.Any(p => self.World.ActorMap.GetActorsAt(self.World.Map.CellContaining(p)).Any(a => a != self && a != targetActor.Actor)))
+ 				return false;
+ 
+-			MakeReservation(target.Actor);
+ 			return true;
+ 		}
+ 
+@@ -977,26 +881,10 @@ public bool CanEnterTargetNow(Actor self, in Target target)
+ 
+ 		#region Implement order interfaces
+ 
+-		public IEnumerable<IOrderTargeter> Orders
++		IEnumerable<IOrderTargeter> IIssueOrder.Orders
+ 		{
+ 			get
+ 			{
+-				yield return new EnterAlliedActorTargeter<BuildingInfo>(
+-					"ForceEnter",
+-					6,
+-					Info.EnterCursor,
+-					Info.EnterBlockedCursor,
+-					(target, modifiers) => Info.CanForceLand && modifiers.HasModifier(TargetModifiers.ForceMove) && AircraftCanEnter(target),
+-					target => Reservable.IsAvailableFor(target, self) && AircraftCanResupplyAt(target, true));
+-
+-				yield return new EnterAlliedActorTargeter<BuildingInfo>(
+-					"Enter",
+-					5,
+-					Info.EnterCursor,
+-					Info.EnterBlockedCursor,
+-					AircraftCanEnter,
+-					target => Reservable.IsAvailableFor(target, self) && AircraftCanResupplyAt(target, !Info.TakeOffOnResupply));
+-
+ 				yield return new AircraftMoveOrderTargeter(this);
+ 			}
+ 		}
+@@ -1004,22 +892,12 @@ public IEnumerable<IOrderTargeter> Orders
+ 		public Order IssueOrder(Actor self, IOrderTargeter order, in Target target, bool queued)
+ 		{
+ 			if (!IsTraitDisabled &&
+-				(order.OrderID == "Enter" || order.OrderID == "Move" || order.OrderID == "Land" || order.OrderID == "ForceEnter"))
++				(order.OrderID == "Move" || order.OrderID == "Land"))
+ 				return new Order(order.OrderID, self, target, queued);
+ 
+ 			return null;
+ 		}
+ 
+-		Order IIssueDeployOrder.IssueDeployOrder(Actor self, bool queued)
+-		{
+-			if (IsTraitDisabled || rearmable == null || rearmable.Info.RearmActors.Count == 0)
+-				return null;
+-
+-			return new Order("ReturnToBase", self, queued);
+-		}
+-
+-		bool IIssueDeployOrder.CanIssueDeployOrder(Actor self, bool queued) { return rearmable != null && rearmable.Info.RearmActors.Count > 0; }
+-
+ 		public string VoicePhraseForOrder(Actor self, Order order)
+ 		{
+ 			if (IsTraitDisabled)
+@@ -1037,18 +915,14 @@ public string VoicePhraseForOrder(Actor self, Order order)
+ 					}
+ 
+ 					return Info.Voice;
+-				case "Enter":
+-				case "ForceEnter":
+ 				case "Stop":
+ 				case "Scatter":
+ 					return Info.Voice;
+-				case "ReturnToBase":
+-					return rearmable != null && rearmable.Info.RearmActors.Count > 0 ? Info.Voice : null;
+ 				default: return null;
+ 			}
+ 		}
+ 
+-		public void ResolveOrder(Actor self, Order order)
++		void IResolveOrder.ResolveOrder(Actor self, Order order)
+ 		{
+ 			if (IsTraitDisabled)
+ 				return;
+@@ -1060,9 +934,6 @@ public void ResolveOrder(Actor self, Order order)
+ 				if (!Info.MoveIntoShroud && !self.Owner.Shroud.IsExplored(cell))
+ 					return;
+ 
+-				if (!order.Queued)
+-					UnReserve();
+-
+ 				var target = Target.FromCell(self.World, cell);
+ 
+ 				// TODO: this should scale with unit selection group size.
+@@ -1075,64 +946,14 @@ public void ResolveOrder(Actor self, Order order)
+ 				if (!Info.MoveIntoShroud && !self.Owner.Shroud.IsExplored(cell))
+ 					return;
+ 
+-				if (!order.Queued)
+-					UnReserve();
+-
+ 				var target = Target.FromCell(self.World, cell);
+ 
+ 				self.QueueActivity(order.Queued, new Land(self, target, targetLineColor: Info.TargetLineColor));
+ 				self.ShowTargetLines();
+ 			}
+-			else if (orderString == "Enter" || orderString == "ForceEnter" || orderString == "Repair")
+-			{
+-				// Enter, ForceEnter and Repair orders are only valid for own/allied actors,
+-				// which are guaranteed to never be frozen.
+-				if (order.Target.Type != TargetType.Actor)
+-					return;
+-
+-				var targetActor = order.Target.Actor;
+-				var isForceEnter = orderString == "ForceEnter";
+-				var canResupplyAt = AircraftCanResupplyAt(targetActor, isForceEnter || !Info.TakeOffOnResupply);
+-
+-				// This is what the order targeter checks to display the correct cursor, so we need to make sure
+-				// the behavior matches the cursor if the player clicks despite a "blocked" cursor.
+-				if (!canResupplyAt || !Reservable.IsAvailableFor(targetActor, self))
+-					return;
+-
+-				if (!order.Queued)
+-					UnReserve();
+-
+-				// Aircraft with TakeOffOnResupply would immediately take off again, so there's no point in automatically forcing
+-				// them to land on a resupplier. For aircraft without it, it makes more sense to land than to idle above a
+-				// free resupplier.
+-				var forceLand = isForceEnter || !Info.TakeOffOnResupply;
+-				self.QueueActivity(order.Queued, new ReturnToBase(self, targetActor, forceLand));
+-				self.ShowTargetLines();
+-			}
+ 			else if (orderString == "Stop")
+ 			{
+-				// We don't want the Stop order to cancel a running Resupply activity.
+-				// Resupply is always either the main activity or a child of ReturnToBase.
+-				if (self.CurrentActivity is Resupply ||
+-					(self.CurrentActivity is ReturnToBase && GetActorBelow() != null))
+-					return;
+-
+ 				self.CancelActivity();
+-				UnReserve();
+-			}
+-			else if (orderString == "ReturnToBase")
+-			{
+-				// Do nothing if not rearmable and don't restart activity every time deploy hotkey is triggered
+-				if (rearmable == null || rearmable.Info.RearmActors.Count == 0 || self.CurrentActivity is ReturnToBase || GetActorBelow() != null)
+-					return;
+-
+-				if (!order.Queued)
+-					UnReserve();
+-
+-				// Aircraft with TakeOffOnResupply would immediately take off again, so there's no point in forcing them to land
+-				// on a resupplier. For aircraft without it, it makes more sense to land than to idle above a free resupplier.
+-				self.QueueActivity(order.Queued, new ReturnToBase(self, null, !Info.TakeOffOnResupply));
+-				self.ShowTargetLines();
+ 			}
+ 			else if (orderString == "Scatter")
+ 				Nudge(self);
+@@ -1155,7 +976,6 @@ void Nudge(Actor self)
+ 
+ 			self.QueueActivity(false, new Fly(self, target));
+ 			self.ShowTargetLines();
+-			UnReserve();
+ 		}
+ 
+ 		#region Airborne conditions
+@@ -1206,11 +1026,6 @@ void OnCruisingAltitudeLeft()
+ 
+ 		#endregion
+ 
+-		void INotifyActorDisposing.Disposing(Actor self)
+-		{
+-			UnReserve();
+-		}
+-
+ 		void IActorPreviewInitModifier.ModifyActorPreviewInit(Actor self, TypeDictionary inits)
+ 		{
+ 			if (!inits.Contains<DynamicFacingInit>() && !inits.Contains<FacingInit>())
+@@ -1238,27 +1053,15 @@ public AssociateWithAirfieldActivity(Actor self, int delay = 0)
+ 
+ 			protected override void OnFirstRun(Actor self)
+ 			{
+-				var host = aircraft.GetActorBelow();
+-				if (host != null)
+-					aircraft.MakeReservation(host);
+-
+ 				if (delay > 0)
+ 					QueueChild(new Wait(delay));
+ 			}
+ 
+ 			public override bool Tick(Actor self)
+ 			{
+-				if (!aircraft.Info.TakeOffOnCreation)
+-				{
+-					// Freshly created aircraft shouldn't block the exit, so we allow them to yield their reservation
+-					aircraft.AllowYieldingReservation();
+-					return true;
+-				}
+-
+ 				if (self.World.Map.DistanceAboveTerrain(aircraft.CenterPosition).Length <= aircraft.LandAltitude.Length)
+ 					QueueChild(new TakeOff(self));
+ 
+-				aircraft.UnReserve();
+ 				return true;
+ 			}
+ 		}
+diff --git a/OpenRA.Mods.Common/Traits/Attack/AttackBase.cs b/OpenRA.Mods.Common/Traits/Attack/AttackBase.cs
+index 0de73d17a39c..d43fa1edd86f 100644
+--- a/OpenRA.Mods.Common/Traits/Attack/AttackBase.cs
++++ b/OpenRA.Mods.Common/Traits/Attack/AttackBase.cs
+@@ -214,7 +214,7 @@ public virtual void OnStopOrder(Actor self)
+ 			// We don't want Stop orders from traits other than Mobile or Aircraft to cancel Resupply activity.
+ 			// Resupply is always either the main activity or a child of ReturnToBase.
+ 			// TODO: This should generally only cancel activities queued by this trait.
+-			if (self.CurrentActivity == null || self.CurrentActivity is Resupply || self.CurrentActivity is ReturnToBase)
++			if (self.CurrentActivity == null || self.CurrentActivity is DockSequence)
+ 				return;
+ 
+ 			self.CancelActivity();
+diff --git a/OpenRA.Mods.Common/Traits/BotModules/Squads/States/StateBase.cs b/OpenRA.Mods.Common/Traits/BotModules/Squads/States/StateBase.cs
+index e35a60ab32c3..196d52e2c8ef 100644
+--- a/OpenRA.Mods.Common/Traits/BotModules/Squads/States/StateBase.cs
++++ b/OpenRA.Mods.Common/Traits/BotModules/Squads/States/StateBase.cs
+@@ -108,14 +108,14 @@ protected static bool IsRearming(Actor a)
+ 				return false;
+ 
+ 			var activity = a.CurrentActivity;
+-			if (activity.GetType() == typeof(Resupply))
++			if (activity.GetType() == typeof(DockSequence))
+ 				return true;
+ 
+ 			var next = activity.NextActivity;
+ 			if (next == null)
+ 				return false;
+ 
+-			if (next.GetType() == typeof(Resupply))
++			if (next.GetType() == typeof(DockSequence))
+ 				return true;
+ 
+ 			return false;
+diff --git a/OpenRA.Mods.Common/Traits/BotModules/UnitBuilderBotModule.cs b/OpenRA.Mods.Common/Traits/BotModules/UnitBuilderBotModule.cs
+index 60e8ed75cb24..34739e207d21 100644
+--- a/OpenRA.Mods.Common/Traits/BotModules/UnitBuilderBotModule.cs
++++ b/OpenRA.Mods.Common/Traits/BotModules/UnitBuilderBotModule.cs
+@@ -202,7 +202,7 @@ bool HasAdequateAirUnitReloadBuildings(ActorInfo actorInfo)
+ 				return true;
+ 
+ 			var countOwnAir = AIUtils.CountActorsWithTrait<IPositionable>(actorInfo.Name, player);
+-			var countBuildings = rearmableInfo.RearmActors.Sum(b => AIUtils.CountActorsWithTrait<Building>(b, player));
++			var countBuildings = AIUtils.CountActorsWithTrait<Building>(rearmableInfo.DockType, player);
+ 			if (countOwnAir >= countBuildings)
+ 				return false;
+ 
+diff --git a/OpenRA.Mods.Common/Traits/Buildings/Dock.cs b/OpenRA.Mods.Common/Traits/Buildings/Dock.cs
+new file mode 100644
+index 000000000000..2aaf77754f26
+--- /dev/null
++++ b/OpenRA.Mods.Common/Traits/Buildings/Dock.cs
+@@ -0,0 +1,179 @@
++#region Copyright & License Information
++/*
++ * Copyright 2007-2022 The OpenRA Developers (see AUTHORS)
++ * This file is part of OpenRA, which is free software. It is made
++ * available to you under the terms of the GNU General Public License
++ * as published by the Free Software Foundation, either version 3 of
++ * the License, or (at your option) any later version. For more
++ * information, see COPYING.
++ */
++#endregion
++
++using System.Collections.Generic;
++using System.Linq;
++using OpenRA.Primitives;
++using OpenRA.Traits;
++
++namespace OpenRA.Mods.Common.Traits
++{
++	public sealed class DockType { DockType() { } }
++
++	public class DockInfo : ConditionalTraitInfo
++	{
++		[Desc("Docking type")]
++		public readonly BitSet<DockType> Type;
++
++		[Desc("Actual unit facing when docking. If not set a unit can dock at any angle")]
++		public readonly WAngle? Facing;
++
++		[Desc("Docking offset relative to the top left corner of the actor")]
++		public readonly CVec Offset = CVec.Zero;
++
++		[Desc("Docking offset for aricraft relative to Offset")]
++		public readonly WVec AircraftOffset = new WVec(512, 512, 0);
++
++		[Desc("How close a unit needs to be to be considered as docked. If set to -1 unit will dock")]
++		public readonly WDist CloseEnough = WDist.Zero;
++
++		[Desc("Does the dock require the unit to be dragged in?")]
++		public readonly bool IsDragRequired = false;
++
++		[Desc("Vector by which the unit will be dragged when docking.")]
++		public readonly WVec DragOffset = WVec.Zero;
++
++		[Desc("In how many steps to perform the dragging?")]
++		public readonly int DragLength = 0;
++
++		[Desc("Find a new structure to dock at if more than this many units are already waiting.")]
++		public readonly int MaxOccupancy = 2;
++
++		[Desc("The pathfinding cost penalty applied for each unit waiting to dock.")]
++		public readonly int QueueCostModifier = 12;
++
++		[Desc("The pathfinding cost penalty applied for docking at an allied structure.")]
++		public readonly int AlliedCostModifier = 12;
++
++		[Desc("The distance of the resupply base that the unit will wait for its turn.")]
++		public readonly WDist WaitDistanceFromResupplyBase = new WDist(3072);
++
++		[NotificationReference("Speech")]
++		[Desc("Speech notification played when starting to repair a unit.")]
++		public readonly string StartDockingNotification = null;
++
++		[Desc("Text notification displayed when starting to repair a unit.")]
++		public readonly string StartDockingTextNotification = null;
++
++		[NotificationReference("Speech")]
++		[Desc("Speech notification played when repairing a unit is done.")]
++		public readonly string FinishDockingNotification = null;
++
++		[Desc("Text notification displayed when repairing a unit is done.")]
++		public readonly string FinishDockingTextNotification = null;
++		public override object Create(ActorInitializer init) { return new Dock(init.Self, this); }
++	}
++
++	public class Dock : ConditionalTrait<DockInfo>, ITick, INotifySold, INotifyCapture,
++		INotifyOwnerChanged, ISync, INotifyActorDisposing
++	{
++		public readonly Actor Self;
++
++		public DockManager DockedUnit = null;
++		readonly List<DockManager> reservedDockables = new List<DockManager>();
++
++		public BitSet<DockType> MyDockType => Info.Type;
++		public CPos Location => Self.Location + Info.Offset;
++		public WPos Position => Self.World.Map.CenterOfCell(Location);
++
++		public bool IsAliveAndInWorld => !IsTraitDisabled && !Self.IsDead && Self.IsInWorld && !Self.Disposed;
++		public int Occupancy { get { RefreshOccupancy(); return reservedDockables.Count; } }
++
++		public int Cost => Occupancy * Info.QueueCostModifier;
++
++		public Dock(Actor self, DockInfo info)
++			: base(info)
++		{
++			Self = self;
++		}
++
++		public bool IsUncoccupied()
++		{
++			RefreshOccupancy();
++			return reservedDockables.Count < Info.MaxOccupancy;
++		}
++
++		public bool CanDock(IDockable dockable, bool allowedToForceEnter)
++		{
++			RefreshOccupancy();
++			return CanStillDock(dockable) && (allowedToForceEnter || reservedDockables.Count < Info.MaxOccupancy || reservedDockables.Contains(dockable.DockManager));
++		}
++
++		public bool CanStillDock(IDockable dockable)
++		{
++			return IsAliveAndInWorld && dockable.IsAliveAndInWorld && dockable.Self.Owner.IsAlliedWith(Self.Owner);
++		}
++
++		public bool Reserve(DockManager dockManager)
++		{
++			RefreshOccupancy();
++			if (reservedDockables.Count < Info.MaxOccupancy && !reservedDockables.Contains(dockManager))
++			{
++				reservedDockables.Add(dockManager);
++				return true;
++			}
++
++			return false;
++		}
++
++		public void Unreserve(DockManager dockManager)
++		{
++			if (reservedDockables.Contains(dockManager))
++			{
++				dockManager.UnlinkProc(this);
++				reservedDockables.Remove(dockManager);
++			}
++		}
++
++		public void RefreshOccupancy()
++		{
++			reservedDockables.Where(h => !h.IsAliveAndInWorld).ToList().Do(h => Unreserve(h));
++		}
++
++		void ITick.Tick(Actor self)
++		{
++			// Unit was killed while docking
++			if (DockedUnit != null && !DockedUnit.IsAliveAndInWorld)
++				DockedUnit = null;
++		}
++
++		void INotifyActorDisposing.Disposing(Actor self)
++		{
++			while (reservedDockables.Count > 0)
++				Unreserve(reservedDockables[0]);
++		}
++
++		void INotifyOwnerChanged.OnOwnerChanged(Actor self, Player oldOwner, Player newOwner)
++		{
++			while (reservedDockables.Count > 0)
++				Unreserve(reservedDockables[0]);
++		}
++
++		void INotifyCapture.OnCapture(Actor self, Actor captor, Player oldOwner, Player newOwner, BitSet<CaptureType> captureTypes)
++		{
++			// Steal any docked unit too
++			if (DockedUnit != null)
++			{
++				DockedUnit.Self.ChangeOwner(newOwner);
++
++				// Relink to this dock
++				DockedUnit.LinkDock(this);
++			}
++		}
++
++		void INotifySold.Selling(Actor self) { }
++		void INotifySold.Sold(Actor self)
++		{
++			while (reservedDockables.Count > 0)
++				Unreserve(reservedDockables[0]);
++		}
++	}
++}
+diff --git a/OpenRA.Mods.Common/Traits/Buildings/DockManager.cs b/OpenRA.Mods.Common/Traits/Buildings/DockManager.cs
+new file mode 100644
+index 000000000000..d457d5e89dd9
+--- /dev/null
++++ b/OpenRA.Mods.Common/Traits/Buildings/DockManager.cs
+@@ -0,0 +1,341 @@
++#region Copyright & License Information
++/*
++ * Copyright 2007-2022 The OpenRA Developers (see AUTHORS)
++ * This file is part of OpenRA, which is free software. It is made
++ * available to you under the terms of the GNU General Public License
++ * as published by the Free Software Foundation, either version 3 of
++ * the License, or (at your option) any later version. For more
++ * information, see COPYING.
++ */
++#endregion
++
++using System;
++using System.Collections.Generic;
++using System.Linq;
++using OpenRA.Mods.Common.Activities;
++using OpenRA.Mods.Common.Orders;
++using OpenRA.Primitives;
++using OpenRA.Traits;
++
++namespace OpenRA.Mods.Common.Traits
++{
++	public class DockManagerInfo : TraitInfo
++	{
++		[Desc("Go to DockTypes on deploy.")]
++		public readonly BitSet<DockType> ReturnToBaseDockType;
++
++		[Desc("Does this actor automatically take off after resupplying?")]
++		public readonly bool TakeOffOnResupply = true;
++
++		[Desc("Should this unit transform on dock?")]
++		public readonly bool TransformOnDock = false;
++
++		[Desc("How long (in ticks) to wait until (re-)checking for a nearby available DeliveryBuilding if not yet linked to one.")]
++		public readonly int SearchForDockDelay = 125;
++
++		[CursorReference]
++		[Desc("Cursor to display when able to dock at target actor.")]
++		public readonly string EnterCursor = "enter";
++
++		[CursorReference]
++		[Desc("Cursor to display when unable to dock at target actor.")]
++		public readonly string EnterBlockedCursor = "enter-blocked";
++
++		[VoiceReference]
++		[Desc("Voice.")]
++		public readonly string Voice = "Action";
++
++		[Desc("Color to use for the target line of harvest orders.")]
++		public readonly Color DockLineColor = Color.Green;
++		public override object Create(ActorInitializer init) { return new DockManager(init.Self, this); }
++	}
++
++	public class DockManager : IIssueOrder, INotifyCreated, IResolveOrder, IOrderVoice, IIssueDeployOrder
++	{
++		public readonly Actor Self;
++		public readonly DockManagerInfo Info;
++		HashSet<IDockable> dockables;
++		HashSet<Transforms> transforms;
++		public bool IsAliveAndInWorld => !Self.IsDead && Self.IsInWorld && !Self.Disposed;
++		public Color DockLineColor => Info.DockLineColor;
++
++		Dock linkedDock = null;
++		bool Disabled => Info.TransformOnDock && (Self.CurrentActivity is Transform || !transforms.Any(t => !t.IsTraitDisabled && !t.IsTraitPaused));
++		bool CanIssueDeployOrder => !Disabled && !Info.ReturnToBaseDockType.IsEmpty && DockingPossible(Info.ReturnToBaseDockType);
++
++		public DockManager(Actor self, DockManagerInfo info)
++		{
++			Self = self;
++			Info = info;
++		}
++
++		void INotifyCreated.Created(Actor self)
++		{
++			dockables = self.TraitsImplementing<IDockable>().ToHashSet();
++			transforms = self.TraitsImplementing<Transforms>().ToHashSet();
++		}
++
++		public Dock LinkedDock
++		{
++			get
++			{
++				if (linkedDock != null)
++				{
++					if (!linkedDock.IsAliveAndInWorld)
++						UnlinkDock();
++
++					linkedDock?.RefreshOccupancy();
++				}
++
++				return linkedDock;
++			}
++		}
++
++		/// <summary>
++		/// Should be called only from Dock, use IAcceptResources.UnlinkHarvester(Harvester) or UnlinkDock() instead
++		/// </summary>
++		public void UnlinkProc(Dock proc)
++		{
++			if (linkedDock == proc)
++				linkedDock = null;
++		}
++
++		public void UnlinkDock()
++		{
++			LinkedDock?.Unreserve(this);
++		}
++
++		public void LinkDock(Dock dock)
++		{
++			if (dock == null || LinkedDock == dock)
++				return;
++
++			UnlinkDock();
++			if (dock.IsAliveAndInWorld && dock.Reserve(this))
++				linkedDock = dock;
++		}
++
++		public Dock ChooseNewDock(Dock ignore, BitSet<DockType> type = default, bool allowedToForceEnter = false)
++		{
++			var proc = type.IsEmpty ? ClosestDock(ignore, allowedToForceEnter) : ClosestDock(ignore, type, allowedToForceEnter);
++			LinkDock(proc);
++			return proc;
++		}
++
++		public Dock ClosestDock(Dock ignore, bool allowedToForceEnter = false)
++		{
++			return Self.World.ActorsWithTrait<Dock>()
++				.Where(dock => dock.Trait != ignore && CanDockAt(dock.Trait, allowedToForceEnter))
++				.Select(d => d.Trait)
++				.ClosestDock(Self);
++		}
++
++		public Dock ClosestDock(Dock ignore, BitSet<DockType> type, bool allowedToForceEnter = false)
++		{
++			var dockables = AvailableDockables(type);
++
++			// Find all docks and their occupancy count:
++			return Self.World.ActorsWithTrait<Dock>()
++				.Where(dock => dock.Trait != ignore && dockables.Any(d => d.CanDockAt(dock.Trait, allowedToForceEnter)))
++				.Select(d => d.Trait)
++				.ClosestDock(Self);
++		}
++
++		public static void DockStarted(IEnumerable<IDockable> dockables, Dock dock)
++		{
++			dockables.Do(d => d.DockStarted(dock));
++			Game.Sound.PlayNotification(dock.Self.World.Map.Rules, dock.Self.Owner, "Speech", dock.Info.StartDockingNotification, dock.Self.Owner.Faction.InternalName);
++			TextNotificationsManager.AddTransientLine(dock.Info.StartDockingTextNotification, dock.Self.Owner);
++		}
++
++		public void DockCompleted(Dock dock)
++		{
++			UnlinkDock();
++			Game.Sound.PlayNotification(dock.Self.World.Map.Rules, dock.Self.Owner, "Speech", dock.Info.FinishDockingNotification, dock.Self.Owner.Faction.InternalName);
++			TextNotificationsManager.AddTransientLine(dock.Info.FinishDockingTextNotification, dock.Self.Owner);
++		}
++
++		IEnumerable<IOrderTargeter> IIssueOrder.Orders
++		{
++			get
++			{
++				yield return new EnterAlliedActorTargeter<DockInfo>(
++					"Dock",
++					5,
++					Info.EnterCursor,
++					Info.EnterBlockedCursor,
++					DockingPossible,
++					target => CanDockAt(target));
++			}
++		}
++
++		bool IIssueDeployOrder.CanIssueDeployOrder(Actor self, bool queued) => CanIssueDeployOrder;
++
++		Order IIssueDeployOrder.IssueDeployOrder(Actor self, bool queued)
++		{
++			if (!CanIssueDeployOrder)
++				return null;
++
++			return new Order("ReturnToBase", self, queued);
++		}
++
++		void IResolveOrder.ResolveOrder(Actor self, Order order)
++		{
++			if (order.OrderString == "Dock")
++			{
++				var target = order.Target;
++
++				// Deliver orders are only valid for own/allied actors,
++				// which are guaranteed to never be frozen.
++				if (target.Type != TargetType.Actor)
++					return;
++
++				if (!CanDockAt(target.Actor) || Disabled)
++					return;
++
++				if (Info.TransformOnDock)
++				{
++					var currentTransform = self.CurrentActivity as Transform;
++					var transform = transforms.FirstOrDefault(t => !t.IsTraitDisabled && !t.IsTraitPaused);
++					if (transform == null && currentTransform == null)
++						return;
++
++					// Manually manage the inner activity queue
++					var activity = currentTransform ?? transform.GetTransformActivity();
++					if (!order.Queued)
++						activity.NextActivity?.Cancel(self);
++
++					activity.Queue(new IssueOrderAfterTransform(order.OrderString, target, Info.DockLineColor));
++
++					if (currentTransform == null)
++						self.QueueActivity(order.Queued, activity);
++				}
++				else
++				{
++					self.QueueActivity(order.Queued, new DockActivity(this, null, AvailableDocks(target.Actor).ClosestDock(self)));
++				}
++
++				self.ShowTargetLines();
++			}
++			else if (order.OrderString == "ReturnToBase")
++			{
++				if (CanIssueDeployOrder)
++				{
++					self.QueueActivity(order.Queued, new DockActivity(this, Info.ReturnToBaseDockType, null));
++					self.ShowTargetLines();
++				}
++			}
++		}
++
++		string IOrderVoice.VoicePhraseForOrder(Actor self, Order order)
++		{
++			if (order.OrderString == "Dock" && CanDockAt(order.Target.Actor))
++				return Info.Voice;
++			else if (order.OrderString == "ReturnToBase")
++				return Info.Voice;
++
++			return null;
++		}
++
++		public bool DockingPossible(Actor target, TargetModifiers modifiers)
++		{
++			return target.TraitsImplementing<Dock>().Any(dock => dockables.Any(d => d.DockingPossible(dock.MyDockType, modifiers)));
++		}
++
++		public bool DockingPossible(BitSet<DockType> type)
++		{
++			if (Info.TransformOnDock)
++				return false;
++
++			return dockables.Any(d => d.DockingPossible(type));
++		}
++
++		public bool CanDockAt(Dock target, bool allowedToForceEnter = false)
++		{
++			if (Disabled)
++				return false;
++
++			return dockables.Any(d => d.CanDockAt(target, allowedToForceEnter));
++		}
++
++		public bool CanDockAt(Actor target, bool allowedToForceEnter = false)
++		{
++			if (Disabled)
++				return false;
++
++			return target.TraitsImplementing<Dock>().Any(dock => dockables.Any(d => d.CanDockAt(dock, allowedToForceEnter)));
++		}
++
++		public IEnumerable<Dock> AvailableDocks(Actor target, bool allowedToForceEnter = false)
++		{
++			return target.TraitsImplementing<Dock>().Where(dock => dockables.Any(d => d.CanDockAt(dock, allowedToForceEnter)));
++		}
++
++		public IEnumerable<IDockable> AvailableDockables(Dock dock, bool allowedToForceEnter = false)
++		{
++			return dockables.Where(d => d.CanDockAt(dock, allowedToForceEnter));
++		}
++
++		public IEnumerable<IDockable> AvailableDockables(BitSet<DockType> type)
++		{
++			return dockables.Where(d => d.DockingPossible(type));
++		}
++
++		Order IIssueOrder.IssueOrder(Actor self, IOrderTargeter order, in Target target, bool queued)
++		{
++			if (order.OrderID == "Dock" && !Disabled)
++				return new Order(order.OrderID, self, target, queued);
++
++			return null;
++		}
++	}
++
++	public static class DockExts
++	{
++		public static Dock FindDock(this IDockable dockable, bool allowedToForceEnter = false)
++		{
++			// Find all docks and their occupancy count:
++			var docks = dockable.Self.World.ActorsWithTrait<Dock>()
++				.Where(d => dockable.CanDockAt(d.Trait, allowedToForceEnter));
++
++			if (docks.Any())
++				return docks.Select(d => d.Trait).ClosestDock(dockable.Self);
++
++			return null;
++		}
++
++		public static Dock ClosestDock(this IEnumerable<Dock> docks, Actor self)
++		{
++			var lookup = docks.ToLookup(d => d.Location);
++			var mobile = self.TraitOrDefault<Mobile>();
++
++			if (mobile != null)
++			{
++				// Start a search from each refinery's delivery location:
++				var path = mobile.PathFinder.FindPathToTargetCell(
++					self, lookup.Select(r => r.Key), self.Location, BlockedByActor.None,
++					location =>
++					{
++						if (!lookup.Contains(location))
++							return 0;
++
++						var dock = lookup[location].First();
++
++						// Prefer docks with less occupancy (multiplier is to offset distance cost):
++						return dock.Cost + (dock.Self.Owner == self.Owner ? 0 : dock.Info.AlliedCostModifier);
++					});
++
++				if (path.Count > 0)
++					return lookup[path.Last()].First();
++			}
++			else
++			{
++				return docks
++					.OrderBy(dock => (self.Location - dock.Location).LengthSquared + (dock.Self.Owner == self.Owner ? 0 : dock.Info.AlliedCostModifier + dock.Cost))
++					.FirstOrDefault();
++			}
++
++			return null;
++		}
++	}
++}
+diff --git a/OpenRA.Mods.Common/Traits/Buildings/Refinery.cs b/OpenRA.Mods.Common/Traits/Buildings/Refinery.cs
+deleted file mode 100644
+index b3ee9dd1b6bb..000000000000
+--- a/OpenRA.Mods.Common/Traits/Buildings/Refinery.cs
++++ /dev/null
+@@ -1,207 +0,0 @@
+-#region Copyright & License Information
+-/*
+- * Copyright 2007-2022 The OpenRA Developers (see AUTHORS)
+- * This file is part of OpenRA, which is free software. It is made
+- * available to you under the terms of the GNU General Public License
+- * as published by the Free Software Foundation, either version 3 of
+- * the License, or (at your option) any later version. For more
+- * information, see COPYING.
+- */
+-#endregion
+-
+-using System;
+-using System.Collections.Generic;
+-using System.Linq;
+-using OpenRA.Activities;
+-using OpenRA.Mods.Common.Activities;
+-using OpenRA.Mods.Common.Effects;
+-using OpenRA.Mods.Common.Traits.Render;
+-using OpenRA.Primitives;
+-using OpenRA.Traits;
+-
+-namespace OpenRA.Mods.Common.Traits
+-{
+-	public class RefineryInfo : TraitInfo, Requires<WithSpriteBodyInfo>, IAcceptResourcesInfo
+-	{
+-		[Desc("Actual harvester facing when docking.")]
+-		public readonly WAngle DockAngle = WAngle.Zero;
+-
+-		[Desc("Docking cell relative to top-left cell.")]
+-		public readonly CVec DockOffset = CVec.Zero;
+-
+-		[Desc("Does the refinery require the harvester to be dragged in?")]
+-		public readonly bool IsDragRequired = false;
+-
+-		[Desc("Vector by which the harvester will be dragged when docking.")]
+-		public readonly WVec DragOffset = WVec.Zero;
+-
+-		[Desc("In how many steps to perform the dragging?")]
+-		public readonly int DragLength = 0;
+-
+-		[Desc("Store resources in silos. Adds cash directly without storing if set to false.")]
+-		public readonly bool UseStorage = true;
+-
+-		[Desc("Discard resources once silo capacity has been reached.")]
+-		public readonly bool DiscardExcessResources = false;
+-
+-		public readonly bool ShowTicks = true;
+-		public readonly int TickLifetime = 30;
+-		public readonly int TickVelocity = 2;
+-		public readonly int TickRate = 10;
+-
+-		public override object Create(ActorInitializer init) { return new Refinery(init.Self, this); }
+-	}
+-
+-	public class Refinery : INotifyCreated, ITick, IAcceptResources, INotifySold, INotifyCapture,
+-		INotifyOwnerChanged, ISync, INotifyActorDisposing
+-	{
+-		readonly Actor self;
+-		readonly RefineryInfo info;
+-		PlayerResources playerResources;
+-		IEnumerable<int> resourceValueModifiers;
+-
+-		int currentDisplayTick = 0;
+-		int currentDisplayValue = 0;
+-
+-		[Sync]
+-		Actor dockedHarv = null;
+-
+-		[Sync]
+-		bool preventDock = false;
+-
+-		public bool AllowDocking => !preventDock;
+-		public CVec DeliveryOffset => info.DockOffset;
+-		public WAngle DeliveryAngle => info.DockAngle;
+-		public bool IsDragRequired => info.IsDragRequired;
+-		public WVec DragOffset => info.DragOffset;
+-		public int DragLength => info.DragLength;
+-
+-		public Refinery(Actor self, RefineryInfo info)
+-		{
+-			this.self = self;
+-			this.info = info;
+-			playerResources = self.Owner.PlayerActor.Trait<PlayerResources>();
+-			currentDisplayTick = info.TickRate;
+-		}
+-
+-		void INotifyCreated.Created(Actor self)
+-		{
+-			resourceValueModifiers = self.TraitsImplementing<IResourceValueModifier>().ToArray().Select(m => m.GetResourceValueModifier());
+-		}
+-
+-		public virtual Activity DockSequence(Actor harv, Actor self)
+-		{
+-			return new SpriteHarvesterDockSequence(harv, self, DeliveryAngle, IsDragRequired, DragOffset, DragLength);
+-		}
+-
+-		public IEnumerable<TraitPair<Harvester>> GetLinkedHarvesters()
+-		{
+-			return self.World.ActorsWithTrait<Harvester>()
+-				.Where(a => a.Trait.LinkedProc == self);
+-		}
+-
+-		int IAcceptResources.AcceptResources(string resourceType, int count)
+-		{
+-			if (!playerResources.Info.ResourceValues.TryGetValue(resourceType, out var resourceValue))
+-				return 0;
+-
+-			var value = Util.ApplyPercentageModifiers(count * resourceValue, resourceValueModifiers);
+-
+-			if (info.UseStorage)
+-			{
+-				var storageLimit = Math.Max(playerResources.ResourceCapacity - playerResources.Resources, 0);
+-				if (!info.DiscardExcessResources)
+-				{
+-					// Reduce amount if needed until it will fit the available storage
+-					while (value > storageLimit)
+-						value = Util.ApplyPercentageModifiers(--count * resourceValue, resourceValueModifiers);
+-				}
+-				else
+-					value = Math.Min(value, playerResources.ResourceCapacity - playerResources.Resources);
+-
+-				playerResources.GiveResources(value);
+-			}
+-			else
+-				value = playerResources.ChangeCash(value);
+-
+-			foreach (var notify in self.World.ActorsWithTrait<INotifyResourceAccepted>())
+-			{
+-				if (notify.Actor.Owner != self.Owner)
+-					continue;
+-
+-				notify.Trait.OnResourceAccepted(notify.Actor, self, resourceType, count, value);
+-			}
+-
+-			if (info.ShowTicks)
+-				currentDisplayValue += value;
+-
+-			return count;
+-		}
+-
+-		void CancelDock()
+-		{
+-			preventDock = true;
+-		}
+-
+-		void ITick.Tick(Actor self)
+-		{
+-			// Harvester was killed while unloading
+-			if (dockedHarv != null && dockedHarv.IsDead)
+-				dockedHarv = null;
+-
+-			if (info.ShowTicks && currentDisplayValue > 0 && --currentDisplayTick <= 0)
+-			{
+-				var temp = currentDisplayValue;
+-				if (self.Owner.IsAlliedWith(self.World.RenderPlayer))
+-					self.World.AddFrameEndTask(w => w.Add(new FloatingText(self.CenterPosition, self.Owner.Color, FloatingText.FormatCashTick(temp), 30)));
+-				currentDisplayTick = info.TickRate;
+-				currentDisplayValue = 0;
+-			}
+-		}
+-
+-		void INotifyActorDisposing.Disposing(Actor self)
+-		{
+-			CancelDock();
+-			foreach (var harv in GetLinkedHarvesters())
+-				harv.Trait.UnlinkProc(harv.Actor, self);
+-		}
+-
+-		public void OnDock(Actor harv, DeliverResources dockOrder)
+-		{
+-			if (!preventDock)
+-			{
+-				dockOrder.QueueChild(new CallFunc(() => dockedHarv = harv, false));
+-				dockOrder.QueueChild(DockSequence(harv, self));
+-				dockOrder.QueueChild(new CallFunc(() => dockedHarv = null, false));
+-			}
+-		}
+-
+-		void INotifyOwnerChanged.OnOwnerChanged(Actor self, Player oldOwner, Player newOwner)
+-		{
+-			// Unlink any harvesters
+-			foreach (var harv in GetLinkedHarvesters())
+-				harv.Trait.UnlinkProc(harv.Actor, self);
+-
+-			playerResources = newOwner.PlayerActor.Trait<PlayerResources>();
+-		}
+-
+-		void INotifyCapture.OnCapture(Actor self, Actor captor, Player oldOwner, Player newOwner, BitSet<CaptureType> captureTypes)
+-		{
+-			// Steal any docked harv too
+-			if (dockedHarv != null)
+-			{
+-				dockedHarv.ChangeOwner(newOwner);
+-
+-				// Relink to this refinery
+-				dockedHarv.Trait<Harvester>().LinkProc(self);
+-			}
+-		}
+-
+-		void INotifySold.Selling(Actor self) { CancelDock(); }
+-		void INotifySold.Sold(Actor self)
+-		{
+-			foreach (var harv in GetLinkedHarvesters())
+-				harv.Trait.UnlinkProc(harv.Actor, self);
+-		}
+-	}
+-}
+diff --git a/OpenRA.Mods.Common/Traits/Buildings/Reservable.cs b/OpenRA.Mods.Common/Traits/Buildings/Reservable.cs
+deleted file mode 100644
+index da5e0c2a39b2..000000000000
+--- a/OpenRA.Mods.Common/Traits/Buildings/Reservable.cs
++++ /dev/null
+@@ -1,106 +0,0 @@
+-#region Copyright & License Information
+-/*
+- * Copyright 2007-2022 The OpenRA Developers (see AUTHORS)
+- * This file is part of OpenRA, which is free software. It is made
+- * available to you under the terms of the GNU General Public License
+- * as published by the Free Software Foundation, either version 3 of
+- * the License, or (at your option) any later version. For more
+- * information, see COPYING.
+- */
+-#endregion
+-
+-using System;
+-using OpenRA.Mods.Common.Activities;
+-using OpenRA.Primitives;
+-using OpenRA.Traits;
+-
+-namespace OpenRA.Mods.Common.Traits
+-{
+-	[Desc("Reserve landing places for aircraft.")]
+-	class ReservableInfo : TraitInfo<Reservable> { }
+-
+-	public class Reservable : ITick, INotifyOwnerChanged, INotifySold, INotifyActorDisposing, INotifyCreated
+-	{
+-		Actor reservedFor;
+-		Aircraft reservedForAircraft;
+-		RallyPoint rallyPoint;
+-
+-		void INotifyCreated.Created(Actor self)
+-		{
+-			rallyPoint = self.TraitOrDefault<RallyPoint>();
+-		}
+-
+-		void ITick.Tick(Actor self)
+-		{
+-			// Nothing to do.
+-			if (reservedFor == null)
+-				return;
+-
+-			if (!Target.FromActor(reservedFor).IsValidFor(self))
+-			{
+-				// Not likely to arrive now.
+-				reservedForAircraft.UnReserve();
+-				reservedFor = null;
+-				reservedForAircraft = null;
+-			}
+-		}
+-
+-		public IDisposable Reserve(Actor self, Actor forActor, Aircraft forAircraft)
+-		{
+-			if (reservedForAircraft != null && reservedForAircraft.MayYieldReservation)
+-				UnReserve(self);
+-
+-			reservedFor = forActor;
+-			reservedForAircraft = forAircraft;
+-
+-			// NOTE: we really don't care about the GC eating DisposableActions that apply to a world *other* than
+-			// the one we're playing in.
+-			return new DisposableAction(
+-				() => { reservedFor = null; reservedForAircraft = null; },
+-				() => Game.RunAfterTick(() =>
+-				{
+-					if (Game.IsCurrentWorld(self.World))
+-						throw new InvalidOperationException(
+-							$"Attempted to finalize an undisposed DisposableAction. {forActor.Info.Name} ({forActor.ActorID}) reserved {self.Info.Name} ({self.ActorID})");
+-				}));
+-		}
+-
+-		public static bool IsReserved(Actor a)
+-		{
+-			var res = a.TraitOrDefault<Reservable>();
+-			return res != null && res.reservedForAircraft != null && !res.reservedForAircraft.MayYieldReservation;
+-		}
+-
+-		public static bool IsAvailableFor(Actor reservable, Actor forActor)
+-		{
+-			var res = reservable.TraitOrDefault<Reservable>();
+-			return res == null || res.reservedForAircraft == null || res.reservedForAircraft.MayYieldReservation || res.reservedFor == forActor;
+-		}
+-
+-		void UnReserve(Actor self)
+-		{
+-			if (reservedForAircraft != null)
+-			{
+-				if (reservedForAircraft.GetActorBelow() == self)
+-				{
+-					// HACK: Cache this in a local var, such that the inner activity of AttackMoveActivity can access the trait easily after reservedForAircraft was nulled
+-					var aircraft = reservedForAircraft;
+-					if (rallyPoint != null && rallyPoint.Path.Count > 0)
+-						foreach (var cell in rallyPoint.Path)
+-							reservedFor.QueueActivity(new AttackMoveActivity(reservedFor, () => aircraft.MoveTo(cell, 1, targetLineColor: Color.OrangeRed)));
+-					else
+-						reservedFor.QueueActivity(new TakeOff(reservedFor));
+-				}
+-
+-				reservedForAircraft.UnReserve();
+-			}
+-		}
+-
+-		void INotifyActorDisposing.Disposing(Actor self) { UnReserve(self); }
+-
+-		void INotifyOwnerChanged.OnOwnerChanged(Actor self, Player oldOwner, Player newOwner) { UnReserve(self); }
+-
+-		void INotifySold.Selling(Actor self) { UnReserve(self); }
+-		void INotifySold.Sold(Actor self) { UnReserve(self); }
+-	}
+-}
+diff --git a/OpenRA.Mods.Common/Traits/Buildings/TransformsIntoAircraft.cs b/OpenRA.Mods.Common/Traits/Buildings/TransformsIntoAircraft.cs
+index e1213a4b150a..27f7dc97a57a 100644
+--- a/OpenRA.Mods.Common/Traits/Buildings/TransformsIntoAircraft.cs
++++ b/OpenRA.Mods.Common/Traits/Buildings/TransformsIntoAircraft.cs
+@@ -9,10 +9,8 @@
+  */
+ #endregion
+ 
+-using System.Collections.Generic;
+ using System.Linq;
+ using OpenRA.Mods.Common.Activities;
+-using OpenRA.Mods.Common.Orders;
+ using OpenRA.Primitives;
+ using OpenRA.Traits;
+ 
+@@ -24,39 +22,13 @@ public class TransformsIntoAircraftInfo : ConditionalTraitInfo, Requires<Transfo
+ 		[Desc("Can the actor be ordered to move in to shroud?")]
+ 		public readonly bool MoveIntoShroud = true;
+ 
+-		[ActorReference]
+-		[FieldLoader.Require]
+-		public readonly HashSet<string> DockActors = new HashSet<string> { };
+-
+-		[VoiceReference]
+-		public readonly string Voice = "Action";
+-
+-		[Desc("Require the force-move modifier to display the move cursor.")]
+-		public readonly bool RequiresForceMove = false;
+-
+-		[CursorReference]
+-		[Desc("Cursor to display when a move order can be issued at target location.")]
+-		public readonly string Cursor = "move";
+-
+-		[CursorReference]
+-		[Desc("Cursor to display when a move order cannot be issued at target location.")]
+-		public readonly string BlockedCursor = "move-blocked";
+-
+-		[CursorReference]
+-		[Desc("Cursor to display when able to land at target building.")]
+-		public readonly string EnterCursor = "enter";
+-
+-		[CursorReference]
+-		[Desc("Cursor to display when unable to land at target building.")]
+-		public readonly string EnterBlockedCursor = "enter-blocked";
+-
+ 		[Desc("Color to use for the target line for regular move orders.")]
+ 		public readonly Color TargetLineColor = Color.Green;
+ 
+ 		public override object Create(ActorInitializer init) { return new TransformsIntoAircraft(init, this); }
+ 	}
+ 
+-	public class TransformsIntoAircraft : ConditionalTrait<TransformsIntoAircraftInfo>, IIssueOrder, IResolveOrder, IOrderVoice
++	public class TransformsIntoAircraft : ConditionalTrait<TransformsIntoAircraftInfo>, IResolveOrder
+ 	{
+ 		readonly Actor self;
+ 		Transforms[] transforms;
+@@ -73,47 +45,6 @@ protected override void Created(Actor self)
+ 			base.Created(self);
+ 		}
+ 
+-		IEnumerable<IOrderTargeter> IIssueOrder.Orders
+-		{
+-			get
+-			{
+-				if (!IsTraitDisabled)
+-				{
+-					yield return new EnterAlliedActorTargeter<BuildingInfo>(
+-						"Enter",
+-						5,
+-						Info.EnterCursor,
+-						Info.EnterBlockedCursor,
+-						AircraftCanEnter,
+-						target => Reservable.IsAvailableFor(target, self));
+-
+-					yield return new AircraftMoveOrderTargeter(this);
+-				}
+-			}
+-		}
+-
+-		public bool AircraftCanEnter(Actor a, TargetModifiers modifiers)
+-		{
+-			if (Info.RequiresForceMove && !modifiers.HasModifier(TargetModifiers.ForceMove))
+-				return false;
+-
+-			return AircraftCanEnter(a);
+-		}
+-
+-		public bool AircraftCanEnter(Actor a)
+-		{
+-			return !self.AppearsHostileTo(a) && Info.DockActors.Contains(a.Info.Name);
+-		}
+-
+-		// Note: Returns a valid order even if the unit can't move to the target
+-		Order IIssueOrder.IssueOrder(Actor self, IOrderTargeter order, in Target target, bool queued)
+-		{
+-			if (order.OrderID == "Enter" || order.OrderID == "Move")
+-				return new Order(order.OrderID, self, target, queued);
+-
+-			return null;
+-		}
+-
+ 		void IResolveOrder.ResolveOrder(Actor self, Order order)
+ 		{
+ 			if (IsTraitDisabled)
+@@ -125,16 +56,6 @@ void IResolveOrder.ResolveOrder(Actor self, Order order)
+ 				if (!Info.MoveIntoShroud && !self.Owner.Shroud.IsExplored(cell))
+ 					return;
+ 			}
+-			else if (order.OrderString == "Enter")
+-			{
+-				// Enter and Repair orders are only valid for own/allied actors,
+-				// which are guaranteed to never be frozen.
+-				if (order.Target.Type != TargetType.Actor)
+-					return;
+-
+-				if (!AircraftCanEnter(order.Target.Actor))
+-					return;
+-			}
+ 			else
+ 				return;
+ 
+@@ -155,68 +76,5 @@ void IResolveOrder.ResolveOrder(Actor self, Order order)
+ 
+ 			self.ShowTargetLines();
+ 		}
+-
+-		string IOrderVoice.VoicePhraseForOrder(Actor self, Order order)
+-		{
+-			if (IsTraitDisabled)
+-				return null;
+-
+-			switch (order.OrderString)
+-			{
+-				case "Move":
+-					if (!Info.MoveIntoShroud && order.Target.Type != TargetType.Invalid)
+-					{
+-						var cell = self.World.Map.CellContaining(order.Target.CenterPosition);
+-						if (!self.Owner.Shroud.IsExplored(cell))
+-							return null;
+-					}
+-
+-					return Info.Voice;
+-				case "Enter":
+-					return Info.Voice;
+-				default: return null;
+-			}
+-		}
+-
+-		class AircraftMoveOrderTargeter : IOrderTargeter
+-		{
+-			readonly TransformsIntoAircraft aircraft;
+-
+-			public bool TargetOverridesSelection(Actor self, in Target target, List<Actor> actorsAt, CPos xy, TargetModifiers modifiers)
+-			{
+-				// Always prioritise orders over selecting other peoples actors or own actors that are already selected
+-				if (target.Type == TargetType.Actor && (target.Actor.Owner != self.Owner || self.World.Selection.Contains(target.Actor)))
+-					return true;
+-
+-				return modifiers.HasModifier(TargetModifiers.ForceMove);
+-			}
+-
+-			public AircraftMoveOrderTargeter(TransformsIntoAircraft aircraft)
+-			{
+-				this.aircraft = aircraft;
+-			}
+-
+-			public string OrderID => "Move";
+-			public int OrderPriority => 4;
+-			public bool IsQueued { get; protected set; }
+-
+-			public bool CanTarget(Actor self, in Target target, ref TargetModifiers modifiers, ref string cursor)
+-			{
+-				if (target.Type != TargetType.Terrain || (aircraft.Info.RequiresForceMove && !modifiers.HasModifier(TargetModifiers.ForceMove)))
+-					return false;
+-
+-				var location = self.World.Map.CellContaining(target.CenterPosition);
+-				var explored = self.Owner.Shroud.IsExplored(location);
+-				cursor = self.World.Map.Contains(location) ? aircraft.Info.Cursor : aircraft.Info.BlockedCursor;
+-
+-				IsQueued = modifiers.HasModifier(TargetModifiers.ForceQueue);
+-
+-				if (!(self.CurrentActivity is Transform || aircraft.transforms.Any(t => !t.IsTraitDisabled && !t.IsTraitPaused))
+-					|| (!explored && !aircraft.Info.MoveIntoShroud))
+-					cursor = aircraft.Info.BlockedCursor;
+-
+-				return true;
+-			}
+-		}
+ 	}
+ }
+diff --git a/OpenRA.Mods.Common/Traits/Buildings/TransformsIntoMobile.cs b/OpenRA.Mods.Common/Traits/Buildings/TransformsIntoMobile.cs
+index e8d9552af573..fa4ad0b90255 100644
+--- a/OpenRA.Mods.Common/Traits/Buildings/TransformsIntoMobile.cs
++++ b/OpenRA.Mods.Common/Traits/Buildings/TransformsIntoMobile.cs
+@@ -136,7 +136,7 @@ void IResolveOrder.ResolveOrder(Actor self, Order order)
+ 				// We don't want Stop orders from traits other than Mobile or Aircraft to cancel Resupply activity.
+ 				// Resupply is always either the main activity or a child of ReturnToBase.
+ 				// TODO: This should generally only cancel activities queued by this trait.
+-				if (self.CurrentActivity == null || self.CurrentActivity is Resupply || self.CurrentActivity is ReturnToBase)
++				if (self.CurrentActivity == null || self.CurrentActivity is DockSequence)
+ 					return;
+ 
+ 				self.CancelActivity();
+diff --git a/OpenRA.Mods.Common/Traits/Buildings/TransformsIntoRepairable.cs b/OpenRA.Mods.Common/Traits/Buildings/TransformsIntoRepairable.cs
+deleted file mode 100644
+index 47359cb87c54..000000000000
+--- a/OpenRA.Mods.Common/Traits/Buildings/TransformsIntoRepairable.cs
++++ /dev/null
+@@ -1,147 +0,0 @@
+-#region Copyright & License Information
+-/*
+- * Copyright 2007-2022 The OpenRA Developers (see AUTHORS)
+- * This file is part of OpenRA, which is free software. It is made
+- * available to you under the terms of the GNU General Public License
+- * as published by the Free Software Foundation, either version 3 of
+- * the License, or (at your option) any later version. For more
+- * information, see COPYING.
+- */
+-#endregion
+-
+-using System.Collections.Generic;
+-using System.Linq;
+-using OpenRA.Mods.Common.Activities;
+-using OpenRA.Mods.Common.Orders;
+-using OpenRA.Primitives;
+-using OpenRA.Traits;
+-
+-namespace OpenRA.Mods.Common.Traits
+-{
+-	[Desc("Add to a building to expose a move cursor that triggers Transforms and issues a repair order to the transformed actor.")]
+-	public class TransformsIntoRepairableInfo : ConditionalTraitInfo, Requires<TransformsInfo>, Requires<IHealthInfo>
+-	{
+-		[ActorReference]
+-		[FieldLoader.Require]
+-		public readonly HashSet<string> RepairActors = new HashSet<string> { };
+-
+-		[VoiceReference]
+-		public readonly string Voice = "Action";
+-
+-		[Desc("Color to use for the target line.")]
+-		public readonly Color TargetLineColor = Color.Green;
+-
+-		[Desc("Require the force-move modifier to display the enter cursor.")]
+-		public readonly bool RequiresForceMove = false;
+-
+-		[CursorReference]
+-		[Desc("Cursor to display when able to be repaired at target actor.")]
+-		public readonly string EnterCursor = "enter";
+-
+-		[CursorReference]
+-		[Desc("Cursor to display when unable to be repaired at target actor.")]
+-		public readonly string EnterBlockedCursor = "enter-blocked";
+-
+-		public override object Create(ActorInitializer init) { return new TransformsIntoRepairable(init.Self, this); }
+-	}
+-
+-	public class TransformsIntoRepairable : ConditionalTrait<TransformsIntoRepairableInfo>, IIssueOrder, IResolveOrder, IOrderVoice
+-	{
+-		readonly Actor self;
+-		Transforms[] transforms;
+-		IHealth health;
+-
+-		public TransformsIntoRepairable(Actor self, TransformsIntoRepairableInfo info)
+-			: base(info)
+-		{
+-			this.self = self;
+-		}
+-
+-		protected override void Created(Actor self)
+-		{
+-			transforms = self.TraitsImplementing<Transforms>().ToArray();
+-			health = self.Trait<IHealth>();
+-			base.Created(self);
+-		}
+-
+-		IEnumerable<IOrderTargeter> IIssueOrder.Orders
+-		{
+-			get
+-			{
+-				if (!IsTraitDisabled)
+-					yield return new EnterAlliedActorTargeter<BuildingInfo>(
+-						"Repair",
+-						5,
+-						Info.EnterCursor,
+-						Info.EnterBlockedCursor,
+-						CanRepairAt,
+-						_ => CanRepair());
+-			}
+-		}
+-
+-		bool CanRepair()
+-		{
+-			if (!(self.CurrentActivity is Transform || transforms.Any(t => !t.IsTraitDisabled && !t.IsTraitPaused)))
+-				return false;
+-
+-			return health.DamageState > DamageState.Undamaged;
+-		}
+-
+-		bool CanRepairAt(Actor target, TargetModifiers modifiers)
+-		{
+-			if (Info.RequiresForceMove && !modifiers.HasModifier(TargetModifiers.ForceMove))
+-				return false;
+-
+-			return CanRepairAt(target);
+-		}
+-
+-		bool CanRepairAt(Actor target)
+-		{
+-			return Info.RepairActors.Contains(target.Info.Name);
+-		}
+-
+-		Order IIssueOrder.IssueOrder(Actor self, IOrderTargeter order, in Target target, bool queued)
+-		{
+-			if (order.OrderID == "Repair")
+-				return new Order(order.OrderID, self, target, queued);
+-
+-			return null;
+-		}
+-
+-		void IResolveOrder.ResolveOrder(Actor self, Order order)
+-		{
+-			if (IsTraitDisabled || order.OrderString != "Repair")
+-				return;
+-
+-			// Repair orders are only valid for own/allied actors,
+-			// which are guaranteed to never be frozen.
+-			if (order.Target.Type != TargetType.Actor)
+-				return;
+-
+-			if (!CanRepairAt(order.Target.Actor) || !CanRepair())
+-				return;
+-
+-			var currentTransform = self.CurrentActivity as Transform;
+-			var transform = transforms.FirstOrDefault(t => !t.IsTraitDisabled && !t.IsTraitPaused);
+-			if (transform == null && currentTransform == null)
+-				return;
+-
+-			// Manually manage the inner activity queue
+-			var activity = currentTransform ?? transform.GetTransformActivity();
+-			if (!order.Queued)
+-				activity.NextActivity?.Cancel(self);
+-
+-			activity.Queue(new IssueOrderAfterTransform(order.OrderString, order.Target, Info.TargetLineColor));
+-
+-			if (currentTransform == null)
+-				self.QueueActivity(order.Queued, activity);
+-
+-			self.ShowTargetLines();
+-		}
+-
+-		string IOrderVoice.VoicePhraseForOrder(Actor self, Order order)
+-		{
+-			return order.OrderString == "Repair" && !IsTraitDisabled && CanRepair() ? Info.Voice : null;
+-		}
+-	}
+-}
+diff --git a/OpenRA.Mods.Common/Traits/CarryableHarvester.cs b/OpenRA.Mods.Common/Traits/CarryableHarvester.cs
+index d6e69d453529..9416492e9814 100644
+--- a/OpenRA.Mods.Common/Traits/CarryableHarvester.cs
++++ b/OpenRA.Mods.Common/Traits/CarryableHarvester.cs
+@@ -34,18 +34,17 @@ void INotifyHarvesterAction.MovingToResources(Actor self, CPos targetCell)
+ 				t.RequestTransport(self, targetCell);
+ 		}
+ 
+-		void INotifyHarvesterAction.MovingToRefinery(Actor self, Actor refineryActor)
++		void INotifyDockableAction.MovingToDock(DockManager dockable, Dock dock)
+ 		{
+-			var iao = refineryActor.Trait<IAcceptResources>();
+-			var location = refineryActor.Location + iao.DeliveryOffset;
++			var location = dock.Location;
+ 			foreach (var t in transports)
+-				t.RequestTransport(self, location);
++				t.RequestTransport(dockable.Self, location);
+ 		}
+ 
+-		void INotifyHarvesterAction.MovementCancelled(Actor self)
++		void INotifyDockableAction.MovementCancelled(DockManager dockable)
+ 		{
+ 			foreach (var t in transports)
+-				t.MovementCancelled(self);
++				t.MovementCancelled(dockable.Self);
+ 		}
+ 
+ 		void INotifyHarvesterAction.Harvested(Actor self, string resourceType) { }
+diff --git a/OpenRA.Mods.Common/Traits/Cloak.cs b/OpenRA.Mods.Common/Traits/Cloak.cs
+index 5e4a9b4e5b7a..a701c02e835f 100644
+--- a/OpenRA.Mods.Common/Traits/Cloak.cs
++++ b/OpenRA.Mods.Common/Traits/Cloak.cs
+@@ -270,7 +270,7 @@ Color IRadarColorModifier.RadarColorOverride(Actor self, Color color)
+ 			return color;
+ 		}
+ 
+-		void INotifyDockable.Docked()
++		void INotifyDockable.Docked(DockManager dockable, Dock dock)
+ 		{
+ 			if (Info.UncloakOn.HasFlag(UncloakType.Dock))
+ 			{
+@@ -279,7 +279,9 @@ void INotifyDockable.Docked()
+ 			}
+ 		}
+ 
+-		void INotifyDockable.Undocked()
++		void INotifyDockable.DockTick(DockManager dockable, Dock dock) { }
++
++		void INotifyDockable.Undocked(DockManager dockable, Dock dock)
+ 		{
+ 			if (Info.UncloakOn.HasFlag(UncloakType.Dock))
+ 				isDocking = false;
+diff --git a/OpenRA.Mods.Common/Traits/Dockable.cs b/OpenRA.Mods.Common/Traits/Dockable.cs
+new file mode 100644
+index 000000000000..bf01c7945af1
+--- /dev/null
++++ b/OpenRA.Mods.Common/Traits/Dockable.cs
+@@ -0,0 +1,92 @@
++#region Copyright & License Information
++/*
++ * Copyright 2007-2022 The OpenRA Developers (see AUTHORS)
++ * This file is part of OpenRA, which is free software. It is made
++ * available to you under the terms of the GNU General Public License
++ * as published by the Free Software Foundation, either version 3 of
++ * the License, or (at your option) any later version. For more
++ * information, see COPYING.
++ */
++#endregion
++
++using System.Collections.Generic;
++using OpenRA.Primitives;
++using OpenRA.Support;
++using OpenRA.Traits;
++
++namespace OpenRA.Mods.Common.Traits
++{
++	public abstract class DockableInfo : ConditionalTraitInfo, Requires<DockManagerInfo>
++	{
++		[ConsumedConditionReference]
++		[Desc("Boolean expression defining the condition under which the regular (non-force) enter cursor is disabled.")]
++		public readonly BooleanExpression RequireForceMoveCondition = null;
++	}
++
++	public abstract class Dockable<InfoType> : ConditionalTrait<InfoType>, IDockable, IObservesVariables
++		where InfoType : DockableInfo
++	{
++		public readonly Actor Self;
++		protected readonly Mobile Mobile;
++
++		bool requireForceMove;
++
++		public BitSet<DockType> MyDockType => DockType();
++		public bool IsAliveAndInWorld => !IsTraitDisabled && !Self.IsDead && Self.IsInWorld && !Self.Disposed;
++		Actor IDockable.Self => Self;
++
++		readonly DockManager dockManager;
++		public DockManager DockManager => dockManager;
++
++		protected abstract BitSet<DockType> DockType();
++
++		public Dockable(Actor self, InfoType info)
++			: base(info)
++		{
++			Self = self;
++			Mobile = self.TraitOrDefault<Mobile>();
++			dockManager = self.Trait<DockManager>();
++		}
++
++		public virtual bool CanDock()
++		{
++			return true;
++		}
++
++		public bool DockingPossible(BitSet<DockType> type)
++		{
++			return CanDock() && DockType().Overlaps(type);
++		}
++
++		public bool DockingPossible(BitSet<DockType> type, TargetModifiers modifiers)
++		{
++			if (requireForceMove && !modifiers.HasModifier(TargetModifiers.ForceMove))
++				return false;
++
++			return DockingPossible(type);
++		}
++
++		public bool CanDockAt(Dock target, bool allowedToForceEnter)
++		{
++			if (DockingPossible(target.MyDockType) && target.CanDock(this, allowedToForceEnter))
++				return allowedToForceEnter || CanDock();
++
++			return false;
++		}
++
++		public virtual void DockStarted(Dock dock) { }
++
++		public virtual bool TickDock(Dock dock) { return false; }
++
++		IEnumerable<VariableObserver> IObservesVariables.GetVariableObservers()
++		{
++			if (Info.RequireForceMoveCondition != null)
++				yield return new VariableObserver(RequireForceMoveConditionChanged, Info.RequireForceMoveCondition.Variables);
++		}
++
++		void RequireForceMoveConditionChanged(Actor self, IReadOnlyDictionary<string, int> conditions)
++		{
++			requireForceMove = Info.RequireForceMoveCondition.Evaluate(conditions);
++		}
++	}
++}
+diff --git a/OpenRA.Mods.Common/Traits/Harvester.cs b/OpenRA.Mods.Common/Traits/Harvester.cs
+index 163421cc529f..9baf06dafcee 100644
+--- a/OpenRA.Mods.Common/Traits/Harvester.cs
++++ b/OpenRA.Mods.Common/Traits/Harvester.cs
+@@ -14,26 +14,30 @@
+ using System.Collections.ObjectModel;
+ using System.Linq;
+ using OpenRA.Mods.Common.Activities;
+-using OpenRA.Mods.Common.Orders;
+-using OpenRA.Mods.Common.Pathfinder;
++using OpenRA.Mods.Common.Effects;
+ using OpenRA.Primitives;
+ using OpenRA.Traits;
+ 
+ namespace OpenRA.Mods.Common.Traits
+ {
+-	public class HarvesterInfo : ConditionalTraitInfo, Requires<MobileInfo>
++	public class HarvesterInfo : DockableInfo
+ 	{
+-		public readonly HashSet<string> DeliveryBuildings = new HashSet<string>();
+-
+-		[Desc("How long (in ticks) to wait until (re-)checking for a nearby available DeliveryBuilding if not yet linked to one.")]
+-		public readonly int SearchForDeliveryBuildingDelay = 125;
+-
+ 		[Desc("Cell to move to when automatically unblocking DeliveryBuilding.")]
+ 		public readonly CVec UnblockCell = new CVec(0, 4);
+ 
+ 		[Desc("How much resources it can carry.")]
+ 		public readonly int Capacity = 28;
+ 
++		public readonly bool UseStorage = true;
++
++		[Desc("Discard resources once silo capacity has been reached.")]
++		public readonly bool DiscardExcessResources = false;
++
++		public readonly bool ShowTicks = true;
++		public readonly int TickLifetime = 30;
++		public readonly int TickVelocity = 2;
++		public readonly int TickRate = 10;
++
+ 		public readonly int BaleLoadDelay = 4;
+ 
+ 		[Desc("How fast it can dump it's carryage.")]
+@@ -62,18 +66,15 @@ public class HarvesterInfo : ConditionalTraitInfo, Requires<MobileInfo>
+ 		[Desc("Interval to wait between searches when there are no resources nearby.")]
+ 		public readonly int WaitDuration = 25;
+ 
+-		[Desc("Find a new refinery to unload at if more than this many harvesters are already waiting.")]
+-		public readonly int MaxUnloadQueue = 3;
+-
+-		[Desc("The pathfinding cost penalty applied for each harvester waiting to unload at a refinery.")]
+-		public readonly int UnloadQueueCostModifier = 12;
+-
+ 		[Desc("The pathfinding cost penalty applied for cells directly away from the refinery.")]
+ 		public readonly int ResourceRefineryDirectionPenalty = 200;
+ 
+ 		[Desc("Does the unit queue harvesting runs instead of individual harvest actions?")]
+ 		public readonly bool QueueFullLoad = false;
+ 
++		[Desc("Unload docking type")]
++		public readonly BitSet<DockType> DockType = new BitSet<DockType>("unload");
++
+ 		[GrantedConditionReference]
+ 		[Desc("Condition to grant while empty.")]
+ 		public readonly string EmptyCondition = null;
+@@ -81,23 +82,9 @@ public class HarvesterInfo : ConditionalTraitInfo, Requires<MobileInfo>
+ 		[VoiceReference]
+ 		public readonly string HarvestVoice = "Action";
+ 
+-		[VoiceReference]
+-		public readonly string DeliverVoice = "Action";
+-
+ 		[Desc("Color to use for the target line of harvest orders.")]
+ 		public readonly Color HarvestLineColor = Color.Crimson;
+ 
+-		[Desc("Color to use for the target line of harvest orders.")]
+-		public readonly Color DeliverLineColor = Color.Green;
+-
+-		[CursorReference]
+-		[Desc("Cursor to display when able to unload at target actor.")]
+-		public readonly string EnterCursor = "enter";
+-
+-		[CursorReference]
+-		[Desc("Cursor to display when unable to unload at target actor.")]
+-		public readonly string EnterBlockedCursor = "enter-blocked";
+-
+ 		[CursorReference]
+ 		[Desc("Cursor to display when ordering to harvest resources.")]
+ 		public readonly string HarvestCursor = "harvest";
+@@ -105,22 +92,19 @@ public class HarvesterInfo : ConditionalTraitInfo, Requires<MobileInfo>
+ 		public override object Create(ActorInitializer init) { return new Harvester(init.Self, this); }
+ 	}
+ 
+-	public class Harvester : ConditionalTrait<HarvesterInfo>, IIssueOrder, IResolveOrder, IOrderVoice,
+-		ISpeedModifier, ISync, INotifyCreated
++	public class Harvester : Dockable<HarvesterInfo>, IIssueOrder, IResolveOrder, IOrderVoice,
++		ISpeedModifier, ISync, INotifyCreated, ITick, INotifyOwnerChanged
+ 	{
+ 		public readonly IReadOnlyDictionary<string, int> Contents;
+ 
+-		readonly Mobile mobile;
+ 		readonly IResourceLayer resourceLayer;
+ 		readonly ResourceClaimLayer claimLayer;
+ 		readonly Dictionary<string, int> contents = new Dictionary<string, int>();
+ 		int conditionToken = Actor.InvalidConditionToken;
++		PlayerResources playerResources;
++		IEnumerable<int> resourceValueModifiers;
+ 
+-		[Sync]
+-		public Actor LastLinkedProc = null;
+-
+-		[Sync]
+-		public Actor LinkedProc = null;
++		protected override BitSet<DockType> DockType() => Info.DockType;
+ 
+ 		[Sync]
+ 		int currentUnloadTicks;
+@@ -137,83 +121,42 @@ public int ContentHash
+ 			}
+ 		}
+ 
++		int currentDisplayTick = 0;
++		int currentDisplayValue = 0;
++
+ 		public Harvester(Actor self, HarvesterInfo info)
+-			: base(info)
++			: base(self, info)
+ 		{
+ 			Contents = new ReadOnlyDictionary<string, int>(contents);
+-			mobile = self.Trait<Mobile>();
+ 			resourceLayer = self.World.WorldActor.Trait<IResourceLayer>();
+ 			claimLayer = self.World.WorldActor.Trait<ResourceClaimLayer>();
++			currentDisplayTick = info.TickRate;
+ 		}
+ 
+ 		protected override void Created(Actor self)
+ 		{
++			playerResources = self.Owner.PlayerActor.Trait<PlayerResources>();
++			resourceValueModifiers = self.TraitsImplementing<IResourceValueModifier>().ToArray().Select(m => m.GetResourceValueModifier());
++
+ 			UpdateCondition(self);
+ 
+ 			// Note: This is queued in a FrameEndTask because otherwise the activity is dropped/overridden while moving out of a factory.
+ 			if (Info.SearchOnCreation)
+-				self.World.AddFrameEndTask(w => self.QueueActivity(new FindAndDeliverResources(self)));
++				self.World.AddFrameEndTask(w => self.QueueActivity(new FindAndDeliverResources(this)));
+ 
+ 			base.Created(self);
+ 		}
+ 
+-		public void LinkProc(Actor proc)
+-		{
+-			LinkedProc = proc;
+-		}
+-
+-		public void UnlinkProc(Actor self, Actor proc)
+-		{
+-			if (LinkedProc == proc)
+-				ChooseNewProc(self, proc);
+-		}
+-
+-		public void ChooseNewProc(Actor self, Actor ignore)
++		void ITick.Tick(Actor self)
+ 		{
+-			LastLinkedProc = null;
+-			LinkProc(ClosestProc(self, ignore));
+-		}
+-
+-		bool IsAcceptableProcType(Actor proc)
+-		{
+-			return Info.DeliveryBuildings.Count == 0 ||
+-				Info.DeliveryBuildings.Contains(proc.Info.Name);
+-		}
+-
+-		public Actor ClosestProc(Actor self, Actor ignore)
+-		{
+-			// Find all refineries and their occupancy count:
+-			var refineries = self.World.ActorsWithTrait<IAcceptResources>()
+-				.Where(r => r.Actor != ignore && r.Actor.Owner == self.Owner && IsAcceptableProcType(r.Actor))
+-				.Select(r => new
+-				{
+-					Location = r.Actor.Location + r.Trait.DeliveryOffset,
+-					Actor = r.Actor,
+-					Occupancy = self.World.ActorsHavingTrait<Harvester>(h => h.LinkedProc == r.Actor).Count()
+-				}).ToLookup(r => r.Location);
+-
+-			// Start a search from each refinery's delivery location:
+-			var path = mobile.PathFinder.FindPathToTargetCell(
+-				self, refineries.Select(r => r.Key), self.Location, BlockedByActor.None,
+-				location =>
+-				{
+-					if (!refineries.Contains(location))
+-						return 0;
+-
+-					var occupancy = refineries[location].First().Occupancy;
+-
+-					// Too many harvesters clogs up the refinery's delivery location:
+-					if (occupancy >= Info.MaxUnloadQueue)
+-						return PathGraph.PathCostForInvalidPath;
+-
+-					// Prefer refineries with less occupancy (multiplier is to offset distance cost):
+-					return occupancy * Info.UnloadQueueCostModifier;
+-				});
+-
+-			if (path.Count > 0)
+-				return refineries[path.Last()].First().Actor;
+-
+-			return null;
++			if (Info.ShowTicks && currentDisplayValue > 0 && --currentDisplayTick <= 0)
++			{
++				var temp = currentDisplayValue;
++				if (self.Owner.IsAlliedWith(self.World.RenderPlayer))
++					self.World.AddFrameEndTask(w => w.Add(new FloatingText(self.CenterPosition, self.Owner.Color, FloatingText.FormatCashTick(temp), 30)));
++				currentDisplayTick = Info.TickRate;
++				currentDisplayValue = 0;
++			}
+ 		}
+ 
+ 		public bool IsFull => contents.Values.Sum() == Info.Capacity;
+@@ -243,8 +186,10 @@ public void AcceptResource(Actor self, string resourceType)
+ 			UpdateCondition(self);
+ 		}
+ 
++		public override void DockStarted(Dock dock) { }
++
+ 		// Returns true when unloading is complete
+-		public virtual bool TickUnload(Actor self, Actor proc)
++		public override bool TickDock(Dock dock)
+ 		{
+ 			// Wait until the next bale is ready
+ 			if (--currentUnloadTicks > 0)
+@@ -252,12 +197,11 @@ public virtual bool TickUnload(Actor self, Actor proc)
+ 
+ 			if (contents.Keys.Count > 0)
+ 			{
+-				var acceptResources = proc.Trait<IAcceptResources>();
+ 				foreach (var c in contents)
+ 				{
+ 					var resourceType = c.Key;
+ 					var count = Math.Min(c.Value, Info.BaleUnloadAmount);
+-					var accepted = acceptResources.AcceptResources(resourceType, count);
++					var accepted = AcceptResources(resourceType, count);
+ 					if (accepted == 0)
+ 						continue;
+ 
+@@ -266,7 +210,7 @@ public virtual bool TickUnload(Actor self, Actor proc)
+ 						contents.Remove(resourceType);
+ 
+ 					currentUnloadTicks = Info.BaleUnloadDelay;
+-					UpdateCondition(self);
++					UpdateCondition(Self);
+ 					return false;
+ 				}
+ 			}
+@@ -274,6 +218,44 @@ public virtual bool TickUnload(Actor self, Actor proc)
+ 			return contents.Count == 0;
+ 		}
+ 
++		int AcceptResources(string resourceType, int count)
++		{
++			if (!playerResources.Info.ResourceValues.TryGetValue(resourceType, out var resourceValue))
++				return 0;
++
++			var value = Util.ApplyPercentageModifiers(count * resourceValue, resourceValueModifiers);
++
++			if (Info.UseStorage)
++			{
++				var storageLimit = Math.Max(playerResources.ResourceCapacity - playerResources.Resources, 0);
++				if (!Info.DiscardExcessResources)
++				{
++					// Reduce amount if needed until it will fit the available storage
++					while (value > storageLimit)
++						value = Util.ApplyPercentageModifiers(--count * resourceValue, resourceValueModifiers);
++				}
++				else
++					value = Math.Min(value, playerResources.ResourceCapacity - playerResources.Resources);
++
++				playerResources.GiveResources(value);
++			}
++			else
++				value = playerResources.ChangeCash(value);
++
++			foreach (var notify in Self.World.ActorsWithTrait<INotifyResourceAccepted>())
++			{
++				if (notify.Actor.Owner != Self.Owner)
++					continue;
++
++				notify.Trait.OnResourceAccepted(notify.Actor, Self, resourceType, count, value);
++			}
++
++			if (Info.ShowTicks)
++				currentDisplayValue += value;
++
++			return count;
++		}
++
+ 		public bool CanHarvestCell(CPos cell)
+ 		{
+ 			// Resources only exist in the ground layer
+@@ -295,20 +277,13 @@ IEnumerable<IOrderTargeter> IIssueOrder.Orders
+ 				if (IsTraitDisabled)
+ 					yield break;
+ 
+-				yield return new EnterAlliedActorTargeter<IAcceptResourcesInfo>(
+-					"Deliver",
+-					5,
+-					Info.EnterCursor,
+-					Info.EnterBlockedCursor,
+-					(proc, _) => IsAcceptableProcType(proc),
+-					proc => proc.Trait<IAcceptResources>().AllowDocking);
+ 				yield return new HarvestOrderTargeter();
+ 			}
+ 		}
+ 
+ 		Order IIssueOrder.IssueOrder(Actor self, IOrderTargeter order, in Target target, bool queued)
+ 		{
+-			if (order.OrderID == "Deliver" || order.OrderID == "Harvest")
++			if (order.OrderID == "Harvest")
+ 				return new Order(order.OrderID, self, target, queued);
+ 
+ 			return null;
+@@ -319,9 +294,6 @@ string IOrderVoice.VoicePhraseForOrder(Actor self, Order order)
+ 			if (order.OrderString == "Harvest")
+ 				return Info.HarvestVoice;
+ 
+-			if (order.OrderString == "Deliver" && !IsEmpty)
+-				return Info.DeliverVoice;
+-
+ 			return null;
+ 		}
+ 
+@@ -330,14 +302,14 @@ void IResolveOrder.ResolveOrder(Actor self, Order order)
+ 			if (order.OrderString == "Harvest")
+ 			{
+ 				// NOTE: An explicit harvest order allows the harvester to decide which refinery to deliver to.
+-				LinkProc(null);
++				DockManager.UnlinkDock();
+ 
+ 				CPos loc;
+ 				if (order.Target.Type != TargetType.Invalid)
+ 				{
+ 					// Find the nearest claimable cell to the order location (useful for group-select harvest):
+ 					var cell = self.World.Map.CellContaining(order.Target.CenterPosition);
+-					loc = mobile.NearestCell(cell, p => mobile.CanEnterCell(p) && claimLayer.TryClaimCell(self, p), 1, 6);
++					loc = Mobile.NearestCell(cell, p => Mobile.CanEnterCell(p) && claimLayer.TryClaimCell(self, p), 1, 6);
+ 				}
+ 				else
+ 				{
+@@ -346,22 +318,7 @@ void IResolveOrder.ResolveOrder(Actor self, Order order)
+ 				}
+ 
+ 				// FindResources takes care of calling INotifyHarvesterAction
+-				self.QueueActivity(order.Queued, new FindAndDeliverResources(self, loc));
+-				self.ShowTargetLines();
+-			}
+-			else if (order.OrderString == "Deliver")
+-			{
+-				// Deliver orders are only valid for own/allied actors,
+-				// which are guaranteed to never be frozen.
+-				if (order.Target.Type != TargetType.Actor)
+-					return;
+-
+-				var targetActor = order.Target.Actor;
+-				var iao = targetActor.TraitOrDefault<IAcceptResources>();
+-				if (iao == null || !iao.AllowDocking || !IsAcceptableProcType(targetActor))
+-					return;
+-
+-				self.QueueActivity(order.Queued, new FindAndDeliverResources(self, targetActor));
++				self.QueueActivity(order.Queued, new FindAndDeliverResources(this, loc));
+ 				self.ShowTargetLines();
+ 			}
+ 		}
+@@ -373,12 +330,17 @@ int ISpeedModifier.GetSpeedModifier()
+ 
+ 		protected override void TraitDisabled(Actor self)
+ 		{
+-			LastLinkedProc = null;
+-			LinkedProc = null;
+ 			contents.Clear();
+ 
+ 			if (conditionToken != Actor.InvalidConditionToken)
+ 				conditionToken = self.RevokeCondition(conditionToken);
++
++			base.TraitDisabled(self);
++		}
++
++		void INotifyOwnerChanged.OnOwnerChanged(Actor self, Player oldOwner, Player newOwner)
++		{
++			playerResources = newOwner.PlayerActor.Trait<PlayerResources>();
+ 		}
+ 
+ 		class HarvestOrderTargeter : IOrderTargeter
+diff --git a/OpenRA.Mods.Common/Traits/Production.cs b/OpenRA.Mods.Common/Traits/Production.cs
+index ecd32245e402..862850ee95ab 100644
+--- a/OpenRA.Mods.Common/Traits/Production.cs
++++ b/OpenRA.Mods.Common/Traits/Production.cs
+@@ -119,7 +119,7 @@ protected Exit SelectExit(Actor self, ActorInfo producee, string productionType)
+ 
+ 		public virtual bool Produce(Actor self, ActorInfo producee, string productionType, TypeDictionary inits, int refundableValue)
+ 		{
+-			if (IsTraitDisabled || IsTraitPaused || Reservable.IsReserved(self))
++			if (IsTraitDisabled || IsTraitPaused || !(self.TraitOrDefault<Dock>()?.IsUncoccupied() ?? true))
+ 				return false;
+ 
+ 			// Pick a spawn/exit point pair
+diff --git a/OpenRA.Mods.Common/Traits/Rearmable.cs b/OpenRA.Mods.Common/Traits/Rearmable.cs
+index 53a950b13f6f..1a61d3adacdc 100644
+--- a/OpenRA.Mods.Common/Traits/Rearmable.cs
++++ b/OpenRA.Mods.Common/Traits/Rearmable.cs
+@@ -11,40 +11,42 @@
+ 
+ using System.Collections.Generic;
+ using System.Linq;
++using OpenRA.Primitives;
+ using OpenRA.Traits;
+ 
+ namespace OpenRA.Mods.Common.Traits
+ {
+-	public class RearmableInfo : TraitInfo
++	public class RearmableInfo : DockableInfo
+ 	{
+-		[ActorReference]
+-		[FieldLoader.Require]
+-		[Desc("Actors that this actor can dock to and get rearmed by.")]
+-		public readonly HashSet<string> RearmActors = new HashSet<string> { };
+-
+ 		[Desc("Name(s) of AmmoPool(s) that use this trait to rearm.")]
+ 		public readonly HashSet<string> AmmoPools = new HashSet<string> { "primary" };
+ 
+-		public override object Create(ActorInitializer init) { return new Rearmable(this); }
++		[Desc("Rearm docking type")]
++		public readonly BitSet<DockType> DockType = new BitSet<DockType>("rearm");
++
++		public override object Create(ActorInitializer init) { return new Rearmable(init.Self, this); }
+ 	}
+ 
+-	public class Rearmable : INotifyCreated, INotifyDock
++	public class Rearmable : Dockable<RearmableInfo>, INotifyCreated, INotifyDockable
+ 	{
+-		public readonly RearmableInfo Info;
++		public Rearmable(Actor self, RearmableInfo info)
++			: base(self, info) { }
++
++		public AmmoPool[] RearmableAmmoPools { get; private set; }
+ 
+-		public Rearmable(RearmableInfo info)
++		protected override BitSet<DockType> DockType() { return Info.DockType; }
++
++		public override bool CanDock()
+ 		{
+-			Info = info;
++			return !RearmableAmmoPools.All(p => p.HasFullAmmo);
+ 		}
+ 
+-		public AmmoPool[] RearmableAmmoPools { get; private set; }
+-
+ 		void INotifyCreated.Created(Actor self)
+ 		{
+ 			RearmableAmmoPools = self.TraitsImplementing<AmmoPool>().Where(p => Info.AmmoPools.Contains(p.Info.Name)).ToArray();
+ 		}
+ 
+-		void INotifyDock.Docked()
++		void INotifyDockable.Docked(DockManager dockable, Dock dock)
+ 		{
+ 			// Reset the ReloadDelay to avoid any issues with early cancellation
+ 			// from previous reload attempts (explicit order, host building died, etc).
+@@ -52,6 +54,33 @@ void INotifyDock.Docked()
+ 				pool.RemainingTicks = pool.Info.ReloadDelay;
+ 		}
+ 
+-		void INotifyDock.Undocked() { }
++		void INotifyDockable.DockTick(DockManager dockable, Dock dock) { }
++		void INotifyDockable.Undocked(DockManager dockable, Dock dock) { }
++
++		public override bool TickDock(Dock dock)
++		{
++			var rearmComplete = true;
++			foreach (var ammoPool in RearmableAmmoPools)
++			{
++				if (!ammoPool.HasFullAmmo)
++				{
++					if (--ammoPool.RemainingTicks <= 0)
++					{
++						ammoPool.RemainingTicks = ammoPool.Info.ReloadDelay;
++						if (!string.IsNullOrEmpty(ammoPool.Info.RearmSound))
++							Game.Sound.PlayToPlayer(SoundType.World, Self.Owner, ammoPool.Info.RearmSound, Self.CenterPosition);
++
++						ammoPool.GiveAmmo(Self, ammoPool.Info.ReloadCount);
++					}
++
++					rearmComplete = false;
++				}
++			}
++
++			if (rearmComplete)
++				return true;
++
++			return false;
++		}
+ 	}
+ }
+diff --git a/OpenRA.Mods.Common/Traits/Render/WithDockedOverlay.cs b/OpenRA.Mods.Common/Traits/Render/WithDockedOverlay.cs
+index 5f35d07b099a..fec4c31b8472 100644
+--- a/OpenRA.Mods.Common/Traits/Render/WithDockedOverlay.cs
++++ b/OpenRA.Mods.Common/Traits/Render/WithDockedOverlay.cs
+@@ -61,7 +61,8 @@ void PlayDockingOverlay()
+ 				anim.Animation.PlayThen(Info.Sequence, PlayDockingOverlay);
+ 		}
+ 
+-		void INotifyDock.Docked() { docked = true; PlayDockingOverlay(); }
+-		void INotifyDock.Undocked() { docked = false; }
++		void INotifyDock.Docked(DockManager dockable, Dock dock) { docked = true; PlayDockingOverlay(); }
++		void INotifyDock.DockTick(DockManager dockable, Dock dock) { }
++		void INotifyDock.Undocked(DockManager dockable, Dock dock) { docked = false; }
+ 	}
+ }
+diff --git a/OpenRA.Mods.Cnc/Traits/Render/WithDockingOverlay.cs b/OpenRA.Mods.Common/Traits/Render/WithDockingOverlay.cs
+similarity index 94%
+rename from OpenRA.Mods.Cnc/Traits/Render/WithDockingOverlay.cs
+rename to OpenRA.Mods.Common/Traits/Render/WithDockingOverlay.cs
+index a3028ef8a88c..bc9e6d9405cb 100644
+--- a/OpenRA.Mods.Cnc/Traits/Render/WithDockingOverlay.cs
++++ b/OpenRA.Mods.Common/Traits/Render/WithDockingOverlay.cs
+@@ -10,11 +10,9 @@
+ #endregion
+ 
+ using OpenRA.Graphics;
+-using OpenRA.Mods.Common.Traits;
+-using OpenRA.Mods.Common.Traits.Render;
+ using OpenRA.Traits;
+ 
+-namespace OpenRA.Mods.Cnc.Traits.Render
++namespace OpenRA.Mods.Common.Traits.Render
+ {
+ 	[Desc("Rendered on the refinery when a voxel harvester is docking and undocking.")]
+ 	public class WithDockingOverlayInfo : PausableConditionalTraitInfo, Requires<RenderSpritesInfo>, Requires<BodyOrientationInfo>
+diff --git a/OpenRA.Mods.Common/Traits/Render/WithHarvestAnimation.cs b/OpenRA.Mods.Common/Traits/Render/WithHarvestAnimation.cs
+index 4ddb98d861b7..4cd486d01786 100644
+--- a/OpenRA.Mods.Common/Traits/Render/WithHarvestAnimation.cs
++++ b/OpenRA.Mods.Common/Traits/Render/WithHarvestAnimation.cs
+@@ -45,7 +45,7 @@ void INotifyHarvesterAction.Harvested(Actor self, string resourceType)
+ 		}
+ 
+ 		void INotifyHarvesterAction.MovingToResources(Actor self, CPos targetCell) { }
+-		void INotifyHarvesterAction.MovingToRefinery(Actor self, Actor refineryActor) { }
+-		void INotifyHarvesterAction.MovementCancelled(Actor self) { }
++		void INotifyDockableAction.MovingToDock(DockManager dockable, Dock dock) { }
++		void INotifyDockableAction.MovementCancelled(DockManager dockable) { }
+ 	}
+ }
+diff --git a/OpenRA.Mods.Common/Traits/Render/WithHarvestOverlay.cs b/OpenRA.Mods.Common/Traits/Render/WithHarvestOverlay.cs
+index c3478eaa2df7..18f6d3a7b347 100644
+--- a/OpenRA.Mods.Common/Traits/Render/WithHarvestOverlay.cs
++++ b/OpenRA.Mods.Common/Traits/Render/WithHarvestOverlay.cs
+@@ -64,8 +64,8 @@ void INotifyHarvesterAction.Harvested(Actor self, string resourceType)
+ 		}
+ 
+ 		void INotifyHarvesterAction.MovingToResources(Actor self, CPos targetCell) { }
+-		void INotifyHarvesterAction.MovingToRefinery(Actor self, Actor targetRefinery) { }
+-		void INotifyHarvesterAction.MovementCancelled(Actor self) { }
++		void INotifyDockableAction.MovingToDock(DockManager dockable, Dock dock) { }
++		void INotifyDockableAction.MovementCancelled(DockManager dockable) { }
+ 
+ 		public static int ZOffsetFromCenter(Actor self, WPos pos, int offset)
+ 		{
+diff --git a/OpenRA.Mods.Common/Traits/Render/WithRepairOverlay.cs b/OpenRA.Mods.Common/Traits/Render/WithRepairOverlay.cs
+index b3c1a4433824..a000e86facfb 100644
+--- a/OpenRA.Mods.Common/Traits/Render/WithRepairOverlay.cs
++++ b/OpenRA.Mods.Common/Traits/Render/WithRepairOverlay.cs
+@@ -43,7 +43,7 @@ public class WithRepairOverlayInfo : PausableConditionalTraitInfo, Requires<Rend
+ 		public override object Create(ActorInitializer init) { return new WithRepairOverlay(init.Self, this); }
+ 	}
+ 
+-	public class WithRepairOverlay : PausableConditionalTrait<WithRepairOverlayInfo>, INotifyDamageStateChanged, INotifyDockResupply
++	public class WithRepairOverlay : PausableConditionalTrait<WithRepairOverlayInfo>, INotifyDamageStateChanged, INotifyDock
+ 	{
+ 		readonly Animation overlay;
+ 		bool visible;
+@@ -71,7 +71,7 @@ void INotifyDamageStateChanged.DamageStateChanged(Actor self, AttackInfo e)
+ 			overlay.ReplaceAnim(RenderSprites.NormalizeSequence(overlay, e.DamageState, overlay.CurrentSequence.Name));
+ 		}
+ 
+-		void INotifyDockResupply.BeforeResupply(Actor dockable, ResupplyType types)
++		void INotifyDock.Docked(DockManager dockable, Dock dock)
+ 		{
+ 			repairing = types.HasFlag(ResupplyType.Repair);
+ 			if (!repairing)
+@@ -80,12 +80,12 @@ void INotifyDockResupply.BeforeResupply(Actor dockable, ResupplyType types)
+ 			if (Info.StartSequence != null)
+ 			{
+ 				visible = true;
+-				overlay.PlayThen(RenderSprites.NormalizeSequence(overlay, dockable.GetDamageState(), Info.StartSequence),
+-					() => overlay.PlayRepeating(RenderSprites.NormalizeSequence(overlay, dockable.GetDamageState(), Info.Sequence)));
++				overlay.PlayThen(RenderSprites.NormalizeSequence(overlay, dockable.Self.GetDamageState(), Info.StartSequence),
++					() => overlay.PlayRepeating(RenderSprites.NormalizeSequence(overlay, dockable.Self.GetDamageState(), Info.Sequence)));
+ 			}
+ 		}
+ 
+-		void INotifyDockResupply.ResupplyTick(ResupplyType types)
++		void INotifyDock.DockTick(DockManager dockable, Dock dock)
+ 		{
+ 			var wasRepairing = repairing;
+ 			repairing = types.HasFlag(ResupplyType.Repair);
+diff --git a/OpenRA.Mods.Common/Traits/Render/WithVoxelUnloadBody.cs b/OpenRA.Mods.Common/Traits/Render/WithVoxelUnloadBody.cs
+new file mode 100644
+index 000000000000..38519cb7fd91
+--- /dev/null
++++ b/OpenRA.Mods.Common/Traits/Render/WithVoxelUnloadBody.cs
+@@ -0,0 +1,78 @@
++#region Copyright & License Information
++/*
++ * Copyright 2007-2022 The OpenRA Developers (see AUTHORS)
++ * This file is part of OpenRA, which is free software. It is made
++ * available to you under the terms of the GNU General Public License
++ * as published by the Free Software Foundation, either version 3 of
++ * the License, or (at your option) any later version. For more
++ * information, see COPYING.
++ */
++#endregion
++
++using System;
++using System.Collections.Generic;
++using OpenRA.Graphics;
++using OpenRA.Mods.Common.Graphics;
++using OpenRA.Primitives;
++using OpenRA.Traits;
++
++namespace OpenRA.Mods.Common.Traits.Render
++{
++	// TODO: This trait is hacky and should go away as soon as we support granting a condition on docking, in favor of toggling two regular WithVoxelBodies
++	public class WithVoxelUnloadBodyInfo : TraitInfo, IRenderActorPreviewVoxelsInfo, Requires<RenderVoxelsInfo>
++	{
++		[Desc("Voxel sequence name to use when docked to a refinery.")]
++		public readonly string UnloadSequence = "unload";
++
++		[Desc("Voxel sequence name to use when undocked from a refinery.")]
++		public readonly string IdleSequence = "idle";
++
++		[Desc("Defines if the Voxel should have a shadow.")]
++		public readonly bool ShowShadow = true;
++
++		public override object Create(ActorInitializer init) { return new WithVoxelUnloadBody(init.Self, this); }
++
++		public IEnumerable<ModelAnimation> RenderPreviewVoxels(
++			ActorPreviewInitializer init, RenderVoxelsInfo rv, string image, Func<WRot> orientation, int facings, PaletteReference p)
++		{
++			var body = init.Actor.TraitInfo<BodyOrientationInfo>();
++			var model = init.World.ModelCache.GetModelSequence(image, IdleSequence);
++			yield return new ModelAnimation(model, () => WVec.Zero,
++				() => body.QuantizeOrientation(orientation(), facings),
++				() => false, () => 0, ShowShadow);
++		}
++	}
++
++	public class WithVoxelUnloadBody : IAutoMouseBounds
++	{
++		public bool Docked;
++
++		readonly ModelAnimation modelAnimation;
++		readonly RenderVoxels rv;
++
++		public WithVoxelUnloadBody(Actor self, WithVoxelUnloadBodyInfo info)
++		{
++			var body = self.Trait<BodyOrientation>();
++			rv = self.Trait<RenderVoxels>();
++
++			var idleModel = self.World.ModelCache.GetModelSequence(rv.Image, info.IdleSequence);
++			modelAnimation = new ModelAnimation(idleModel, () => WVec.Zero,
++				() => body.QuantizeOrientation(self.Orientation),
++				() => Docked,
++				() => 0, info.ShowShadow);
++
++			rv.Add(modelAnimation);
++
++			var unloadModel = self.World.ModelCache.GetModelSequence(rv.Image, info.UnloadSequence);
++			rv.Add(new ModelAnimation(unloadModel, () => WVec.Zero,
++				() => body.QuantizeOrientation(self.Orientation),
++				() => !Docked,
++				() => 0, info.ShowShadow));
++		}
++
++		Rectangle IAutoMouseBounds.AutoMouseoverBounds(Actor self, WorldRenderer wr)
++		{
++			return modelAnimation.ScreenBounds(self.CenterPosition, wr, rv.Info.Scale);
++		}
++	}
++}
+diff --git a/OpenRA.Mods.Common/Traits/Repairable.cs b/OpenRA.Mods.Common/Traits/Repairable.cs
+index 455b27170ea3..a339900752d0 100644
+--- a/OpenRA.Mods.Common/Traits/Repairable.cs
++++ b/OpenRA.Mods.Common/Traits/Repairable.cs
+@@ -9,161 +9,98 @@
+  */
+ #endregion
+ 
+-using System.Collections.Generic;
++using System;
+ using System.Linq;
+-using OpenRA.Mods.Common.Activities;
+-using OpenRA.Mods.Common.Orders;
+-using OpenRA.Support;
++using OpenRA.Primitives;
+ using OpenRA.Traits;
+ 
+ namespace OpenRA.Mods.Common.Traits
+ {
+ 	[Desc("This actor can be sent to a structure for repairs.")]
+-	public class RepairableInfo : TraitInfo, Requires<IHealthInfo>, Requires<IMoveInfo>, IObservesVariablesInfo
++	public class RepairableInfo : DockableInfo, Requires<IHealthInfo>
+ 	{
+-		[ActorReference]
+-		[FieldLoader.Require]
+-		public readonly HashSet<string> RepairActors = new HashSet<string> { };
+-
+-		[Desc("How close to the resupplier a unit need to be to repair. Negative means there's no distance limit")]
+-		public readonly WDist CloseEnough = new WDist(512);
+-
+ 		[VoiceReference]
+ 		public readonly string Voice = "Action";
+ 
+ 		[Desc("The amount the unit will be repaired at each step. Use -1 for fallback behavior where HpPerStep from RepairsUnits trait will be used.")]
+ 		public readonly int HpPerStep = -1;
+ 
+-		[ConsumedConditionReference]
+-		[Desc("Boolean expression defining the condition under which the regular (non-force) enter cursor is disabled.")]
+-		public readonly BooleanExpression RequireForceMoveCondition = null;
+-
+-		[CursorReference]
+-		[Desc("Cursor to display when able to be repaired at target actor.")]
+-		public readonly string EnterCursor = "enter";
+-
+-		[CursorReference]
+-		[Desc("Cursor to display when unable to be repaired at target actor.")]
+-		public readonly string EnterBlockedCursor = "enter-blocked";
++		[Desc("Repair dock types")]
++		public readonly BitSet<DockType> DockType = new BitSet<DockType>("repair");
+ 
+ 		public override object Create(ActorInitializer init) { return new Repairable(init.Self, this); }
+ 	}
+ 
+-	public class Repairable : IIssueOrder, IResolveOrder, IOrderVoice, INotifyCreated, IObservesVariables
++	public class Repairable : Dockable<RepairableInfo>, INotifyOwnerChanged
+ 	{
+-		public readonly RepairableInfo Info;
+ 		readonly IHealth health;
+-		Rearmable rearmable;
+-		bool requireForceMove;
+-		bool isAircraft;
++		readonly int unitCost;
++		PlayerResources playerResources;
++
++		protected override BitSet<DockType> DockType() { return Info.DockType; }
+ 
+ 		public Repairable(Actor self, RepairableInfo info)
++			: base(self, info)
+ 		{
+-			Info = info;
+ 			health = self.Trait<IHealth>();
++			unitCost = self.Info.TraitInfoOrDefault<ValuedInfo>()?.Cost ?? 0;
++			playerResources = self.Owner.PlayerActor.Trait<PlayerResources>();
+ 		}
+ 
+-		void INotifyCreated.Created(Actor self)
+-		{
+-			rearmable = self.TraitOrDefault<Rearmable>();
+-			isAircraft = self.Info.HasTraitInfo<AircraftInfo>();
+-		}
+-
+-		IEnumerable<IOrderTargeter> IIssueOrder.Orders
+-		{
+-			get
+-			{
+-				if (!isAircraft)
+-					yield return new EnterAlliedActorTargeter<BuildingInfo>(
+-						"Repair",
+-						5,
+-						Info.EnterCursor,
+-						Info.EnterBlockedCursor,
+-						CanRepairAt,
+-						_ => CanRepair() || CanRearm());
+-			}
+-		}
+-
+-		Order IIssueOrder.IssueOrder(Actor self, IOrderTargeter order, in Target target, bool queued)
+-		{
+-			if (order.OrderID == "Repair")
+-				return new Order(order.OrderID, self, target, queued);
+-
+-			return null;
+-		}
+-
+-		bool CanRepairAt(Actor target)
+-		{
+-			return Info.RepairActors.Contains(target.Info.Name);
+-		}
+-
+-		bool CanRepairAt(Actor target, TargetModifiers modifiers)
+-		{
+-			if (requireForceMove && !modifiers.HasModifier(TargetModifiers.ForceMove))
+-				return false;
+-
+-			return Info.RepairActors.Contains(target.Info.Name);
+-		}
+-
+-		bool CanRepair()
++		public override bool CanDock()
+ 		{
+ 			return health.DamageState > DamageState.Undamaged;
+ 		}
+ 
+-		bool CanRearm()
+-		{
+-			return rearmable != null && rearmable.RearmableAmmoPools.Any(p => !p.HasFullAmmo);
+-		}
++		RepairsUnits[] allRepairsUnits;
++		int remainingTicks;
+ 
+-		string IOrderVoice.VoicePhraseForOrder(Actor self, Order order)
++		public override void DockStarted(Dock dock)
+ 		{
+-			return order.OrderString == "Repair" && (CanRepair() || CanRearm()) ? Info.Voice : null;
++			allRepairsUnits = dock.Self.TraitsImplementing<RepairsUnits>().ToArray();
+ 		}
+ 
+-		void IResolveOrder.ResolveOrder(Actor self, Order order)
++		public override bool TickDock(Dock dock)
+ 		{
+-			if (order.OrderString != "Repair")
+-				return;
++			var repairsUnits = allRepairsUnits.FirstOrDefault(r => !r.IsTraitDisabled && !r.IsTraitPaused);
++			if (repairsUnits == null)
++				return true;
+ 
+-			// Repair orders are only valid for own/allied actors,
+-			// which are guaranteed to never be frozen.
+-			if (order.Target.Type != TargetType.Actor)
+-				return;
++			if (health.DamageState == DamageState.Undamaged)
++			{
++				// Give experience to the allied dock owner
++				if (dock.Self.Owner != Self.Owner)
++					dock.Self.Owner.PlayerActor.TraitOrDefault<PlayerExperience>()?.GiveExperience(repairsUnits.Info.PlayerExperience);
+ 
+-			// Aircraft handle Repair orders directly in the Aircraft trait
+-			// TODO: Move the order handling of both this trait and Aircraft to a generalistic DockManager
+-			if (isAircraft)
+-				return;
++				return true;
++			}
+ 
+-			if (!CanRepairAt(order.Target.Actor) || (!CanRepair() && !CanRearm()))
+-				return;
++			if (remainingTicks == 0)
++			{
++				var hpToRepair = Info.HpPerStep > 0 ? Info.HpPerStep : repairsUnits.Info.HpPerStep;
+ 
+-			self.QueueActivity(order.Queued, new Resupply(self, order.Target.Actor));
+-			self.ShowTargetLines();
+-		}
++				// Cast to long to avoid overflow when multiplying by the health
++				var value = (long)unitCost * repairsUnits.Info.ValuePercentage;
++				var cost = value == 0 ? 0 : Math.Max(1, (int)(hpToRepair * value / (health.MaxHP * 100L)));
+ 
+-		IEnumerable<VariableObserver> IObservesVariables.GetVariableObservers()
+-		{
+-			if (Info.RequireForceMoveCondition != null)
+-				yield return new VariableObserver(RequireForceMoveConditionChanged, Info.RequireForceMoveCondition.Variables);
+-		}
++				if (!playerResources.TakeCash(cost, true))
++				{
++					remainingTicks = 1;
++					return false;
++				}
+ 
+-		void RequireForceMoveConditionChanged(Actor self, IReadOnlyDictionary<string, int> conditions)
+-		{
+-			requireForceMove = Info.RequireForceMoveCondition.Evaluate(conditions);
++				Self.InflictDamage(dock.Self, new Damage(-hpToRepair, repairsUnits.Info.RepairDamageTypes));
++				remainingTicks = repairsUnits.Info.Interval;
++			}
++			else
++				--remainingTicks;
++
++			return false;
+ 		}
+ 
+-		public Actor FindRepairBuilding(Actor self)
++		void INotifyOwnerChanged.OnOwnerChanged(Actor self, Player oldOwner, Player newOwner)
+ 		{
+-			var repairBuilding = self.World.ActorsWithTrait<RepairsUnits>()
+-				.Where(a => !a.Actor.IsDead && a.Actor.IsInWorld
+-					&& a.Actor.Owner.IsAlliedWith(self.Owner) &&
+-					Info.RepairActors.Contains(a.Actor.Info.Name))
+-				.OrderBy(a => a.Actor.Owner == self.Owner ? 0 : 1)
+-				.ThenBy(p => (self.Location - p.Actor.Location).LengthSquared);
+-
+-			// Worst case FirstOrDefault() will return a TraitPair<null, null>, which is OK.
+-			return repairBuilding.FirstOrDefault().Actor;
++			playerResources = newOwner.PlayerActor.Trait<PlayerResources>();
+ 		}
+ 	}
+ }
+diff --git a/OpenRA.Mods.Common/Traits/RepairsUnits.cs b/OpenRA.Mods.Common/Traits/RepairsUnits.cs
+index 02105824cda4..d2a404380fef 100644
+--- a/OpenRA.Mods.Common/Traits/RepairsUnits.cs
++++ b/OpenRA.Mods.Common/Traits/RepairsUnits.cs
+@@ -25,23 +25,8 @@ public class RepairsUnitsInfo : PausableConditionalTraitInfo
+ 		public readonly int Interval = 24;
+ 
+ 		[Desc("Damage types used for the repair.")]
+-		public readonly BitSet<DamageType> RepairDamageTypes = default(BitSet<DamageType>);
++		public readonly BitSet<DamageType> RepairDamageTypes = default;
+ 
+-		[NotificationReference("Speech")]
+-		[Desc("Speech notification played when starting to repair a unit.")]
+-		public readonly string StartRepairingNotification = null;
+-
+-		[Desc("Text notification displayed when starting to repair a unit.")]
+-		public readonly string StartRepairingTextNotification = null;
+-
+-		[NotificationReference("Speech")]
+-		[Desc("Speech notification played when repairing a unit is done.")]
+-		public readonly string FinishRepairingNotification = null;
+-
+-		[Desc("Text notification displayed when repairing a unit is done.")]
+-		public readonly string FinishRepairingTextNotification = null;
+-
+-		[Desc("Experience gained by the player owning this actor for repairing an allied unit.")]
+ 		public readonly int PlayerExperience = 0;
+ 
+ 		public override object Create(ActorInitializer init) { return new RepairsUnits(this); }
+diff --git a/OpenRA.Mods.Common/TraitsInterfaces.cs b/OpenRA.Mods.Common/TraitsInterfaces.cs
+index de375f4584dd..ce612d7e26a3 100644
+--- a/OpenRA.Mods.Common/TraitsInterfaces.cs
++++ b/OpenRA.Mods.Common/TraitsInterfaces.cs
+@@ -13,7 +13,6 @@
+ using System.Collections.Generic;
+ using OpenRA.Activities;
+ using OpenRA.Graphics;
+-using OpenRA.Mods.Common.Activities;
+ using OpenRA.Mods.Common.Graphics;
+ using OpenRA.Mods.Common.Terrain;
+ using OpenRA.Primitives;
+@@ -143,11 +142,8 @@ public interface INotifyChat { bool OnChat(string from, string message); }
+ 	public interface INotifyProduction { void UnitProduced(Actor self, Actor other, CPos exit); }
+ 	public interface INotifyOtherProduction { void UnitProducedByOther(Actor self, Actor producer, Actor produced, string productionType, TypeDictionary init); }
+ 	public interface INotifyDelivery { void IncomingDelivery(Actor self); void Delivered(Actor self); }
+-	public interface INotifyDock { void Docked(); void Undocked(); }
+-	public interface INotifyDockable { void Docked(); void Undocked(); }
+-
+-	[RequireExplicitImplementation]
+-	public interface INotifyDockResupply { void BeforeResupply(Actor dockable, ResupplyType types); void ResupplyTick(ResupplyType types); }
++	public interface INotifyDock { void Docked(DockManager dockable, Dock dock); void DockTick(DockManager dockable, Dock dock); void Undocked(DockManager dockable, Dock dock); }
++	public interface INotifyDockable { void Docked(DockManager dockable, Dock dock); void DockTick(DockManager dockable, Dock dock); void Undocked(DockManager dockable, Dock dock); }
+ 
+ 	[RequireExplicitImplementation]
+ 	public interface INotifyResourceAccepted { void OnResourceAccepted(Actor self, Actor refinery, string resourceType, int count, int value); }
+@@ -181,14 +177,31 @@ public interface INotifyEnteredCargo { void OnEnteredCargo(Actor self, Actor car
+ 	[RequireExplicitImplementation]
+ 	public interface INotifyExitedCargo { void OnExitedCargo(Actor self, Actor cargo); }
+ 
+-	public interface INotifyHarvesterAction
++	public interface INotifyHarvesterAction : INotifyDockableAction
+ 	{
+ 		void MovingToResources(Actor self, CPos targetCell);
+-		void MovingToRefinery(Actor self, Actor refineryActor);
+-		void MovementCancelled(Actor self);
+ 		void Harvested(Actor self, string resourceType);
+ 	}
+ 
++	public interface INotifyDockableAction
++	{
++		void MovingToDock(DockManager dockable, Dock dock);
++		void MovementCancelled(DockManager dockable);
++	}
++
++	public interface IDockable
++	{
++		Actor Self { get; }
++		DockManager DockManager { get; }
++		BitSet<DockType> MyDockType { get; }
++		bool DockingPossible(BitSet<DockType> type);
++		bool DockingPossible(BitSet<DockType> type, TargetModifiers modifiers);
++		bool CanDockAt(Dock target, bool allowedToForceEnter = false);
++		bool TickDock(Dock dock);
++		void DockStarted(Dock dock);
++		bool IsAliveAndInWorld { get; }
++	}
++
+ 	[RequireExplicitImplementation]
+ 	public interface INotifyUnload
+ 	{
+@@ -252,15 +265,6 @@ public interface INotifyDeployTriggered
+ 		void Undeploy(Actor self, bool skipMakeAnim);
+ 	}
+ 
+-	public interface IAcceptResourcesInfo : ITraitInfoInterface { }
+-	public interface IAcceptResources
+-	{
+-		void OnDock(Actor harv, DeliverResources dockOrder);
+-		int AcceptResources(string resourceType, int count = 1);
+-		CVec DeliveryOffset { get; }
+-		bool AllowDocking { get; }
+-	}
+-
+ 	public interface IProvidesAssetBrowserPalettes
+ 	{
+ 		IEnumerable<string> PaletteNames { get; }
+@@ -315,14 +319,6 @@ public interface IActorPreviewInitModifier
+ 		void ModifyActorPreviewInit(Actor self, TypeDictionary inits);
+ 	}
+ 
+-	[RequireExplicitImplementation]
+-	public interface INotifyRearm
+-	{
+-		void RearmingStarted(Actor host, Actor other);
+-		void Rearming(Actor host, Actor other);
+-		void RearmingFinished(Actor host, Actor other);
+-	}
+-
+ 	[RequireExplicitImplementation]
+ 	public interface IRenderInfantrySequenceModifier
+ 	{
+diff --git a/OpenRA.Mods.Common/Widgets/Logic/Ingame/Hotkeys/CycleHarvestersHotkeyLogic.cs b/OpenRA.Mods.Common/Widgets/Logic/Ingame/Hotkeys/CycleHarvestersHotkeyLogic.cs
+index c010f46ac94a..7bfc4372652f 100644
+--- a/OpenRA.Mods.Common/Widgets/Logic/Ingame/Hotkeys/CycleHarvestersHotkeyLogic.cs
++++ b/OpenRA.Mods.Common/Widgets/Logic/Ingame/Hotkeys/CycleHarvestersHotkeyLogic.cs
+@@ -39,7 +39,7 @@ protected override bool OnHotkeyActivated(KeyInput e)
+ 		{
+ 			var player = world.RenderPlayer ?? world.LocalPlayer;
+ 
+-			var harvesters = world.ActorsHavingTrait<Harvester>()
++			var harvesters = world.ActorsHavingTrait<IDockable>()
+ 				.Where(a => a.IsInWorld && a.Owner == player)
+ 				.ToList();
+ 
+diff --git a/OpenRA.Mods.Common/Widgets/Logic/Ingame/ObserverStatsLogic.cs b/OpenRA.Mods.Common/Widgets/Logic/Ingame/ObserverStatsLogic.cs
+index 6cfe1e949729..b1b6927e5a2b 100644
+--- a/OpenRA.Mods.Common/Widgets/Logic/Ingame/ObserverStatsLogic.cs
++++ b/OpenRA.Mods.Common/Widgets/Logic/Ingame/ObserverStatsLogic.cs
+@@ -407,7 +407,7 @@ ScrollItemWidget EconomyStats(Player player)
+ 			template.Get<LabelWidget>("ASSETS").GetText = () => assetsText.Update(stats.AssetsValue);
+ 
+ 			var harvesters = template.Get<LabelWidget>("HARVESTERS");
+-			harvesters.GetText = () => world.ActorsWithTrait<Harvester>().Count(a => a.Actor.Owner == player && !a.Actor.IsDead && !a.Trait.IsTraitDisabled).ToString();
++			harvesters.GetText = () => world.ActorsWithTrait<Harvester>().Count(a => a.Trait.IsAliveAndInWorld).ToString();
+ 
+ 			var derricks = template.GetOrNull<LabelWidget>("DERRICKS");
+ 			if (derricks != null)
+diff --git a/OpenRA.Mods.D2k/Traits/Player/HarvesterInsurance.cs b/OpenRA.Mods.D2k/Traits/Player/HarvesterInsurance.cs
+index a6cf03f839e9..9763d3255a10 100644
+--- a/OpenRA.Mods.D2k/Traits/Player/HarvesterInsurance.cs
++++ b/OpenRA.Mods.D2k/Traits/Player/HarvesterInsurance.cs
+@@ -37,7 +37,7 @@ public void TryActivate()
+ 			if (harvesters.Any())
+ 				return;
+ 
+-			var refinery = self.World.ActorsHavingTrait<Refinery>().FirstOrDefault(x => x.Owner == self.Owner && x.Info.HasTraitInfo<FreeActorWithDeliveryInfo>());
++			var refinery = self.World.ActorsHavingTrait<Dock>().FirstOrDefault(x => x.Owner == self.Owner && x.Info.HasTraitInfo<FreeActorWithDeliveryInfo>());
+ 			if (refinery == null)
+ 				return;
+ 
+diff --git a/mods/cnc/rules/defaults.yaml b/mods/cnc/rules/defaults.yaml
+index f11ee2bdaab8..0d4e40ed89a6 100644
+--- a/mods/cnc/rules/defaults.yaml
++++ b/mods/cnc/rules/defaults.yaml
+@@ -241,8 +241,8 @@
+ 		Bounds: 1024, 1024
+ 	Targetable:
+ 		TargetTypes: Ground, Vehicle
++	DockManager:
+ 	Repairable:
+-		RepairActors: fix
+ 	Passenger:
+ 		CargoType: Vehicle
+ 	ActorLostNotification:
+@@ -291,8 +291,9 @@
+ 		RequiresCondition: airborne
+ 	Selectable:
+ 		Bounds: 1024, 1024
++	DockManager:
+ 	Repairable:
+-		RepairActors: hpad
++		DockType: repairHeli
+ 	Aircraft:
+ 		AirborneCondition: airborne
+ 		CruisingCondition: cruising
+diff --git a/mods/cnc/rules/structures.yaml b/mods/cnc/rules/structures.yaml
+index 6e197141f7ff..19519b99e268 100644
+--- a/mods/cnc/rules/structures.yaml
++++ b/mods/cnc/rules/structures.yaml
+@@ -33,9 +33,10 @@ FACT:
+ 		RequiresCondition: factundeploy
+ 		CargoType: Vehicle
+ 		RequiresForceMove: true
+-	TransformsIntoRepairable:
++	DockManager:
++		TransformOnDock: true
++	Repairable:
+ 		RequiresCondition: factundeploy
+-		RepairActors: fix
+ 		RequiresForceMove: true
+ 	TransformsIntoTransforms:
+ 		RequiresCondition: factundeploy && build-incomplete
+@@ -238,13 +239,13 @@ PROC:
+ 		HP: 100000
+ 	RevealsShroud:
+ 		Range: 6c0
+-	Refinery:
+-		DockAngle: 448
+-		DockOffset: 0,2
++	Dock:
++		Type: unload
++		Facing: 448
++		Offset: 0,2
+ 		IsDragRequired: True
+ 		DragOffset: -554,512,0
+ 		DragLength: 12
+-		TickRate: 15
+ 	StoresResources:
+ 		Capacity: 1000
+ 	Selectable:
+@@ -575,10 +576,12 @@ HPAD:
+ 		Facing: 896
+ 	Production:
+ 		Produces: Aircraft.GDI, Aircraft.Nod
+-	Reservable:
+ 	RepairsUnits:
+ 		HpPerStep: 1000
+ 		PlayerExperience: 25
++	Dock:
++		Type: repairHeli
++		Ofset: 1, 1
+ 		StartRepairingNotification: Repairing
+ 		StartRepairingTextNotification: Repairing.
+ 	WithResupplyAnimation:
+@@ -723,11 +726,13 @@ FIX:
+ 		HasMinibib: true
+ 	WithResupplyAnimation:
+ 		RequiresCondition: !build-incomplete
+-	Reservable:
+ 	RepairsUnits:
+ 		HpPerStep: 1000
+ 		Interval: 15
+ 		PlayerExperience: 25
++	Dock:
++		Type: repair
++		Offset: 1, 1
+ 		StartRepairingNotification: Repairing
+ 		StartRepairingTextNotification: Repairing.
+ 	RallyPoint:
+diff --git a/mods/cnc/rules/vehicles.yaml b/mods/cnc/rules/vehicles.yaml
+index 3060cdad37f5..8fc0da25707f 100644
+--- a/mods/cnc/rules/vehicles.yaml
++++ b/mods/cnc/rules/vehicles.yaml
+@@ -64,6 +64,7 @@ HARV:
+ 		SearchFromHarvesterRadius: 8
+ 		HarvestFacings: 8
+ 		EmptyCondition: no-tiberium
++		TickRate: 15
+ 	Mobile:
+ 		Speed: 72
+ 	Health:
+diff --git a/mods/d2k/rules/defaults.yaml b/mods/d2k/rules/defaults.yaml
+index 782e850c071d..10a7b6335b86 100644
+--- a/mods/d2k/rules/defaults.yaml
++++ b/mods/d2k/rules/defaults.yaml
+@@ -214,8 +214,8 @@
+ 	HiddenUnderFog:
+ 	ActorLostNotification:
+ 		TextNotification: Unit lost.
++	DockManager:
+ 	Repairable:
+-		RepairActors: repair_pad
+ 	Guard:
+ 		Voice: Guard
+ 	Guardable:
+diff --git a/mods/d2k/rules/structures.yaml b/mods/d2k/rules/structures.yaml
+index ea4de4cfb2b1..0ee76d7a3a20 100644
+--- a/mods/d2k/rules/structures.yaml
++++ b/mods/d2k/rules/structures.yaml
+@@ -256,10 +256,10 @@ refinery:
+ 		Type: heavy
+ 	RevealsShroud:
+ 		Range: 3c768
+-	Refinery:
+-		DockAngle: 640
+-		DockOffset: 2,1
+-		TickRate: 20
++	Dock:
++		Type: unload
++		Facing: 640
++		Offset: 2,1
+ 	StoresResources:
+ 		Capacity: 2000
+ 	CustomSellValue:
+@@ -832,15 +832,17 @@ repair_pad:
+ 		Range: 3c768
+ 	Selectable:
+ 		Bounds: 3072, 3072
+-	Reservable:
+ 	RepairsUnits:
+ 		Interval: 10
+ 		HpPerStep: 800
++		PlayerExperience: 15
++	Dock:
++		Type: repair
++		Offset: 1, 1
+ 		StartRepairingNotification: Repairing
+ 		StartRepairingTextNotification: Repairing.
+ 		FinishRepairingNotification: UnitRepaired
+ 		FinishRepairingTextNotification: Unit repaired.
+-		PlayerExperience: 15
+ 	RallyPoint:
+ 	RenderSprites:
+ 		Image: repair_pad.ordos
+diff --git a/mods/d2k/rules/vehicles.yaml b/mods/d2k/rules/vehicles.yaml
+index 8858e7e9bdd7..78d0d6971ecb 100644
+--- a/mods/d2k/rules/vehicles.yaml
++++ b/mods/d2k/rules/vehicles.yaml
+@@ -72,6 +72,7 @@ harvester:
+ 		BaleUnloadDelay: 5
+ 		SearchFromProcRadius: 30
+ 		SearchFromHarvesterRadius: 15
++		TickRate: 20
+ 	CarryableHarvester:
+ 	Health:
+ 		HP: 45000
+diff --git a/mods/ra/rules/aircraft.yaml b/mods/ra/rules/aircraft.yaml
+index d663b2b561c1..a43253e361fe 100644
+--- a/mods/ra/rules/aircraft.yaml
++++ b/mods/ra/rules/aircraft.yaml
+@@ -124,7 +124,10 @@ MIG:
+ 	ProducibleWithLevel:
+ 		Prerequisites: aircraft.upgraded
+ 	Rearmable:
+-		RearmActors: afld, afld.ukraine
++		DockType: rearmPlane
++	DockManager:
++		TakeOffOnResupply: false
++		ReturnToBaseDockType: rearmPlane
+ 	WithAmmoPipsDecoration:
+ 		Position: BottomLeft
+ 		Margin: 4, 3
+@@ -202,7 +205,10 @@ YAK:
+ 	Selectable:
+ 		DecorationBounds: 1280, 1194, 0, 85
+ 	Rearmable:
+-		RearmActors: afld, afld.ukraine
++		DockType: rearmPlane
++	DockManager:
++		TakeOffOnResupply: false
++		ReturnToBaseDockType: rearmPlane
+ 	WithAmmoPipsDecoration:
+ 		Position: BottomLeft
+ 		Margin: 4, 3
+@@ -336,7 +342,9 @@ HELI:
+ 	Selectable:
+ 		DecorationBounds: 1536, 1194
+ 	Rearmable:
+-		RearmActors: hpad
++		DockType: rearmHeli
++	DockManager:
++		ReturnToBaseDockType: rearmHeli
+ 	WithAmmoPipsDecoration:
+ 		Position: BottomLeft
+ 		Margin: 4, 3
+@@ -418,7 +426,9 @@ HIND:
+ 	Selectable:
+ 		DecorationBounds: 1621, 1365
+ 	Rearmable:
+-		RearmActors: hpad
++		DockType: rearmHeli
++	DockManager:
++		ReturnToBaseDockType: rearmHeli
+ 	WithAmmoPipsDecoration:
+ 		Position: BottomLeft
+ 		Margin: 4, 3
+@@ -536,7 +546,9 @@ MH60:
+ 	Selectable:
+ 		DecorationBounds: 1621, 1365
+ 	Rearmable:
+-		RearmActors: hpad
++		DockType: rearmHeli
++	DockManager:
++		ReturnToBaseDockType: rearmHeli
+ 	WithAmmoPipsDecoration:
+ 		Position: BottomLeft
+ 		Margin: 4, 3
+diff --git a/mods/ra/rules/defaults.yaml b/mods/ra/rules/defaults.yaml
+index 8a481ab9ff0c..85dd1896f509 100644
+--- a/mods/ra/rules/defaults.yaml
++++ b/mods/ra/rules/defaults.yaml
+@@ -260,8 +260,8 @@
+ 	GrantConditionOnDamageState@DAMAGED:
+ 		Condition: damaged
+ 		ValidDamageStates: Light, Medium, Heavy, Critical
++	DockManager:
+ 	Repairable:
+-		RepairActors: fix
+ 	Chronoshiftable:
+ 	Passenger:
+ 		CargoType: Vehicle
+@@ -523,9 +523,9 @@
+ 	ProximityCaptor:
+ 		Types: Ship
+ 	Chronoshiftable:
++	DockManager:
+ 	Repairable:
+-		RepairActors: spen, syrd
+-		CloseEnough: 4c0
++		DockType: repairShip
+ 	GpsDot:
+ 		String: Ship
+ 	WithDamageOverlay:
+@@ -624,8 +624,8 @@
+ 	Inherits: ^NeutralPlane
+ 	Inherits@2: ^GainsExperience
+ 	Huntable:
++	DockManager:
+ 	Repairable:
+-		RepairActors: fix
+ 
+ ^Helicopter:
+ 	Inherits: ^Plane
+@@ -634,7 +634,6 @@
+ 	Aircraft:
+ 		CanHover: True
+ 		CruisingCondition: cruising
+-		WaitDistanceFromResupplyBase: 4c0
+ 		TakeOffOnResupply: true
+ 		VTOL: true
+ 		LandableTerrainTypes: Clear, Rough, Road, Ore, Beach, Gems
+diff --git a/mods/ra/rules/structures.yaml b/mods/ra/rules/structures.yaml
+index 12404bfa33ad..a6f4122e83cb 100644
+--- a/mods/ra/rules/structures.yaml
++++ b/mods/ra/rules/structures.yaml
+@@ -210,11 +210,15 @@ SPEN:
+ 	-SpawnActorsOnSell:
+ 	RepairsUnits:
+ 		HpPerStep: 1000
++		PlayerExperience: 15
++	Dock:
++		Type: repairShip
++		Ofset: 1, 1
++		CloseEnough: 4c0
+ 		StartRepairingNotification: Repairing
+ 		StartRepairingTextNotification: Repairing.
+ 		FinishRepairingNotification: UnitRepaired
+ 		FinishRepairingTextNotification: Unit repaired.
+-		PlayerExperience: 15
+ 	RallyPoint:
+ 		ForceSetType: Ship
+ 	ProductionBar:
+@@ -327,11 +331,15 @@ SYRD:
+ 	-SpawnActorsOnSell:
+ 	RepairsUnits:
+ 		HpPerStep: 1000
++		PlayerExperience: 15
++	Dock:
++		Type: repairShip
++		Ofset: 1, 1
++		CloseEnough: 4c0
+ 		StartRepairingNotification: Repairing
+ 		StartRepairingTextNotification: Repairing.
+ 		FinishRepairingNotification: UnitRepaired
+ 		FinishRepairingTextNotification: Unit repaired.
+-		PlayerExperience: 15
+ 	RallyPoint:
+ 		ForceSetType: Ship
+ 	ProductionBar:
+@@ -1201,10 +1209,11 @@ FACT:
+ 		RequiresCondition: factundeploy
+ 		CargoType: Vehicle
+ 		RequiresForceMove: true
+-	TransformsIntoRepairable:
++	DockManager:
++		TransformOnDock: true
++	Repairable:
+ 		RequiresCondition: factundeploy
+-		RepairActors: fix
+-		RequiresForceMove: true
++		RequireForceMoveCondition: factundeploy
+ 	TransformsIntoTransforms:
+ 		RequiresCondition: factundeploy && build-incomplete
+ 	Sellable:
+@@ -1271,8 +1280,9 @@ PROC:
+ 		RevealGeneratedShroud: False
+ 	RevealsShroud@GAPGEN:
+ 		Range: 4c0
+-	Refinery:
+-		DockAngle: 256
++	Dock:
++		Type: unload
++		DockFacing: 256
+ 		DockOffset: 1,2
+ 	StoresResources:
+ 		Capacity: 2000
+@@ -1414,7 +1424,9 @@ HPAD:
+ 		ForceSetType: Helicopter
+ 	Production:
+ 		Produces: Aircraft, Helicopter
+-	Reservable:
++	Dock:
++		Type: rearmHeli
++		WaitDistanceFromResupplyBase: 4c0
+ 	ProductionBar:
+ 		ProductionType: Aircraft
+ 	Power:
+@@ -1496,7 +1508,8 @@ AFLD:
+ 		ForceSetType: Plane
+ 	Production:
+ 		Produces: Aircraft, Plane
+-	Reservable:
++	Dock:
++		Type: rearmPlane
+ 	ProvidesPrerequisite@soviet:
+ 		Factions: soviet, russia, ukraine
+ 		Prerequisite: aircraft.soviet
+@@ -2012,15 +2025,17 @@ FIX:
+ 		RevealGeneratedShroud: False
+ 	RevealsShroud@GAPGEN:
+ 		Range: 4c0
+-	Reservable:
++	Dock:
++		Type: repair, rearm
++		Offset: 1, 1
++		StartDockingNotification: Repairing
++		StartDockingTextNotification: Repairing.
++		FinishDockingNotification: UnitRepaired
++		FinishDockingTextNotification: Unit repaired.
+ 	RallyPoint:
+ 	RepairsUnits:
+ 		HpPerStep: 1000
+ 		Interval: 7
+-		StartRepairingNotification: Repairing
+-		StartRepairingTextNotification: Repairing.
+-		FinishRepairingNotification: UnitRepaired
+-		FinishRepairingTextNotification: Unit repaired.
+ 		PlayerExperience: 15
+ 	WithBuildingBib:
+ 		HasMinibib: true
+diff --git a/mods/ts/rules/aircraft.yaml b/mods/ts/rules/aircraft.yaml
+index e9d9c6761c3f..6cda4fb002c3 100644
+--- a/mods/ts/rules/aircraft.yaml
++++ b/mods/ts/rules/aircraft.yaml
+@@ -172,7 +172,6 @@ ORCA:
+ 		Actor: ORCA.Husk.EMP
+ 		RequiresCondition: empdisable
+ 	Rearmable:
+-		RearmActors: gahpad, nahpad
+ 	WithAmmoPipsDecoration:
+ 		Position: BottomLeft
+ 		RequiresSelection: true
+@@ -239,7 +238,6 @@ ORCAB:
+ 		Actor: ORCAB.Husk.EMP
+ 		RequiresCondition: empdisable
+ 	Rearmable:
+-		RearmActors: gahpad, nahpad
+ 	WithAmmoPipsDecoration:
+ 		Position: BottomLeft
+ 		RequiresSelection: true
+@@ -390,7 +388,6 @@ SCRIN:
+ 		Actor: SCRIN.Husk.EMP
+ 		RequiresCondition: empdisable
+ 	Rearmable:
+-		RearmActors: gahpad, nahpad
+ 	WithAmmoPipsDecoration:
+ 		Position: BottomLeft
+ 		RequiresSelection: true
+@@ -461,7 +458,6 @@ APACHE:
+ 		Actor: APACHE.Husk.EMP
+ 		RequiresCondition: empdisable
+ 	Rearmable:
+-		RearmActors: gahpad, nahpad
+ 	WithAmmoPipsDecoration:
+ 		Position: BottomLeft
+ 		RequiresSelection: true
+diff --git a/mods/ts/rules/defaults.yaml b/mods/ts/rules/defaults.yaml
+index a25d0a4a748e..68bb3e940a1c 100644
+--- a/mods/ts/rules/defaults.yaml
++++ b/mods/ts/rules/defaults.yaml
+@@ -798,9 +798,9 @@
+ 	GrantConditionOnDamageState@DAMAGED:
+ 		Condition: damaged
+ 		ValidDamageStates: Light, Medium, Heavy, Critical
+-	Repairable:
+-		RepairActors: gadept
++	DockManager:
+ 		Voice: Move
++	Repairable:
+ 	Passenger:
+ 		CargoType: Vehicle
+ 		Voice: Move
+@@ -896,9 +896,10 @@
+ 	Targetable@AIRBORNE:
+ 		TargetTypes: Air
+ 		RequiresCondition: airborne
+-	Repairable:
+-		RepairActors: gadept
++	DockManager:
+ 		Voice: Move
++	Repairable:
++		DockType: repairAir
+ 	Aircraft:
+ 		AirborneCondition: airborne
+ 		CruisingCondition: cruising
+diff --git a/mods/ts/rules/gdi-structures.yaml b/mods/ts/rules/gdi-structures.yaml
+index 3c0b0b745c6d..68450141694e 100644
+--- a/mods/ts/rules/gdi-structures.yaml
++++ b/mods/ts/rules/gdi-structures.yaml
+@@ -306,11 +306,12 @@ GAHPAD:
+ 	Production:
+ 		Produces: Air
+ 		PauseOnCondition: empdisable
+-	Reservable:
+ 	RepairsUnits:
+ 		HpPerStep: 1000
+ 		PauseOnCondition: empdisable
+ 		PlayerExperience: 15
++	Dock:
++		Type: repairAir, rearm
+ 		StartRepairingNotification: Repairing
+ 		StartRepairingTextNotification: Repairing.
+ 		FinishRepairingNotification: UnitRepaired
+@@ -356,11 +357,12 @@ GADEPT:
+ 	RevealsShroud:
+ 		Range: 5c0
+ 		MaxHeightDelta: 3
+-	Reservable:
+ 	RepairsUnits:
+ 		HpPerStep: 1000
+ 		PauseOnCondition: empdisable
+ 		PlayerExperience: 15
++	Dock:
++		Type: repair
+ 		StartRepairingNotification: Repairing
+ 		StartRepairingTextNotification: Repairing.
+ 		FinishRepairingNotification: UnitRepaired
+diff --git a/mods/ts/rules/nod-structures.yaml b/mods/ts/rules/nod-structures.yaml
+index 54457f1433fb..34b0bd7dd839 100644
+--- a/mods/ts/rules/nod-structures.yaml
++++ b/mods/ts/rules/nod-structures.yaml
+@@ -270,11 +270,12 @@ NAHPAD:
+ 	Production:
+ 		Produces: Air
+ 		PauseOnCondition: empdisable
+-	Reservable:
+ 	RepairsUnits:
+ 		HpPerStep: 1000
+ 		PauseOnCondition: empdisable
+ 		PlayerExperience: 15
++	Dock:
++		Type: repairAir, rearm
+ 		StartRepairingNotification: Repairing
+ 		StartRepairingTextNotification: Repairing.
+ 		FinishRepairingNotification: UnitRepaired
+@@ -578,9 +579,10 @@ NAWAST:
+ 	RevealsShroud:
+ 		Range: 6c0
+ 		MaxHeightDelta: 3
+-	TiberianSunRefinery:
+-		DockAngle: 640
+-		DockOffset: 2,1
++	Dock:
++		Type: unload
++		Facing: 640
++		Offset: 2,1
+ 	StoresResources:
+ 		Capacity: 56
+ 	Power:
+diff --git a/mods/ts/rules/shared-structures.yaml b/mods/ts/rules/shared-structures.yaml
+index f2c721a302f1..2bfd9177c17e 100644
+--- a/mods/ts/rules/shared-structures.yaml
++++ b/mods/ts/rules/shared-structures.yaml
+@@ -39,10 +39,11 @@ GACNST:
+ 		Locomotor: tracked
+ 		Voice: Move
+ 		RequiresForceMove: true
+-	TransformsIntoRepairable:
+-		RequiresCondition: factundeploy
+-		RepairActors: gadept
++	DockManager:
++		TransformOnDock: true
+ 		Voice: Move
++	Repairable:
++		RequiresCondition: factundeploy
+ 		RequiresForceMove: true
+ 	TransformsIntoEntersTunnels:
+ 		RequiresCondition: factundeploy
+@@ -119,10 +120,10 @@ PROC:
+ 	RevealsShroud:
+ 		Range: 6c0
+ 		MaxHeightDelta: 3
+-	TiberianSunRefinery:
+-		DockAngle: 640
+-		DockOffset: 2,1
+-		DiscardExcessResources: true
++	Dock:
++		Type: unload
++		Facing: 640
++		Offset: 2,1
+ 	StoresResources:
+ 		Capacity: 2000
+ 	CustomSellValue:
+diff --git a/mods/ts/rules/shared-vehicles.yaml b/mods/ts/rules/shared-vehicles.yaml
+index 524510aa0895..2773a8f87bdd 100644
+--- a/mods/ts/rules/shared-vehicles.yaml
++++ b/mods/ts/rules/shared-vehicles.yaml
+@@ -59,7 +59,6 @@ HARV:
+ 		Bounds: 1086, 2172
+ 		DecorationBounds: 1086, 2172
+ 	Harvester:
+-		DeliveryBuildings: proc
+ 		Capacity: 28
+ 		Resources: Tiberium, BlueTiberium
+ 		BaleLoadDelay: 15
+@@ -68,8 +67,8 @@ HARV:
+ 		SearchFromProcRadius: 36
+ 		SearchFromHarvesterRadius: 18
+ 		HarvestVoice: Attack
+-		DeliverVoice: Move
+ 		EmptyCondition: no-tiberium
++		DiscardExcessResources: true
+ 	Mobile:
+ 		Speed: 71
+ 	Health:

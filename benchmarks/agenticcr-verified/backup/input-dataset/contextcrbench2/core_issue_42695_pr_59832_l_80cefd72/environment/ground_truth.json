@@ -1,0 +1,10 @@
+[
+  {
+    "path": "tests/components/google_assistant/test_smart_home.py",
+    "line": 456,
+    "original_line": 455,
+    "review_comment": [
+      "I should use this more myself."
+    ]
+  }
+]

@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "uv_issue_7845_pr_11193_sm_2e54d291"
+contextcrbench2_full_name = "astral-sh/uv"
+contextcrbench2_lang = "rust"
+contextcrbench2_issue_number = "7845"
+contextcrbench2_issue_title = "Editable installation with extras"
+contextcrbench2_pr_number = "11193"
+contextcrbench2_pr_title = "Improve error messages for `uv pip install` with `--extra` or `--all-extras` and invalid sources"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "2e54d29186c002899c08318e7edef3ae16eb6996"
+contextcrbench2_commit_id = "c9dd90af7596f9aea5f9d1ce70716094e6f11d2e"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2025-02-03T19:46:08Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

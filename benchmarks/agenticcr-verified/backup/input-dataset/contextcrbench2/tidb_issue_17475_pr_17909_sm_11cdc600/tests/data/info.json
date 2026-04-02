@@ -1,0 +1,8 @@
+{
+    "task_id": "tidb_issue_17475_pr_17909_sm_11cdc600",
+    "repo": "tidb",
+    "issue_number": 17475,
+    "pr_number": 17909,
+    "checked_commit_id": "11cdc6008e188f4938a1e175a5768ccdfc4edb3d",
+    "entry_count": 2
+}

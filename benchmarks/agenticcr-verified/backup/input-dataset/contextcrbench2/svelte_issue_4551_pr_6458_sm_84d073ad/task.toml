@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "svelte_issue_4551_pr_6458_sm_84d073ad"
+contextcrbench2_full_name = "sveltejs/svelte"
+contextcrbench2_lang = "javascript"
+contextcrbench2_issue_number = "4551"
+contextcrbench2_issue_title = "Input type range bound value 0 is omitted from ssr"
+contextcrbench2_pr_number = "6458"
+contextcrbench2_pr_title = "[fix] input value 0 for ssr"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "84d073ada55928a780118fbd80baeed9446c9806"
+contextcrbench2_commit_id = "84d073ada55928a780118fbd80baeed9446c9806"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2021-07-08T03:25:39Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

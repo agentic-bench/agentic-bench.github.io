@@ -1,0 +1,11 @@
+[
+  {
+    "path": "src/planner/binder/expression/bind_columnref_expression.cpp",
+    "line": 393,
+    "original_line": 393,
+    "review_comment": [
+      "Shouldn't we use the parent binder in this case?\r\nDefinitely more a question than a remark, but this looks off to me",
+      "I think only `BaseSelectBinder` has the alias_map we need to check\r\nThere is no alias_map data member in `ExpressionBinder` (parent class)"
+    ]
+  }
+]

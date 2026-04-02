@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "gitea_issue_29101_pr_29297_sm_503738b0"
+contextcrbench2_full_name = "go-gitea/gitea"
+contextcrbench2_lang = "go"
+contextcrbench2_issue_number = "29101"
+contextcrbench2_issue_title = "Invalid output in `batch_reader.go`"
+contextcrbench2_pr_number = "29297"
+contextcrbench2_pr_title = "Discard unread data of `git cat-file`"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "503738b0eb1db9e849426e113ebc9c5050c53f15"
+contextcrbench2_commit_id = "4497b3042ac6c679f6f8ede4d45b6cf7c16bbfa9"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2024-02-21T16:03:56Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

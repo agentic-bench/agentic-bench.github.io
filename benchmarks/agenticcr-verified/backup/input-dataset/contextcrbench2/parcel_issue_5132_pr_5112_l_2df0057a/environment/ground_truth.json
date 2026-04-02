@@ -1,0 +1,31 @@
+[
+  {
+    "path": "packages/core/core/src/assetUtils.js",
+    "line": 231,
+    "original_line": 231,
+    "review_comment": [
+      "We could probably cache these hashes somewhere at least during a transformation run so we aren't recomputing them all the time if it becomes a perf problem..."
+    ]
+  },
+  {
+    "path": "packages/core/integration-tests/test/postcss.js",
+    "line": 294,
+    "original_line": 294,
+    "review_comment": [
+      "These aren't attached to asset objects anymore, so there isn't a good way to test this without access to the request graph. These tests weren't really useful anyway since they didn't assert that the cache was invalidated properly, just that the file was listed.",
+      "I found them useful as a kind of unit test for transformers, as testing this list would be enough under the assumption that core handled it correctly (so that we don't need slow/complicated cache tests for every plugin).",
+      "Yeah. I think we'll find a way to bring them back. We need a way for the tests to access the internal bundle graph I guess...",
+      "Yeah, this kind of felt like testing implementation details anyway. I've been thinking it would be nice to expose the RequestGraph and requests in test utils somehow so transformer plugins could have tests that only run an asset request for instance. "
+    ]
+  },
+  {
+    "path": "packages/core/types/index.js",
+    "line": 507,
+    "original_line": 507,
+    "review_comment": [
+      "Debating renaming this to `invalidateOnFileChange` or something. I guess it's different from `invalidateOnFileUpdate` because it also invalidates on delete, and I don't think we need to make plugin authors specify both manually. Thoughts?",
+      "Yeah I could see a function that sets up both invalidations being useful. Not sure if \"change\" totally communicates that, I could see people getting \"update\" and \"change\" mixed up, but I can't really think of a better word, so I think I'm okay with it :) ",
+      "Ok, let's add this to our API audit separately from this PR"
+    ]
+  }
+]

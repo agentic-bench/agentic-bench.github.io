@@ -1,0 +1,20 @@
+[
+  {
+    "path": "app/src/main/java/org/schabi/newpipe/player/Player.java",
+    "line": 1692,
+    "original_line": 1693,
+    "review_comment": [
+      "Is there a way to move some of this code out of the Player class?",
+      "Moved it to SeekbarPreviewThumbnailHelper"
+    ]
+  },
+  {
+    "path": "app/src/main/java/org/schabi/newpipe/player/seekbarpreview/SeekbarPreviewThumbnailHolder.java",
+    "line": 173,
+    "original_line": 173,
+    "review_comment": [
+      "At first I was questioning the decision to keep this stopwatch code, but I guess it is just useful and should be kept.",
+      "Can I resolve this conversation or is this a note for other reviewers and I should leave it open?"
+    ]
+  }
+]

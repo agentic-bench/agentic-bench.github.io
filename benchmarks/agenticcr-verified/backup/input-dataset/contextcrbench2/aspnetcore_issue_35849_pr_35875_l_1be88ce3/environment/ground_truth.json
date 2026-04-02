@@ -1,0 +1,26 @@
+[
+  {
+    "path": "src/Mvc/Mvc.ApiExplorer/test/EndpointMetadataApiDescriptionProviderTest.cs",
+    "line": 54,
+    "original_line": 54,
+    "review_comment": [
+      "@davidfowl @halter73 and @pranavkm , I think this test is not needed anymore since we are adding the default content type (```application/json```) as ```IAcceptsMetadata``` when we call the ```RequestDelegate``` Create method. Any thoughts ? ",
+      "Why isn't this required? Shouldn't we test it anyways?",
+      "This is fine, understood."
+    ]
+  },
+  {
+    "path": "src/Mvc/Mvc.ApiExplorer/test/EndpointMetadataApiDescriptionProviderTest.cs",
+    "line": 69,
+    "original_line": 69,
+    "review_comment": [
+      "I think this and the other from-body coverage we lost can be re-added with tests using TestEndpointRouteBuilder.",
+      "Aren't those covered with the metadata tests in ```EndpointMetadataApiDescriptionProviderTest.cs``` ? What will TestEndpointRouteBuilder test ?",
+      "I assume you mean DelegateEndpointRouteBuilderExtensionsTest? That should continue testing that the correct `IAcceptsMetadata` gets added.\r\n\r\nWe still need to test that the `IAcceptsMetadata` gets used and properly turned into the proper `SupportedRequestFormats` and `ParameterDescriptions`.",
+      "See the following test ```MapPost_BuildsEndpointWithCorrectEndpointMetadata``` in ```DelegateEndpointRouteBuilderExtensionsTest```.  It's exactly checking that we have the correct metadata. I can add an assertion to check if the type isRequired.  Anything else ? or Can you point me to an additional test class ?",
+      "That doesn't test anything about the `ApiDescription` that gets generated though.",
+      "I'll admit this I'm asking for more of an integration test, but we should have those and they already exist in this test class.",
+      "I added some more end to end tests. "
+    ]
+  }
+]

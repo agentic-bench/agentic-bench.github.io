@@ -1,0 +1,72 @@
+diff --git a/polars/polars-lazy/polars-plan/src/logical_plan/optimizer/projection_pushdown/mod.rs b/polars/polars-lazy/polars-plan/src/logical_plan/optimizer/projection_pushdown/mod.rs
+index 53a2b2f10434..ad20baec8d44 100644
+--- a/polars/polars-lazy/polars-plan/src/logical_plan/optimizer/projection_pushdown/mod.rs
++++ b/polars/polars-lazy/polars-plan/src/logical_plan/optimizer/projection_pushdown/mod.rs
+@@ -226,16 +226,18 @@ impl ProjectionPushDown {
+         let root_projections = aexpr_to_leaf_nodes(proj, expr_arena);
+ 
+         for (name, root_projection) in names.into_iter().zip(root_projections) {
+-            let was_not_in_left = names_left.insert(name.clone());
+-            let was_not_in_right = names_right.insert(name.clone());
+-            already_projected |= !was_not_in_left;
+-            already_projected |= !was_not_in_right;
++            let is_in_left = names_left.contains(&name);
++            let is_in_right = names_right.contains(&name);
++            already_projected |= is_in_left;
++            already_projected |= is_in_right;
+ 
+-            if check_input_node(root_projection, schema_left, expr_arena) && was_not_in_left {
++            if check_input_node(root_projection, schema_left, expr_arena) && !is_in_left {
++                names_left.insert(name.clone());
+                 pushdown_left.push(proj);
+                 pushed_at_least_one = true;
+             }
+-            if check_input_node(root_projection, schema_right, expr_arena) && was_not_in_right {
++            if check_input_node(root_projection, schema_right, expr_arena) && !is_in_right {
++                names_right.insert(name.clone());
+                 pushdown_right.push(proj);
+                 pushed_at_least_one = true;
+             }
+diff --git a/py-polars/tests/unit/test_projections.py b/py-polars/tests/unit/test_projections.py
+index fdc3bd62d54c..e0390eeef324 100644
+--- a/py-polars/tests/unit/test_projections.py
++++ b/py-polars/tests/unit/test_projections.py
+@@ -288,3 +288,38 @@ def test_join_suffix_collision_9562() -> None:
+     assert df.lazy().join(
+         other_df.lazy(), how="inner", left_on="ham", right_on="ham", suffix="m"
+     ).select("ham").collect().to_dict(False) == {"ham": ["a", "b"]}
++
++
++def test_projection_join_names_9955() -> None:
++    batting = pl.DataFrame(
++        {
++            "playerID": ["abercda01"],
++            "yearID": [1871],
++            "lgID": ["NA"],
++        }
++    ).lazy()
++
++    awards_players = pl.DataFrame(
++        {
++            "playerID": ["bondto01"],
++            "yearID": [1877],
++            "lgID": ["NL"],
++        }
++    ).lazy()
++
++    right = awards_players.filter(pl.col("lgID") == "NL").select("playerID")
++
++    q = batting.join(
++        right,
++        left_on=[pl.col("playerID")],
++        right_on=[pl.col("playerID")],
++        how="inner",
++    )
++
++    q = q.select(batting.columns)
++
++    assert q.collect().schema == {
++        "playerID": pl.Utf8,
++        "yearID": pl.Int64,
++        "lgID": pl.Utf8,
++    }

@@ -1,0 +1,17 @@
+diff --git a/src/cascadia/WindowsTerminal/NonClientIslandWindow.cpp b/src/cascadia/WindowsTerminal/NonClientIslandWindow.cpp
+index ec1f45a6e99..9d1cfa7d2d8 100644
+--- a/src/cascadia/WindowsTerminal/NonClientIslandWindow.cpp
++++ b/src/cascadia/WindowsTerminal/NonClientIslandWindow.cpp
+@@ -623,6 +623,12 @@ RECT NonClientIslandWindow::GetMaxWindowRectInPixels(const RECT* const prcSugges
+             break;
+         }
+     }
++    case WM_DPICHANGED:
++    {
++        auto lprcNewScale = reinterpret_cast<RECT*>(lParam);
++        OnSize(RECT_WIDTH(lprcNewScale), RECT_HEIGHT(lprcNewScale));
++        break;
++    }
+     }
+ 
+     return IslandWindow::MessageHandler(message, wParam, lParam);

@@ -1,0 +1,6 @@
+{
+  "issue_title": "Introduce a \"nursery\" group for diagnostics",
+  "issue_body": "We'd like to create a `nursery` group where we can add any new rules that must be enabled explicitly. This would allow us to ship experimental rules that require explicit opt-in for some period of time. As an example, we'd like to do this with the new `pycodestyle` rules.\r\n",
+  "pr_title": "Enable `pycodestyle` rules under new \"nursery\" category",
+  "pr_body": "## Summary\r\n\r\nThis PR introduces a \"nursery\" category, following Clippy's convention, for rules that are under development, but that users can opt into explicitly.\r\n\r\nIn our case, if a rule is part of `RuleGroup::Nursery`, then it can't be selected via any of the prefix selectors (e.g., `--select E` doesn't enable `E225`, but `--select E225` _does_).\r\n\r\nI'm not very happy with the implementation, but our current approach using proc macros makes this hard to do elegantly, in my opinion. The challenge is that we need access to the `RuleGroup` from within the proc macro (`crates/ruff_macros/src/map_codes.rs`), because we need to avoid adding any nursery rules to the statically-generated prefix selectors; but in that proc macro, we only have access to syntactic `Path` data, and not the structs themselves, so we end up with some brittle string matching.\r\n\r\nCloses #4360.\r\n"
+}

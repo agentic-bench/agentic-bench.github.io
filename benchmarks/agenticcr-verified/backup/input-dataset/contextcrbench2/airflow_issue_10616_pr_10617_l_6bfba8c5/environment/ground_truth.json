@@ -1,0 +1,11 @@
+[
+  {
+    "path": "airflow/models/dagbag.py",
+    "line": 388,
+    "original_line": 387,
+    "review_comment": [
+      "You're going to have to explain this in a lot more detail. -- there are many many more system modules than this :)",
+      "fair; there are many more criteria than just being named one of these five modules. "
+    ]
+  }
+]

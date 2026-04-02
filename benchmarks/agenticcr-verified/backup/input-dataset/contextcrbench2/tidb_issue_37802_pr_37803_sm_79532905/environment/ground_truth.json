@@ -1,0 +1,12 @@
+[
+  {
+    "path": "sessionctx/variable/sysvar.go",
+    "line": 464,
+    "original_line": 459,
+    "review_comment": [
+      "Should the `Value` be set to the instance config in global config?",
+      "In fact, I added this instance variable referring to tidb_general_log. It looks simple.\r\num, what's the difference of this way and global config?",
+      "I see, it's actually set in `setGlobalVars`. Our whole instance variable mechanism looks not so consistent, though..."
+    ]
+  }
+]

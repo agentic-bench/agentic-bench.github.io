@@ -1,0 +1,13 @@
+[
+  {
+    "id": 68931,
+    "full_name": "webpack/webpack",
+    "lang": "javascript",
+    "issue_number": 16763,
+    "pr_number": 17233,
+    "diff_hunk": "@@ -12,7 +12,7 @@ export const C1 = class C1 extends mixin2(Y, /*#__PURE__*/ mixin3(C)) {\n \trender() {return new D();}\n };\n \n-export class Y1 extends mixin2(Y) {\n+export class Y1 extends /*#__PURE__*/ mixin2(Y) {\n \tconstructor() {\n \t\tsuper();\n ",
+    "diff_hunk_content_with_line_number": "[12][12]  \trender() {return new D();}\n[13][13]  };\n[14][14]  \n[15][] -export class Y1 extends mixin2(Y) {\n[][15] +export class Y1 extends /*#__PURE__*/ mixin2(Y) {\n[16][16]  \tconstructor() {\n[17][17]  \t\tsuper();\n[18][18]  ",
+    "checked_commit_id": "b26565b5b68e78235ca856fe46ee9b94794c7fd7",
+    "pr_size": "l"
+  }
+]

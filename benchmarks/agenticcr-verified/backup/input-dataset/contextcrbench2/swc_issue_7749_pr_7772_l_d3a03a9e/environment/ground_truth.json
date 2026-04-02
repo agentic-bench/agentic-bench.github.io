@@ -1,0 +1,10 @@
+[
+  {
+    "path": "crates/swc_ecma_minifier/src/compress/optimize/iife.rs",
+    "line": 886,
+    "original_line": 886,
+    "review_comment": [
+      "The improvement of output come from here. "
+    ]
+  }
+]

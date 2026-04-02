@@ -1,0 +1,13 @@
+[
+  {
+    "id": 26507,
+    "full_name": "zephyrproject-rtos/zephyr",
+    "lang": "c",
+    "issue_number": 73501,
+    "pr_number": 73507,
+    "diff_hunk": "@@ -791,9 +791,6 @@ int fs_unmount(struct fs_mount_t *mp)\n \t\tgoto unmount_err;\n \t}\n \n-\t/* clear file system interface */\n-\tmp->fs = NULL;\n-\n \t/* remove mount node from the list */\n \tsys_dlist_remove(&mp->node);\n \tLOG_DBG(\"fs unmounted from %s\", mp->mnt_point);\n",
+    "diff_hunk_content_with_line_number": "[791][791]  \t\tgoto unmount_err;\n[792][792]  \t}\n[793][793]  \n[794][] -\t/* clear file system interface */\n[795][] -\tmp->fs = NULL;\n[796][] -\n[797][794]  \t/* remove mount node from the list */\n[798][795]  \tsys_dlist_remove(&mp->node);\n[799][796]  \tLOG_DBG(\"fs unmounted from %s\", mp->mnt_point);",
+    "checked_commit_id": "d16ee853f7b999789a6c4f09ac2ab472ff694ad2",
+    "pr_size": "sm"
+  }
+]

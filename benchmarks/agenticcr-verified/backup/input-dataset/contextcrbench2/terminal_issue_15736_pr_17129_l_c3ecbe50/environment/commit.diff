@@ -1,0 +1,873 @@
+diff --git a/src/host/alias.cpp b/src/host/alias.cpp
+index a82fa198761..6d496862916 100644
+--- a/src/host/alias.cpp
++++ b/src/host/alias.cpp
+@@ -21,7 +21,9 @@ using Microsoft::Console::Interactivity::ServiceLocator;
+ 
+ struct case_insensitive_hash
+ {
+-    std::size_t operator()(const std::wstring& key) const
++    using is_transparent = void;
++
++    std::size_t operator()(const std::wstring_view& key) const
+     {
+         til::hasher h;
+         for (const auto& ch : key)
+@@ -34,9 +36,11 @@ struct case_insensitive_hash
+ 
+ struct case_insensitive_equality
+ {
+-    bool operator()(const std::wstring& lhs, const std::wstring& rhs) const
++    using is_transparent = void;
++
++    bool operator()(const std::wstring_view& lhs, const std::wstring_view& rhs) const
+     {
+-        return 0 == _wcsicmp(lhs.data(), rhs.data());
++        return til::compare_ordinal_insensitive(lhs, rhs) == 0;
+     }
+ };
+ 
+@@ -156,10 +160,10 @@ std::unordered_map<std::wstring,
+     // We use .find for the iterators then dereference to search without creating entries.
+     const auto exeIter = g_aliasData.find(exeNameString);
+     RETURN_HR_IF(HRESULT_FROM_WIN32(ERROR_GEN_FAILURE), exeIter == g_aliasData.end());
+-    const auto exeData = exeIter->second;
++    const auto& exeData = exeIter->second;
+     const auto sourceIter = exeData.find(sourceString);
+     RETURN_HR_IF(HRESULT_FROM_WIN32(ERROR_GEN_FAILURE), sourceIter == exeData.end());
+-    const auto targetString = sourceIter->second;
++    const auto& targetString = sourceIter->second;
+     RETURN_HR_IF(HRESULT_FROM_WIN32(ERROR_GEN_FAILURE), targetString.size() == 0);
+ 
+     // TargetLength is a byte count, convert to characters.
+@@ -333,7 +337,7 @@ static std::wstring aliasesSeparator(L"=");
+         auto exeIter = g_aliasData.find(exeNameString);
+         if (exeIter != g_aliasData.end())
+         {
+-            auto list = exeIter->second;
++            const auto& list = exeIter->second;
+             for (auto& pair : list)
+             {
+                 // Alias stores lengths in bytes.
+@@ -464,7 +468,7 @@ void Alias::s_ClearCmdExeAliases()
+     auto exeIter = g_aliasData.find(exeNameString);
+     if (exeIter != g_aliasData.end())
+     {
+-        auto list = exeIter->second;
++        const auto& list = exeIter->second;
+         for (auto& pair : list)
+         {
+             // Alias stores lengths in bytes.
+@@ -818,350 +822,134 @@ void Alias::s_ClearCmdExeAliases()
+ }
+ 
+ // Routine Description:
+-// - Tokenizes a string into a collection using space as a separator
++// - Takes the source text and searches it for an alias belonging to exe name's list.
+ // Arguments:
+-// - str - String to tokenize
++// - sourceText - The string to search for an alias
++// - exeName - The name of the EXE that has aliases associated
++// - lineCount - Number of lines worth of text processed.
+ // Return Value:
+-// - Collection of tokenized strings
+-std::deque<std::wstring> Alias::s_Tokenize(const std::wstring_view str)
++// - If we found a matching alias, this will be the processed data
++//   and lineCount is updated to the new number of lines.
++// - If we didn't match and process an alias, return an empty string.
++std::wstring Alias::s_MatchAndCopyAlias(std::wstring_view sourceText, const std::wstring& exeName, size_t& lineCount)
+ {
+-    std::deque<std::wstring> result;
+-
+-    size_t prevIndex = 0;
+-    auto spaceIndex = str.find(L' ');
+-    while (std::wstring_view::npos != spaceIndex)
++    // Check if we have an EXE in the list that matches the request first.
++    const auto exeIter = g_aliasData.find(exeName);
++    if (exeIter == g_aliasData.end())
+     {
+-        const auto length = spaceIndex - prevIndex;
+-
+-        result.emplace_back(str.substr(prevIndex, length));
+-
+-        spaceIndex++;
+-        prevIndex = spaceIndex;
+-
+-        spaceIndex = str.find(L' ', spaceIndex);
++        // We found no data for this exe. Give back an empty string.
++        return {};
+     }
+ 
+-    // Place the final one into the set.
+-    result.emplace_back(str.substr(prevIndex));
+-
+-    return result;
+-}
+-
+-// Routine Description:
+-// - Gets just the arguments portion of the command string
+-//   Specifically, all text after the first space character.
+-// Arguments:
+-// - str - String to split into just args
+-// Return Value:
+-// - Only the arguments part of the string or empty if there are no arguments.
+-std::wstring Alias::s_GetArgString(const std::wstring_view str)
+-{
+-    std::wstring result;
+-    auto firstSpace = str.find_first_of(L' ');
+-    if (std::wstring_view::npos != firstSpace)
++    const auto& exeList = exeIter->second;
++    if (exeList.size() == 0)
+     {
+-        firstSpace++;
+-        if (firstSpace < str.size())
+-        {
+-            result = str.substr(firstSpace);
+-        }
++        // If there's no match, give back an empty string.
++        return {};
+     }
+ 
+-    return result;
+-}
+-
+-// Routine Description:
+-// - Checks the given character to see if it is a numbered arg replacement macro
+-//   and replaces it with the counted argument if there is a match
+-// Arguments:
+-// - ch - Character to test as a macro
+-// - appendToStr - Append the macro result here if it matched
+-// - tokens - Tokens of the original command string. 0 is alias. 1-N are arguments.
+-// Return Value:
+-// - True if we found the macro and appended to the string.
+-// - False if the given character doesn't match this macro.
+-bool Alias::s_TryReplaceNumberedArgMacro(const wchar_t ch,
+-                                         std::wstring& appendToStr,
+-                                         const std::deque<std::wstring>& tokens)
+-{
+-    if (ch >= L'1' && ch <= L'9')
++    // The text up to the first space is the alias name.
++    const auto firstArgEndIdx = sourceText.find_first_of(L' ');
++    const auto aliasIter = exeList.find(til::safe_slice_len(sourceText, 0, firstArgEndIdx));
++    if (aliasIter == exeList.end())
+     {
+-        // Numerical macros substitute that numbered argument
+-        const size_t index = ch - L'0';
+-
+-        if (index < tokens.size() && index > 0)
+-        {
+-            appendToStr.append(tokens[index]);
+-        }
+-
+-        return true;
++        // We found no alias pair with this name. Give back an empty string.
++        return {};
+     }
+ 
+-    return false;
+-}
+-
+-// Routine Description:
+-// - Checks the given character to see if it is a wildcard arg replacement macro
+-//   and replaces it with the entire argument string if there is a match
+-// Arguments:
+-// - ch - Character to test as a macro
+-// - appendToStr - Append the macro result here if it matched
+-// - fullArgString - All of the arguments as one big string.
+-// Return Value:
+-// - True if we found the macro and appended to the string.
+-// - False if the given character doesn't match this macro.
+-bool Alias::s_TryReplaceWildcardArgMacro(const wchar_t ch,
+-                                         std::wstring& appendToStr,
+-                                         const std::wstring fullArgString)
+-{
+-    if (L'*' == ch)
++    const auto& target = aliasIter->second;
++    if (target.size() == 0)
+     {
+-        // Wildcard substitutes all arguments
+-        appendToStr.append(fullArgString);
+-        return true;
++        return {};
+     }
+ 
+-    return false;
+-}
++    std::wstring_view args[9];
++    size_t argsCount = 0;
+ 
+-// Routine Description:
+-// - Checks the given character to see if it is an input redirection macro
+-//   and replaces it with the < redirector if there is a match
+-// Arguments:
+-// - ch - Character to test as a macro
+-// - appendToStr - Append the macro result here if it matched
+-// Return Value:
+-// - True if we found the macro and appended to the string.
+-// - False if the given character doesn't match this macro.
+-bool Alias::s_TryReplaceInputRedirMacro(const wchar_t ch,
+-                                        std::wstring& appendToStr)
+-{
+-    if (L'L' == towupper(ch))
++    // Package up space separated strings in source into array of args.
++    for (size_t i = firstArgEndIdx; i < sourceText.size();)
+     {
+-        // L (either case) replaces with input redirector <
+-        appendToStr.push_back(L'<');
+-        return true;
+-    }
+-    return false;
+-}
++        const auto argBegIdx = sourceText.find_first_not_of(L' ', i);
++        const auto argEndIdx = sourceText.find_first_of(L' ', argBegIdx);
++        const auto str = til::safe_slice_abs(sourceText, argBegIdx, argEndIdx);
+ 
+-// Routine Description:
+-// - Checks the given character to see if it is an output redirection macro
+-//   and replaces it with the > redirector if there is a match
+-// Arguments:
+-// - ch - Character to test as a macro
+-// - appendToStr - Append the macro result here if it matched
+-// Return Value:
+-// - True if we found the macro and appended to the string.
+-// - False if the given character doesn't match this macro.
+-bool Alias::s_TryReplaceOutputRedirMacro(const wchar_t ch,
+-                                         std::wstring& appendToStr)
+-{
+-    if (L'G' == towupper(ch))
+-    {
+-        // G (either case) replaces with output redirector >
+-        appendToStr.push_back(L'>');
+-        return true;
+-    }
+-    return false;
+-}
++        if (str.empty())
++        {
++            break;
++        }
+ 
+-// Routine Description:
+-// - Checks the given character to see if it is a pipe redirection macro
+-//   and replaces it with the | redirector if there is a match
+-// Arguments:
+-// - ch - Character to test as a macro
+-// - appendToStr - Append the macro result here if it matched
+-// Return Value:
+-// - True if we found the macro and appended to the string.
+-// - False if the given character doesn't match this macro.
+-bool Alias::s_TryReplacePipeRedirMacro(const wchar_t ch,
+-                                       std::wstring& appendToStr)
+-{
+-    if (L'B' == towupper(ch))
+-    {
+-        // B (either case) replaces with pipe operator |
+-        appendToStr.push_back(L'|');
+-        return true;
+-    }
+-    return false;
+-}
++        args[argsCount] = str;
++        argsCount++;
+ 
+-// Routine Description:
+-// - Checks the given character to see if it is a next command macro
+-//   and replaces it with CRLF if there is a match
+-// Arguments:
+-// - ch - Character to test as a macro
+-// - appendToStr - Append the macro result here if it matched
+-// - lineCount - Updates the rolling count of lines if we add a CRLF.
+-// Return Value:
+-// - True if we found the macro and appended to the string.
+-// - False if the given character doesn't match this macro.
+-bool Alias::s_TryReplaceNextCommandMacro(const wchar_t ch,
+-                                         std::wstring& appendToStr,
+-                                         size_t& lineCount)
+-{
+-    if (L'T' == towupper(ch))
+-    {
+-        // T (either case) inserts a CRLF to chain commands
+-        s_AppendCrLf(appendToStr, lineCount);
+-        return true;
+-    }
+-    return false;
+-}
++        if (argsCount >= std::size(args))
++        {
++            break;
++        }
+ 
+-// Routine Description:
+-// - Appends the system line feed (CRLF) to the given string
+-// Arguments:
+-// - appendToStr - Append the system line feed here
+-// - lineCount - Updates the rolling count of lines if we add a CRLF.
+-void Alias::s_AppendCrLf(std::wstring& appendToStr,
+-                         size_t& lineCount)
+-{
+-    appendToStr.push_back(L'\r');
+-    appendToStr.push_back(L'\n');
+-    lineCount++;
+-}
++        i = argEndIdx;
++    }
+ 
+-// Routine Description:
+-// - Searches through the given string for macros and replaces them
+-//   with the matching action
+-// Arguments:
+-// - str - On input, the string to search. On output, the string is replaced.
+-// - tokens - The tokenized command line input. 0 is the alias, 1-N are arguments.
+-// - fullArgString - Shorthand to 1-N argument string in case of wildcard match.
+-// Return Value:
+-// - The number of commands in the final string (line feeds, CRLFs)
+-size_t Alias::s_ReplaceMacros(std::wstring& str,
+-                              const std::deque<std::wstring>& tokens,
+-                              const std::wstring& fullArgString)
+-{
+-    size_t lineCount = 0;
+-    std::wstring finalText;
++    std::wstring buffer;
++    size_t lines = 0;
+ 
+-    // The target text may contain substitution macros indicated by $.
+-    // Walk through and substitute them as appropriate.
+-    for (auto ch = str.cbegin(); ch < str.cend(); ch++)
++    // Put together the target string.
++    for (auto it = target.begin(), end = target.end(); it != end;)
+     {
+-        if (L'$' == *ch)
++        auto ch = *it++;
++        if (ch != L'$' || it == end)
+         {
+-            // Attempt to read ahead by one character.
+-            const auto chNext = ch + 1;
++            buffer.push_back(ch);
++            continue;
++        }
+ 
+-            if (chNext < str.cend())
++        ch = *it++;
++        const auto chLower = til::tolower_ascii(ch);
++        if (chLower >= L'1' && chLower <= L'9')
++        {
++            // numbered parameter substitution
++            const size_t ArgNumber = chLower - L'1';
++            if (ArgNumber < argsCount)
+             {
+-                auto isProcessed = s_TryReplaceNumberedArgMacro(*chNext, finalText, tokens);
+-                if (!isProcessed)
+-                {
+-                    isProcessed = s_TryReplaceWildcardArgMacro(*chNext, finalText, fullArgString);
+-                }
+-                if (!isProcessed)
+-                {
+-                    isProcessed = s_TryReplaceInputRedirMacro(*chNext, finalText);
+-                }
+-                if (!isProcessed)
+-                {
+-                    isProcessed = s_TryReplaceOutputRedirMacro(*chNext, finalText);
+-                }
+-                if (!isProcessed)
+-                {
+-                    isProcessed = s_TryReplacePipeRedirMacro(*chNext, finalText);
+-                }
+-                if (!isProcessed)
+-                {
+-                    isProcessed = s_TryReplaceNextCommandMacro(*chNext, finalText, lineCount);
+-                }
+-                if (!isProcessed)
+-                {
+-                    // If nothing matches, just push these two characters in.
+-                    finalText.push_back(*ch);
+-                    finalText.push_back(*chNext);
+-                }
+-
+-                // Since we read ahead and used that character,
+-                // advance the iterator one extra to compensate.
+-                ch++;
++                buffer.append(args[ArgNumber]);
+             }
+-            else
++        }
++        else if (chLower == L'*')
++        {
++            // * parameter substitution = all parameters
++            if (argsCount)
+             {
+-                // If no read-ahead, just push this character and be done.
+-                finalText.push_back(*ch);
++                buffer.append(args[0].data(), sourceText.data() + sourceText.size());
+             }
+         }
++        else if (chLower == L'l')
++        {
++            buffer.push_back(L'<');
++        }
++        else if (chLower == L'g')
++        {
++            buffer.push_back(L'>');
++        }
++        else if (chLower == L'b')
++        {
++            buffer.push_back(L'|');
++        }
++        else if (chLower == L't')
++        {
++            buffer.append(L"\r\n");
++            lines++;
++        }
+         else
+         {
+-            // If it didn't match the macro specifier $, push the character.
+-            finalText.push_back(*ch);
++            buffer.push_back(L'$');
++            buffer.push_back(ch);
+         }
+     }
+ 
+-    // We always terminate with a CRLF to symbolize end of command.
+-    s_AppendCrLf(finalText, lineCount);
+-
+-    // Give back the final text and count.
+-    str.swap(finalText);
+-    return lineCount;
+-}
+-
+-// Routine Description:
+-// - Takes the source text and searches it for an alias belonging to exe name's list.
+-// Arguments:
+-// - sourceText - The string to search for an alias
+-// - exeName - The name of the EXE that has aliases associated
+-// - lineCount - Number of lines worth of text processed.
+-// Return Value:
+-// - If we found a matching alias, this will be the processed data
+-//   and lineCount is updated to the new number of lines.
+-// - If we didn't match and process an alias, return an empty string.
+-std::wstring Alias::s_MatchAndCopyAlias(std::wstring_view sourceText, const std::wstring& exeName, size_t& lineCount)
+-{
+-    // Check if we have an EXE in the list that matches the request first.
+-    auto exeIter = g_aliasData.find(exeName);
+-    if (exeIter == g_aliasData.end())
+-    {
+-        // We found no data for this exe. Give back an empty string.
+-        return std::wstring();
+-    }
+-
+-    auto exeList = exeIter->second;
+-    if (exeList.size() == 0)
+-    {
+-        // If there's no match, give back an empty string.
+-        return std::wstring();
+-    }
+-
+-    // Tokenize the text by spaces
+-    const auto tokens = s_Tokenize(sourceText);
+-
+-    // If there are no tokens, return an empty string
+-    if (tokens.size() == 0)
+-    {
+-        return std::wstring();
+-    }
+-
+-    // Find alias. If there isn't one, return an empty string
+-    const auto alias = tokens.front();
+-    const auto aliasIter = exeList.find(alias);
+-    if (aliasIter == exeList.end())
+-    {
+-        // We found no alias pair with this name. Give back an empty string.
+-        return std::wstring();
+-    }
+-
+-    const auto& target = aliasIter->second;
+-    if (target.size() == 0)
+-    {
+-        return std::wstring();
+-    }
+-
+-    // Get the string of all parameters as a shorthand for $* later.
+-    const auto allParams = s_GetArgString(sourceText);
+-
+-    // The final text will be the target but with macros replaced.
+-    auto finalText = target;
+-    lineCount = s_ReplaceMacros(finalText, tokens, allParams);
++    buffer.append(L"\r\n");
++    lines++;
+ 
+-    return finalText;
++    lineCount = lines;
++    return buffer;
+ }
+ 
+ #ifdef UNIT_TESTING
+diff --git a/src/host/alias.h b/src/host/alias.h
+index 9c8bc38d534..c631ea34c99 100644
+--- a/src/host/alias.h
++++ b/src/host/alias.h
+@@ -19,33 +19,6 @@ class Alias
+     static std::wstring s_MatchAndCopyAlias(std::wstring_view sourceText, const std::wstring& exeName, size_t& lineCount);
+ 
+ private:
+-    static std::deque<std::wstring> s_Tokenize(const std::wstring_view str);
+-    static std::wstring s_GetArgString(const std::wstring_view str);
+-    static size_t s_ReplaceMacros(std::wstring& str,
+-                                  const std::deque<std::wstring>& tokens,
+-                                  const std::wstring& fullArgString);
+-
+-    static bool s_TryReplaceNumberedArgMacro(const wchar_t ch,
+-                                             std::wstring& appendToStr,
+-                                             const std::deque<std::wstring>& tokens);
+-    static bool s_TryReplaceWildcardArgMacro(const wchar_t ch,
+-                                             std::wstring& appendToStr,
+-                                             const std::wstring fullArgString);
+-
+-    static bool s_TryReplaceInputRedirMacro(const wchar_t ch,
+-                                            std::wstring& appendToStr);
+-    static bool s_TryReplaceOutputRedirMacro(const wchar_t ch,
+-                                             std::wstring& appendToStr);
+-    static bool s_TryReplacePipeRedirMacro(const wchar_t ch,
+-                                           std::wstring& appendToStr);
+-
+-    static bool s_TryReplaceNextCommandMacro(const wchar_t ch,
+-                                             std::wstring& appendToStr,
+-                                             size_t& lineCount);
+-
+-    static void s_AppendCrLf(std::wstring& appendToStr,
+-                             size_t& lineCount);
+-
+ #ifdef UNIT_TESTING
+     static void s_TestAddAlias(std::wstring& exe,
+                                std::wstring& alias,
+diff --git a/src/host/ut_host/AliasTests.cpp b/src/host/ut_host/AliasTests.cpp
+index cf499bea89e..39c4bf559e1 100644
+--- a/src/host/ut_host/AliasTests.cpp
++++ b/src/host/ut_host/AliasTests.cpp
+@@ -3,7 +3,6 @@
+ 
+ #include "precomp.h"
+ #include "WexTestClass.h"
+-#include "../../inc/consoletaeftemplates.hpp"
+ 
+ #include "alias.h"
+ 
+@@ -63,7 +62,7 @@ class AliasTests
+         BEGIN_TEST_METHOD_PROPERTIES()
+             TEST_METHOD_PROPERTY(L"Data:exeName", L"{test.exe}")
+             TEST_METHOD_PROPERTY(L"Data:aliasName", L"{foo}")
+-            TEST_METHOD_PROPERTY(L"Data:originalString", L"{ foo one two three four five six seven eight nine ten eleven twelve }")
++            TEST_METHOD_PROPERTY(L"Data:originalString", L"{ foo one two three four five six    seven eight nine ten eleven twelve }")
+             TEST_METHOD_PROPERTY(L"Data:targetExpectedPair",
+                                  L"{" // Each of these is a human-generated test of macro before and after.
+                                  L"bar=bar%," // The character % will be turned into an \r\n
+@@ -77,7 +76,7 @@ class AliasTests
+                                  L"bar $8=bar eight%,"
+                                  L"bar $9=bar nine%,"
+                                  L"bar $3 $1 $4 $1 $5 $9=bar three one four one five nine%," // assorted mixed order parameters with a repeat
+-                                 L"bar $*=bar one two three four five six seven eight nine ten eleven twelve%,"
++                                 L"bar $*=bar one two three four five six    seven eight nine ten eleven twelve%,"
+                                  L"longer=longer%," // replace with a target longer than the original alias
+                                  L"redirect $1$goutput $2=redirect one>output two%," // doing these without spaces between some commands
+                                  L"REDIRECT $1$GOUTPUT $2=REDIRECT one>OUTPUT two%," // also notice we're checking both upper and lowercase
+@@ -91,7 +90,7 @@ class AliasTests
+                                  L"MyMoney$$$$$$App=MyMoney$$$$$$App%," // this is a long standing bug, $$ isn't replaced with $.
+                                  L"Invalid$Apple=Invalid$Apple%," // An invalid macro $A is copied through
+                                  L"IEndInA$=IEndInA$%," // Ending in a $ is copied through.
+-                                 L"megamix $7$Gfun $1 $b test $9 $L $2.txt$tall$$the$$things $*$tat$g$gonce.log=megamix seven>fun one | test nine < two.txt%all$$the$$things one two three four five six seven eight nine ten eleven twelve%at>>once.log%"
++                                 L"megamix $7$Gfun $1 $b test $9 $L $2.txt$tall$$the$$things $*$tat$g$gonce.log=megamix seven>fun one | test nine < two.txt%all$$the$$things one two three four five six    seven eight nine ten eleven twelve%at>>once.log%"
+                                  L"}")
+         END_TEST_METHOD_PROPERTIES()
+ 
+@@ -181,258 +180,4 @@ class AliasTests
+         VERIFY_IS_TRUE(buffer.empty());
+         VERIFY_ARE_EQUAL(1u, dwLines);
+     }
+-
+-    TEST_METHOD(Tokenize)
+-    {
+-        std::wstring tokenStr(L"one two three");
+-        std::deque<std::wstring> tokensExpected;
+-        tokensExpected.emplace_back(L"one");
+-        tokensExpected.emplace_back(L"two");
+-        tokensExpected.emplace_back(L"three");
+-
+-        auto tokensActual = Alias::s_Tokenize(tokenStr);
+-
+-        VERIFY_ARE_EQUAL(tokensExpected.size(), tokensActual.size());
+-
+-        for (size_t i = 0; i < tokensExpected.size(); i++)
+-        {
+-            VERIFY_ARE_EQUAL(String(tokensExpected[i].data()), String(tokensActual[i].data()));
+-        }
+-    }
+-
+-    TEST_METHOD(TokenizeNothing)
+-    {
+-        std::wstring tokenStr(L"alias");
+-        std::deque<std::wstring> tokensExpected;
+-        tokensExpected.emplace_back(tokenStr);
+-
+-        auto tokensActual = Alias::s_Tokenize(tokenStr);
+-
+-        VERIFY_ARE_EQUAL(tokensExpected.size(), tokensActual.size());
+-
+-        for (size_t i = 0; i < tokensExpected.size(); i++)
+-        {
+-            VERIFY_ARE_EQUAL(String(tokensExpected[i].data()), String(tokensActual[i].data()));
+-        }
+-    }
+-
+-    TEST_METHOD(GetArgString)
+-    {
+-        BEGIN_TEST_METHOD_PROPERTIES()
+-            TEST_METHOD_PROPERTY(L"Data:targetExpectedPair",
+-                                 L"{"
+-                                 L"alias arg1 arg2 arg3=arg1 arg2 arg3,"
+-                                 L"aliasOnly="
+-                                 L"}")
+-        END_TEST_METHOD_PROPERTIES()
+-
+-        std::wstring target;
+-        std::wstring expected;
+-        _RetrieveTargetExpectedPair(target, expected);
+-
+-        auto actual = Alias::s_GetArgString(target);
+-
+-        VERIFY_ARE_EQUAL(String(expected.data()), String(actual.data()));
+-    }
+-
+-    TEST_METHOD(NumberedArgMacro)
+-    {
+-        BEGIN_TEST_METHOD_PROPERTIES()
+-            TEST_METHOD_PROPERTY(L"Data:targetExpectedPair",
+-                                 L"{"
+-                                 L"1=one,"
+-                                 L"2=two,"
+-                                 L"3=three,"
+-                                 L"4=four,"
+-                                 L"5=five,"
+-                                 L"6=six,"
+-                                 L"7=seven,"
+-                                 L"8=eight,"
+-                                 L"9=nine,"
+-                                 L"A=,"
+-                                 L"0=,"
+-                                 L"}")
+-        END_TEST_METHOD_PROPERTIES()
+-
+-        std::wstring target;
+-        std::wstring expected;
+-        _RetrieveTargetExpectedPair(target, expected);
+-
+-        std::deque<std::wstring> tokens;
+-        tokens.emplace_back(L"alias");
+-        tokens.emplace_back(L"one");
+-        tokens.emplace_back(L"two");
+-        tokens.emplace_back(L"three");
+-        tokens.emplace_back(L"four");
+-        tokens.emplace_back(L"five");
+-        tokens.emplace_back(L"six");
+-        tokens.emplace_back(L"seven");
+-        tokens.emplace_back(L"eight");
+-        tokens.emplace_back(L"nine");
+-        tokens.emplace_back(L"ten");
+-
+-        // if we expect non-empty results, then we should get a bool back saying it was processed
+-        const auto returnExpected = !expected.empty();
+-
+-        std::wstring actual;
+-        const auto returnActual = Alias::s_TryReplaceNumberedArgMacro(target[0], actual, tokens);
+-
+-        VERIFY_ARE_EQUAL(returnExpected, returnActual);
+-        VERIFY_ARE_EQUAL(String(expected.data()), String(actual.data()));
+-    }
+-
+-    TEST_METHOD(WildcardArgMacro)
+-    {
+-        BEGIN_TEST_METHOD_PROPERTIES()
+-            TEST_METHOD_PROPERTY(L"Data:targetExpectedPair",
+-                                 L"{"
+-                                 L"*=one two three,"
+-                                 L"A=,"
+-                                 L"0=,"
+-                                 L"}")
+-        END_TEST_METHOD_PROPERTIES()
+-
+-        std::wstring target;
+-        std::wstring expected;
+-        _RetrieveTargetExpectedPair(target, expected);
+-
+-        std::wstring fullArgString(L"one two three");
+-
+-        // if we expect non-empty results, then we should get a bool back saying it was processed
+-        const auto returnExpected = !expected.empty();
+-
+-        std::wstring actual;
+-        const auto returnActual = Alias::s_TryReplaceWildcardArgMacro(target[0], actual, fullArgString);
+-
+-        VERIFY_ARE_EQUAL(returnExpected, returnActual);
+-        VERIFY_ARE_EQUAL(String(expected.data()), String(actual.data()));
+-    }
+-
+-    TEST_METHOD(InputRedirMacro)
+-    {
+-        BEGIN_TEST_METHOD_PROPERTIES()
+-            TEST_METHOD_PROPERTY(L"Data:targetExpectedPair",
+-                                 L"{"
+-                                 L"L=<,"
+-                                 L"l=<,"
+-                                 L"A=,"
+-                                 L"a=,"
+-                                 L"0=,"
+-                                 L"}")
+-        END_TEST_METHOD_PROPERTIES()
+-
+-        std::wstring target;
+-        std::wstring expected;
+-        _RetrieveTargetExpectedPair(target, expected);
+-
+-        // if we expect non-empty results, then we should get a bool back saying it was processed
+-        const auto returnExpected = !expected.empty();
+-
+-        std::wstring actual;
+-        const auto returnActual = Alias::s_TryReplaceInputRedirMacro(target[0], actual);
+-
+-        VERIFY_ARE_EQUAL(returnExpected, returnActual);
+-        VERIFY_ARE_EQUAL(String(expected.data()), String(actual.data()));
+-    }
+-
+-    TEST_METHOD(OutputRedirMacro)
+-    {
+-        BEGIN_TEST_METHOD_PROPERTIES()
+-            TEST_METHOD_PROPERTY(L"Data:targetExpectedPair",
+-                                 L"{"
+-                                 L"G=>,"
+-                                 L"g=>,"
+-                                 L"A=,"
+-                                 L"a=,"
+-                                 L"0=,"
+-                                 L"}")
+-        END_TEST_METHOD_PROPERTIES()
+-
+-        std::wstring target;
+-        std::wstring expected;
+-        _RetrieveTargetExpectedPair(target, expected);
+-
+-        // if we expect non-empty results, then we should get a bool back saying it was processed
+-        const auto returnExpected = !expected.empty();
+-
+-        std::wstring actual;
+-        const auto returnActual = Alias::s_TryReplaceOutputRedirMacro(target[0], actual);
+-
+-        VERIFY_ARE_EQUAL(returnExpected, returnActual);
+-        VERIFY_ARE_EQUAL(String(expected.data()), String(actual.data()));
+-    }
+-
+-    TEST_METHOD(PipeRedirMacro)
+-    {
+-        BEGIN_TEST_METHOD_PROPERTIES()
+-            TEST_METHOD_PROPERTY(L"Data:targetExpectedPair",
+-                                 L"{"
+-                                 L"B=|,"
+-                                 L"b=|,"
+-                                 L"A=,"
+-                                 L"a=,"
+-                                 L"0=,"
+-                                 L"}")
+-        END_TEST_METHOD_PROPERTIES()
+-
+-        std::wstring target;
+-        std::wstring expected;
+-        _RetrieveTargetExpectedPair(target, expected);
+-
+-        // if we expect non-empty results, then we should get a bool back saying it was processed
+-        const auto returnExpected = !expected.empty();
+-
+-        std::wstring actual;
+-        const auto returnActual = Alias::s_TryReplacePipeRedirMacro(target[0], actual);
+-
+-        VERIFY_ARE_EQUAL(returnExpected, returnActual);
+-        VERIFY_ARE_EQUAL(String(expected.data()), String(actual.data()));
+-    }
+-
+-    TEST_METHOD(NextCommandMacro)
+-    {
+-        BEGIN_TEST_METHOD_PROPERTIES()
+-            TEST_METHOD_PROPERTY(L"Data:targetExpectedPair",
+-                                 L"{"
+-                                 L"T=%,"
+-                                 L"t=%,"
+-                                 L"A=,"
+-                                 L"a=,"
+-                                 L"0=,"
+-                                 L"}")
+-        END_TEST_METHOD_PROPERTIES()
+-
+-        std::wstring target;
+-        std::wstring expected;
+-        _RetrieveTargetExpectedPair(target, expected);
+-
+-        _ReplacePercentWithCRLF(expected);
+-
+-        // if we expect non-empty results, then we should get a bool back saying it was processed
+-        const auto returnExpected = !expected.empty();
+-
+-        std::wstring actual;
+-        size_t lineCountActual = 0;
+-
+-        const auto lineCountExpected = lineCountActual + (returnExpected ? 1 : 0);
+-
+-        const auto returnActual = Alias::s_TryReplaceNextCommandMacro(target[0], actual, lineCountActual);
+-
+-        VERIFY_ARE_EQUAL(returnExpected, returnActual);
+-        VERIFY_ARE_EQUAL(String(expected.data()), String(actual.data()));
+-        VERIFY_ARE_EQUAL(lineCountExpected, lineCountActual);
+-    }
+-
+-    TEST_METHOD(AppendCrLf)
+-    {
+-        std::wstring actual;
+-        size_t lineCountActual = 0;
+-
+-        const std::wstring expected(L"\r\n");
+-        const auto lineCountExpected = lineCountActual + 1;
+-
+-        Alias::s_AppendCrLf(actual, lineCountActual);
+-        VERIFY_ARE_EQUAL(String(expected.data()), String(actual.data()));
+-        VERIFY_ARE_EQUAL(lineCountExpected, lineCountActual);
+-    }
+ };
+diff --git a/src/inc/til.h b/src/inc/til.h
+index c1d799fe076..eb781634fe2 100644
+--- a/src/inc/til.h
++++ b/src/inc/til.h
+@@ -55,7 +55,7 @@
+ namespace til // Terminal Implementation Library. Also: "Today I Learned"
+ {
+     template<typename T>
+-    as_view_t<T> clamp_slice_abs(const T& view, size_t beg, size_t end)
++    as_view_t<T> safe_slice_abs(const T& view, size_t beg, size_t end)
+     {
+         const auto len = view.size();
+         end = std::min(end, len);
+@@ -64,7 +64,7 @@ namespace til // Terminal Implementation Library. Also: "Today I Learned"
+     }
+ 
+     template<typename T>
+-    as_view_t<T> clamp_slice_len(const T& view, size_t start, size_t count)
++    as_view_t<T> safe_slice_len(const T& view, size_t start, size_t count)
+     {
+         const auto len = view.size();
+         start = std::min(start, len);
+diff --git a/src/renderer/atlas/BackendD3D.cpp b/src/renderer/atlas/BackendD3D.cpp
+index d6fb766f336..2a2da26912e 100644
+--- a/src/renderer/atlas/BackendD3D.cpp
++++ b/src/renderer/atlas/BackendD3D.cpp
+@@ -1491,7 +1491,7 @@ BackendD3D::ShadingType BackendD3D::_drawSoftFontGlyph(const RenderingPayload& p
+     const auto width = static_cast<size_t>(p.s->font->softFontCellSize.width);
+     const auto height = static_cast<size_t>(p.s->font->softFontCellSize.height);
+     const auto softFontIndex = glyphIndex - 0xEF20u;
+-    const auto data = til::clamp_slice_len(p.s->font->softFontPattern, height * softFontIndex, height);
++    const auto data = til::safe_slice_len(p.s->font->softFontPattern, height * softFontIndex, height);
+ 
+     // This happens if someone wrote a U+EF2x character (by accident), but we don't even have soft fonts enabled yet.
+     if (data.empty() || data.size() != height)

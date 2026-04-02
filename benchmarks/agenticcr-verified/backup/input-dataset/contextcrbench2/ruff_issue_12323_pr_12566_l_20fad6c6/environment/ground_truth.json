@@ -1,0 +1,11 @@
+[
+  {
+    "path": "crates/red_knot/src/workspace.rs",
+    "line": 333,
+    "original_line": 333,
+    "review_comment": [
+      "Is this a correctness requirement or just an optimization?",
+      "It's an optimization. It avoids bumping the salsa revision and it avoids that `PackageFiles` is marked as changed."
+    ]
+  }
+]

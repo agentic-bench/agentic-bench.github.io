@@ -1,0 +1,36 @@
+diff --git a/.changeset/loud-mugs-smile.md b/.changeset/loud-mugs-smile.md
+new file mode 100644
+index 000000000000..e8fca01a49eb
+--- /dev/null
++++ b/.changeset/loud-mugs-smile.md
+@@ -0,0 +1,5 @@
++---
++'svelte': patch
++---
++
++fix: expose 'svelte/internal' to prevent Vite erroring on startup
+diff --git a/packages/svelte/package.json b/packages/svelte/package.json
+index 1f39bd6fb4d8..c723c0c00bd6 100644
+--- a/packages/svelte/package.json
++++ b/packages/svelte/package.json
+@@ -44,6 +44,9 @@
+     "./elements": {
+       "types": "./elements.d.ts"
+     },
++    "./internal": {
++      "default": "./src/internal/index.js"
++    },
+     "./internal/client": {
+       "default": "./src/internal/client/index.js"
+     },
+diff --git a/packages/svelte/src/internal/index.js b/packages/svelte/src/internal/index.js
+new file mode 100644
+index 000000000000..e28b88756c61
+--- /dev/null
++++ b/packages/svelte/src/internal/index.js
+@@ -0,0 +1,5 @@
++// TODO we may, on a best-effort basis, reimplement some of the legacy private APIs here so that certain libraries continue to work. Those APIs will be marked as deprecated (and should noisily warn the user) and will be removed in a future version of Svelte.
++
++throw new Error(
++	`Your application, or one of its dependencies, imported from 'svelte/internal', which was a private module used by Svelte 4 components that no longer exists in Svelte 5. It is not intended to be public API. If you're a library author and you used 'svelte/internal' deliberately, please raise an issue on https://github.com/sveltejs/svelte/issues detailing your use case.`
++);

@@ -1,0 +1,11 @@
+[
+  {
+    "path": "index-scheduler/src/lib.rs",
+    "line": 1001,
+    "original_line": 1001,
+    "review_comment": [
+      "So this is it? We forgot to add a couple of lines. Nice catch @irevoire!",
+      "Yep, exactly, and if I remember correctly, it happened because I implemented the dumps while loic implemented the databases for the dates.\r\nThus we both forgot to take into account the code of each other \ud83d\ude48 "
+    ]
+  }
+]

@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "openssl_issue_22842_pr_22858_sm_475a89bd"
+contextcrbench2_full_name = "openssl/openssl"
+contextcrbench2_lang = "c"
+contextcrbench2_issue_number = "22842"
+contextcrbench2_issue_title = "SIGSEGV from EVP_MAC_CTX_get_mac_size()"
+contextcrbench2_pr_number = "22858"
+contextcrbench2_pr_title = "evp-cmac: do not seg-fault when getting mac-size before init"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "475a89bd796dec51075efca7d32a5a482540d2ea"
+contextcrbench2_commit_id = "475a89bd796dec51075efca7d32a5a482540d2ea"
+contextcrbench2_created_at = "2023-11-30T13:46:13Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

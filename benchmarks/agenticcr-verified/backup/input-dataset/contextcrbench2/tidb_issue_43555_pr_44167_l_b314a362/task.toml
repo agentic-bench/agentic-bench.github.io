@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "tidb_issue_43555_pr_44167_l_b314a362"
+contextcrbench2_full_name = "pingcap/tidb"
+contextcrbench2_lang = "go"
+contextcrbench2_issue_number = "43555"
+contextcrbench2_issue_title = "load data does not display the column name when the data is too long for column"
+contextcrbench2_pr_number = "44167"
+contextcrbench2_pr_title = "loaddata: fix inconsistent MySQL error"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "b314a362e372bc0870752f0290ce170a0d60e973"
+contextcrbench2_commit_id = "fbbd07de214a878afe0ccb97a0d6f3d51c7aa051"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2023-05-25T06:34:55Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

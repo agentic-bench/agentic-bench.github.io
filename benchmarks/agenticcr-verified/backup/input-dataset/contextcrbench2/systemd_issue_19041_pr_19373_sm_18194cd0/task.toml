@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "systemd_issue_19041_pr_19373_sm_18194cd0"
+contextcrbench2_full_name = "systemd/systemd"
+contextcrbench2_lang = "c"
+contextcrbench2_issue_number = "19041"
+contextcrbench2_issue_title = "On some errors journald can close the journal and not try to open the new ones"
+contextcrbench2_pr_number = "19373"
+contextcrbench2_pr_title = "journald: Retry if posix_fallocate returned -1 (EINTR)"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "18194cd0d792611500674fe05b5482c9cfb35b47"
+contextcrbench2_commit_id = "e79554d4b8378aab779fb66fd2430f696d8a0ef3"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2021-04-21T10:17:38Z"
+contextcrbench2_entry_count = "3"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

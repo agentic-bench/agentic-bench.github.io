@@ -1,0 +1,18 @@
+[
+  {
+    "path": "integration-cli/cli/build/build.go",
+    "line": 43,
+    "original_line": 43,
+    "review_comment": [
+      "It would be better if we could do that directly when creating the actual `exec.Command`... But that happens in the gotest tools."
+    ]
+  },
+  {
+    "path": "integration-cli/docker_cli_build_test.go",
+    "line": 6201,
+    "original_line": 6201,
+    "review_comment": [
+      "Note: The integration-cli uses old CLI version which doesn't support buildkit yet so this will actually be ran with the legacy builder unless explicitly tested with `DOCKERCLI_INTEGRATION_VERSION` set to a newer version.\r\n\r\nI ran the test locally with v26.1.4 CLI and it passed."
+    ]
+  }
+]

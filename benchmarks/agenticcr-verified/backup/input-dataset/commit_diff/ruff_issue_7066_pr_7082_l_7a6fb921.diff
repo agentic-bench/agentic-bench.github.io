@@ -1,0 +1,119 @@
+diff --git a/crates/ruff_python_formatter/resources/test/fixtures/ruff/expression/if.py b/crates/ruff_python_formatter/resources/test/fixtures/ruff/expression/if.py
+index 14a1487ccc45e..36ccf4e974ce6 100644
+--- a/crates/ruff_python_formatter/resources/test/fixtures/ruff/expression/if.py
++++ b/crates/ruff_python_formatter/resources/test/fixtures/ruff/expression/if.py
+@@ -149,7 +149,8 @@ def something():
+     # comment
+     0
+     if self.thing is None
+-    else before - after
++    else before - after,
++    2
+ )
+ 
+ before = [
+diff --git a/crates/ruff_python_formatter/src/expression/expr_if_exp.rs b/crates/ruff_python_formatter/src/expression/expr_if_exp.rs
+index b7a38f0a40d95..f97912ae5794a 100644
+--- a/crates/ruff_python_formatter/src/expression/expr_if_exp.rs
++++ b/crates/ruff_python_formatter/src/expression/expr_if_exp.rs
+@@ -1,6 +1,8 @@
+ use ruff_formatter::{write, FormatRuleWithOptions};
+ use ruff_python_ast::node::AnyNodeRef;
+-use ruff_python_ast::{Expr, ExprIfExp};
++use ruff_python_ast::{Expr, ExprIfExp, ExpressionRef};
++use ruff_python_trivia::{SimpleToken, SimpleTokenKind, SimpleTokenizer};
++use ruff_text_size::Ranged;
+ 
+ use crate::comments::leading_comments;
+ use crate::expression::parentheses::{
+@@ -53,16 +55,19 @@ impl FormatNodeRule<ExprIfExp> for FormatExprIfExp {
+         let comments = f.context().comments().clone();
+ 
+         let inner = format_with(|f: &mut PyFormatter| {
+-            // If the expression has any leading or trailing comments, always expand it, as in:
++            // If the expression has any leading or trailing comments, and is "alone" in brackets,
++            // always expand it, as in:
+             // ```
+-            // (
++            // [
+             //     # comment
+             //     0
+             //     if self.thing is None
+             //     else before - after
+-            // )
++            // ]
+             // ```
+-            if comments.has_leading(item) || comments.has_trailing(item) {
++            if (comments.has_leading(item) || comments.has_trailing(item))
++                && is_expression_bracketed(item.into(), f.context().source())
++            {
+                 expand_parent().fmt(f)?;
+             }
+ 
+@@ -122,3 +127,32 @@ impl Format<PyFormatContext<'_>> for FormatOrElse<'_> {
+         }
+     }
+ }
++
++/// Returns `true` if the expression is surrounded by brackets (e.g., parenthesized, or the only
++/// expression in a list, tuple, or set).
++fn is_expression_bracketed(expr: ExpressionRef, contents: &str) -> bool {
++    let mut tokenizer = SimpleTokenizer::starts_at(expr.end(), contents)
++        .skip_trivia()
++        .skip_while(|token| matches!(token.kind, SimpleTokenKind::Comma));
++
++    if matches!(
++        tokenizer.next(),
++        Some(SimpleToken {
++            kind: SimpleTokenKind::RParen | SimpleTokenKind::RBrace | SimpleTokenKind::RBracket,
++            ..
++        })
++    ) {
++        let mut tokenizer =
++            SimpleTokenizer::up_to_without_back_comment(expr.start(), contents).skip_trivia();
++
++        matches!(
++            tokenizer.next_back(),
++            Some(SimpleToken {
++                kind: SimpleTokenKind::LParen | SimpleTokenKind::LBrace | SimpleTokenKind::LBracket,
++                ..
++            })
++        )
++    } else {
++        false
++    }
++}
+diff --git a/crates/ruff_python_formatter/tests/snapshots/format@expression__if.py.snap b/crates/ruff_python_formatter/tests/snapshots/format@expression__if.py.snap
+index f1d4209401efb..54dd370109a5e 100644
+--- a/crates/ruff_python_formatter/tests/snapshots/format@expression__if.py.snap
++++ b/crates/ruff_python_formatter/tests/snapshots/format@expression__if.py.snap
+@@ -155,7 +155,8 @@ before = (
+     # comment
+     0
+     if self.thing is None
+-    else before - after
++    else before - after,
++    2
+ )
+ 
+ before = [
+@@ -336,16 +337,13 @@ before = [
+ 
+ before = (
+     # comment
+-    0
+-    if self.thing is None
+-    else before - after
++    0 if self.thing is None else before - after,
++    2,
+ )
+ 
+ before = [
+     # comment
+-    0
+-    if self.thing is None
+-    else before - after,
++    0 if self.thing is None else before - after,
+     2,
+ ]
+ 

@@ -1,0 +1,126 @@
+diff --git a/man/systemd.network.xml b/man/systemd.network.xml
+index c5c2e48ac7518..85e4ae09c759b 100644
+--- a/man/systemd.network.xml
++++ b/man/systemd.network.xml
+@@ -2996,8 +2996,10 @@ IPv6Token=prefixstable:2002:da8:1::</programlisting></para>
+         <varlistentry>
+           <term><varname>Termination=</varname></term>
+           <listitem>
+-            <para>Takes a boolean. When <literal>yes</literal>, the termination resistor will be selected for
+-            the bias network. When unset, the kernel's default will be used.</para>
++            <para>Takes a boolean or a termination resistor value in ohm in the range 0–65535. When
++            <literal>yes</literal>, the termination resistor is set to 120 ohm. When
++            <literal>no</literal> or <literal>0</literal> is set, the termination resistor is disabled.
++            When unset, the kernel's default will be used.</para>
+           </listitem>
+         </varlistentry>
+         <varlistentry>
+diff --git a/src/network/networkd-can.c b/src/network/networkd-can.c
+index a10b2beaeb975..3bbbb7bf2973e 100644
+--- a/src/network/networkd-can.c
++++ b/src/network/networkd-can.c
+@@ -10,7 +10,7 @@
+ #include "parse-util.h"
+ #include "string-util.h"
+ 
+-#define CAN_TERMINATION_OHM_VALUE 120
++#define CAN_TERMINATION_DEFAULT_OHM_VALUE 120
+ 
+ int can_set_netlink_message(Link *link, sd_netlink_message *m) {
+         int r;
+@@ -90,11 +90,10 @@ int can_set_netlink_message(Link *link, sd_netlink_message *m) {
+                         return log_link_debug_errno(link, r, "Could not append IFLA_CAN_CTRLMODE attribute: %m");
+         }
+ 
+-        if (link->network->can_termination >= 0) {
+-                log_link_debug(link, "Setting can-termination to '%s'.", yes_no(link->network->can_termination));
++        if (link->network->can_termination_set) {
++                log_link_debug(link, "Setting can-termination to '%u'.", link->network->can_termination);
+ 
+-                r = sd_netlink_message_append_u16(m, IFLA_CAN_TERMINATION,
+-                                link->network->can_termination ? CAN_TERMINATION_OHM_VALUE : 0);
++                r = sd_netlink_message_append_u16(m, IFLA_CAN_TERMINATION, link->network->can_termination);
+                 if (r < 0)
+                         return log_link_debug_errno(link, r, "Could not append IFLA_CAN_TERMINATION attribute: %m");
+         }
+@@ -227,3 +226,44 @@ int config_parse_can_control_mode(
+         SET_FLAG(network->can_control_mode_flags, mask, r);
+         return 0;
+ }
++
++int config_parse_can_termination(
++                const char* unit,
++                const char *filename,
++                unsigned line,
++                const char *section,
++                unsigned section_line,
++                const char *lvalue,
++                int ltype,
++                const char *rvalue,
++                void *data,
++                void *userdata) {
++
++        Network *network = userdata;
++        int r;
++
++        assert(filename);
++        assert(lvalue);
++        assert(rvalue);
++        assert(data);
++
++        if (isempty(rvalue)) {
++                network->can_termination_set = false;
++                return 0;
++        }
++
++        r = parse_boolean(rvalue);
++        if (r >= 0)
++                network->can_termination = r ? CAN_TERMINATION_DEFAULT_OHM_VALUE : 0;
++        else {
++                r = safe_atou16(rvalue, &network->can_termination);
++                if (r < 0) {
++                        log_syntax(unit, LOG_WARNING, filename, line, r,
++                                   "Failed to parse CAN termination value, ignoring: %s", rvalue);
++                        return 0;
++                }
++        }
++
++        network->can_termination_set = true;
++        return 0;
++}
+diff --git a/src/network/networkd-can.h b/src/network/networkd-can.h
+index 1efa6c920179a..ff1a014a15851 100644
+--- a/src/network/networkd-can.h
++++ b/src/network/networkd-can.h
+@@ -14,3 +14,4 @@ int can_set_netlink_message(Link *link, sd_netlink_message *m);
+ CONFIG_PARSER_PROTOTYPE(config_parse_can_bitrate);
+ CONFIG_PARSER_PROTOTYPE(config_parse_can_restart_usec);
+ CONFIG_PARSER_PROTOTYPE(config_parse_can_control_mode);
++CONFIG_PARSER_PROTOTYPE(config_parse_can_termination);
+diff --git a/src/network/networkd-network-gperf.gperf b/src/network/networkd-network-gperf.gperf
+index 489d0480563c5..077779cc6b2dc 100644
+--- a/src/network/networkd-network-gperf.gperf
++++ b/src/network/networkd-network-gperf.gperf
+@@ -358,7 +358,7 @@ CAN.FDMode,                                  config_parse_can_control_mode,
+ CAN.PresumeACK,                              config_parse_can_control_mode,                            CAN_CTRLMODE_PRESUME_ACK,      0
+ CAN.FDNonISO,                                config_parse_can_control_mode,                            CAN_CTRLMODE_FD_NON_ISO,       0
+ CAN.ClassicDataLengthCode,                   config_parse_can_control_mode,                            CAN_CTRLMODE_CC_LEN8_DLC,      0
+-CAN.Termination,                             config_parse_tristate,                                    0,                             offsetof(Network, can_termination)
++CAN.Termination,                             config_parse_can_termination,                             0,                             0
+ QDisc.Parent,                                config_parse_qdisc_parent,                                _QDISC_KIND_INVALID,           0
+ QDisc.Handle,                                config_parse_qdisc_handle,                                _QDISC_KIND_INVALID,           0
+ BFIFO.Parent,                                config_parse_qdisc_parent,                                QDISC_KIND_BFIFO,              0
+diff --git a/src/network/networkd-network.h b/src/network/networkd-network.h
+index 1fa223fd73a29..488d49e3acd90 100644
+--- a/src/network/networkd-network.h
++++ b/src/network/networkd-network.h
+@@ -270,7 +270,8 @@ struct Network {
+         usec_t can_restart_us;
+         uint32_t can_control_mode_mask;
+         uint32_t can_control_mode_flags;
+-        int can_termination;
++        uint16_t can_termination;
++        bool can_termination_set;
+ 
+         /* sysctl settings */
+         AddressFamily ip_forward;

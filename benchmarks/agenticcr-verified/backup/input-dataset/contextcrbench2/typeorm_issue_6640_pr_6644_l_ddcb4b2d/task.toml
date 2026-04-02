@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "typeorm_issue_6640_pr_6644_l_ddcb4b2d"
+contextcrbench2_full_name = "typeorm/typeorm"
+contextcrbench2_lang = "typescript"
+contextcrbench2_issue_number = "6640"
+contextcrbench2_issue_title = "Cannot ORDER BY json field in query with JOIN and pagination"
+contextcrbench2_pr_number = "6644"
+contextcrbench2_pr_title = "fix: support ORDER BY json field with JOIN and pagination"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "ddcb4b2d4f3bb8c48ce69e103ade8bbefd87addd"
+contextcrbench2_commit_id = "ddcb4b2d4f3bb8c48ce69e103ade8bbefd87addd"
+contextcrbench2_created_at = "2020-10-14T01:24:48Z"
+contextcrbench2_entry_count = "4"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

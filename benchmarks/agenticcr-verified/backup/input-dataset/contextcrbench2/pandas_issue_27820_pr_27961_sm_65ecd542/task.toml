@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "pandas_issue_27820_pr_27961_sm_65ecd542"
+contextcrbench2_full_name = "pandas-dev/pandas"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "27820"
+contextcrbench2_issue_title = "DOC: clarify that read_parquet accepts a directory path"
+contextcrbench2_pr_number = "27961"
+contextcrbench2_pr_title = "pandas.read_parquet now has info that it accepts path_to_directory that contains multiple parquet files"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "65ecd54283eb797b949526f1facdc2d2f46373d1"
+contextcrbench2_commit_id = "65ecd54283eb797b949526f1facdc2d2f46373d1"
+contextcrbench2_created_at = "2019-08-19T16:48:57Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

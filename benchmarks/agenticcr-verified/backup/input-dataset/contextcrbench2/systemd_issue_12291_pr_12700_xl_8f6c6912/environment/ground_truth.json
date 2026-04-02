@@ -1,0 +1,12 @@
+[
+  {
+    "path": "src/udev/udev-rules.c",
+    "line": 35,
+    "original_line": 35,
+    "review_comment": [
+      "Let's kill that too, but maybe later.",
+      "Personally, I'd like to keep this...",
+      "OK. Doesn't matter much either way."
+    ]
+  }
+]

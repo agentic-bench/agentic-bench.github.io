@@ -1,0 +1,104 @@
+diff --git a/Configuration/ToolboxArgumentParser.cs b/Configuration/ToolboxArgumentParser.cs
+index eb6317d9c5d5..62564b7703c2 100644
+--- a/Configuration/ToolboxArgumentParser.cs
++++ b/Configuration/ToolboxArgumentParser.cs
+@@ -63,7 +63,7 @@ public static class ToolboxArgumentParser
+                                                                                    + " CoinApiDataConverter, NseMarketDataConverter, QuantQuoteConverter, SECDataConverter, PsychSignalDataConverter, USTreasuryYieldCurveConverter, SmartInsiderConverter]"),
+                 new CommandLineOption("destination-dir", CommandOptionType.SingleValue, "[REQUIRED for IVolatilityEquityConverter, "
+                                                                                         + "NseMarketDataConverter, QuantQuoteConverter, SECDataDownloader, SECDataConverter, PsychSignalDataDownloader, PsychSignalDataConverter, USTreasuryYieldCurveDownloader, USTreasuryYieldCurveConverter, SmartInsiderConverter]"),
+-                new CommandLineOption("source-meta-dir", CommandOptionType.SingleValue, "[REQUIRED for IVolatilityEquityConverter]"),
++                new CommandLineOption("source-meta-dir", CommandOptionType.SingleValue, "[REQUIRED for IVolatilityEquityConverter. OPTIONAL for SmartInsiderConverter]"),
+                 new CommandLineOption("start", CommandOptionType.SingleValue, "[REQUIRED for RandomDataGenerator. Format yyyyMMdd Example: --start=20010101]"),
+                 new CommandLineOption("end", CommandOptionType.SingleValue, "[REQUIRED for RandomDataGenerator. Format yyyyMMdd Example: --end=20020101]"),
+                 new CommandLineOption("market", CommandOptionType.SingleValue, "[OPTIONAL for RandomDataGenerator. Market of generated symbols. Defaults to default market for security type: Example: --market=usa]"),
+diff --git a/ToolBox/Program.cs b/ToolBox/Program.cs
+index d5a3ff95f42b..38356477d5b5 100644
+--- a/ToolBox/Program.cs
++++ b/ToolBox/Program.cs
+@@ -261,7 +261,8 @@ public static void Main(string[] args)
+                         SmartInsiderProgram.SmartInsiderConverter(
+                             DateTime.ParseExact(GetParameterOrExit(optionsObject, "date"), "yyyyMMdd", CultureInfo.InvariantCulture),
+                             GetParameterOrExit(optionsObject, "source-dir"),
+-                            GetParameterOrExit(optionsObject, "destination-dir"));
++                            GetParameterOrExit(optionsObject, "destination-dir"),
++                            GetParameterOrDefault(optionsObject, "source-meta-dir", Path.Combine(Globals.DataFolder, "alternative", "smartinsider")));
+                         break;
+ 
+                     default:
+diff --git a/ToolBox/SmartInsider/SmartInsiderConverter.cs b/ToolBox/SmartInsider/SmartInsiderConverter.cs
+index 0927a53831df..4f510e74563a 100644
+--- a/ToolBox/SmartInsider/SmartInsiderConverter.cs
++++ b/ToolBox/SmartInsider/SmartInsiderConverter.cs
+@@ -17,7 +17,6 @@
+ using System;
+ using System.Linq;
+ using System.IO;
+-using System.Text;
+ using QuantConnect.Data.Custom.SmartInsider;
+ using QuantConnect.Util;
+ using QuantConnect.Interfaces;
+@@ -31,6 +30,8 @@ public class SmartInsiderConverter
+     {
+         private readonly DirectoryInfo _sourceDirectory;
+         private readonly DirectoryInfo _destinationDirectory;
++        private readonly DirectoryInfo _processedFilesDirectory;
++
+         private readonly MapFileResolver _mapFileResolver;
+ 
+         /// <summary>
+@@ -38,10 +39,12 @@ public class SmartInsiderConverter
+         /// </summary>
+         /// <param name="sourceFile"></param>
+         /// <param name="destinationFile"></param>
+-        public SmartInsiderConverter(DirectoryInfo sourceDirectory, DirectoryInfo destinationDirectory)
++        public SmartInsiderConverter(DirectoryInfo sourceDirectory, DirectoryInfo destinationDirectory, DirectoryInfo processedFilesDirectory)
+         {
+             _sourceDirectory = sourceDirectory;
+             _destinationDirectory = destinationDirectory;
++            _processedFilesDirectory = processedFilesDirectory;
++
+             _mapFileResolver = Composer.Instance.GetExportedValueByTypeName<IMapFileProvider>(Config.Get("map-file-provider", "LocalDiskMapFileProvider"))
+                 .Get(Market.USA);
+ 
+@@ -240,12 +243,13 @@ private void WriteToFile<T>(DirectoryInfo destinationDirectory, Dictionary<strin
+                 var ticker = kvp.Key.ToLowerInvariant();
+ 
+                 var finalFile = new FileInfo(Path.Combine(destinationDirectory.FullName, $"{ticker}.tsv"));
++                var processedFile = new FileInfo(Path.Combine(_processedFilesDirectory.FullName, destinationDirectory.Name, $"{ticker}.tsv"));
+                 var fileContents = new List<T>();
+ 
+-                if (finalFile.Exists)
++                if (processedFile.Exists)
+                 {
+                     Log.Trace($"SmartInsiderConverter.WriteToFile(): Writing to existing file: {finalFile.FullName}");
+-                    fileContents = File.ReadAllLines(finalFile.FullName)
++                    fileContents = File.ReadAllLines(processedFile.FullName)
+                         .Select(x => (T)CreateSmartInsiderInstance<T>(x))
+                         .ToList();
+                 }
+diff --git a/ToolBox/SmartInsider/SmartInsiderProgram.cs b/ToolBox/SmartInsider/SmartInsiderProgram.cs
+index 81d423c6326c..257ca2121e4d 100644
+--- a/ToolBox/SmartInsider/SmartInsiderProgram.cs
++++ b/ToolBox/SmartInsider/SmartInsiderProgram.cs
+@@ -23,9 +23,19 @@ public static class SmartInsiderProgram
+         /// <summary>
+         /// Converts Smart Insider data
+         /// </summary>
+-        public static void SmartInsiderConverter(DateTime date, string sourceDirectory, string destinationDirectory)
++        public static void SmartInsiderConverter(DateTime date, string sourceDirectory, string destinationDirectory, string processedFileDirectory = null)
+         {
+-            var converter = new SmartInsiderConverter(new DirectoryInfo(sourceDirectory), new DirectoryInfo(destinationDirectory));
++            // Default to the Data Folder Smart Insider data directory if no argument is passed
++            if (string.IsNullOrEmpty(processedFileDirectory))
++            {
++                processedFileDirectory = Path.Combine(Globals.DataFolder, "alternative", "smartinsider");
++            }
++
++            var converter = new SmartInsiderConverter(
++                new DirectoryInfo(sourceDirectory),
++                new DirectoryInfo(destinationDirectory),
++                new DirectoryInfo(processedFileDirectory));
++
+             converter.Convert(date);
+         }
+     }

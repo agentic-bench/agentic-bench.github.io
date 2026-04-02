@@ -1,0 +1,6 @@
+{
+  "issue_title": "Allow users to constrain universal locks to specific markers",
+  "issue_body": "I think we should let users apply a global marker constraint to \"universal\" resolution. E.g., maybe you don't care about locking on Windows, so you specify `platform_system != 'Windows'` in your `pyproject.toml`, and we avoid solving any branches that are Windows-only. Later, when installing, we'd error if the user is on an unsupported platform, based on those markers.\r\n\r\nThis would (1) make resolution a lot faster for users that only care about certain platforms, (2) enable us to solve locks that legitimately don't have solutions on certain platforms.\r\n\r\nThis would also solve https://github.com/astral-sh/uv/issues/4087.",
+  "pr_title": "Allow user to constrain supported lock environments",
+  "pr_body": "## Summary\r\n\r\nThe strategy here is: if the user provides supported environments, we use those as the initial forks when resolving. As a result, we never add or explore branches that are disjoint with the supported environments. (If the supported environments change, we ignore the lockfile entirely, so we don't have to worry about any interactions between supported environments and the preference forks.)\r\n\r\nCloses https://github.com/astral-sh/uv/issues/6184.\r\n"
+}

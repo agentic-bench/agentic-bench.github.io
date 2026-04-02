@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "core_issue_42916_pr_42919_sm_963d20c8"
+contextcrbench2_full_name = "home-assistant/core"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "42916"
+contextcrbench2_issue_title = "EntityPlatform.async_add_entities tasks are never garbage collected"
+contextcrbench2_pr_number = "42919"
+contextcrbench2_pr_title = "Ensure instances of async_add_entities can be garbage collected"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "963d20c87687f3ed735a619ec6a006028a83df40"
+contextcrbench2_commit_id = "963d20c87687f3ed735a619ec6a006028a83df40"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2020-11-07T10:18:38Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

@@ -1,0 +1,10 @@
+[
+  {
+    "path": "crates/ruff/src/checkers/ast/mod.rs",
+    "line": 1526,
+    "original_line": 1526,
+    "review_comment": [
+      "Changed this while I was here."
+    ]
+  }
+]

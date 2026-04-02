@@ -1,0 +1,29 @@
+[
+  {
+    "path": "pandas/tests/arrays/sparse/test_array.py",
+    "line": 270,
+    "original_line": 270,
+    "review_comment": [
+      "can you make a new test",
+      "Sure. Done."
+    ]
+  },
+  {
+    "path": "pandas/tests/extension/test_sparse.py",
+    "line": 448,
+    "original_line": 448,
+    "review_comment": [
+      "Could you only determine the fill_value in if/else. This should be more readable",
+      "Sure, you are right!"
+    ]
+  },
+  {
+    "path": "pandas/tests/arrays/sparse/test_array.py",
+    "line": 272,
+    "original_line": 272,
+    "review_comment": [
+      "I think you mentioned, that we don't have tests here? Could you add one with boolean indexer too?",
+      "No at all, I meant that we don't have test for comparisons SA. Actually we have, but it test for Series (when SparseArray casts to Series), now I've changed it to version without cast that means correct.\r\n\r\nFor simple boolean mask I added test in my previous PR that was merged. You can see it above test that marked here by you."
+    ]
+  }
+]

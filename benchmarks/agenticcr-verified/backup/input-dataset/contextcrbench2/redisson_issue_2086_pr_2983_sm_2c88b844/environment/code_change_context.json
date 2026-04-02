@@ -1,0 +1,6 @@
+{
+  "issue_title": "redisson-spring-boot-starter\u80fd\u5426\u76f4\u63a5\u589e\u52a0json\u5b57\u7b26\u4e32\u6216\u8005yaml\u5b57\u7b26\u4e32\u914d\u7f6e\u800c\u4e0d\u4ec5\u4ec5\u53ea\u662f\u589e\u52a0\u914d\u7f6e\u6587\u4ef6config\u8def\u5f84\u7684\u914d\u7f6e",
+  "issue_body": "<!--\r\nPlease consider to take commercial 24x7 support included in PRO version https://redisson.pro\r\n-->\r\n\r\n### Expected behavior\r\n\r\n### Actual behavior\r\n\r\n### Steps to reproduce or test case\r\n\r\n### Redis version\r\n\r\n### Redisson version\r\n\r\n### Redisson configuration\r\n\r\n\u8fd9\u6837\u5b50\u6709\u5229\u4e8e\u914d\u7f6e\u4e2d\u5fc3\u66f4\u597d\u7684\u52a8\u6001\u914d\u7f6e\r\n",
+  "pr_title": "feat(starter): support spring config server/appolo/nacos",
+  "pr_body": "support spring config server/appolo/nacos\r\ncompatible spring boot's\r\nconfig (`spring.redis.redisson.config=classpath:redisson.yaml`)\r\n\r\nCloses #2918\r\nCloses #2765\r\nCloses #2086\r\nCloses #1829\r\nCloses #2520"
+}

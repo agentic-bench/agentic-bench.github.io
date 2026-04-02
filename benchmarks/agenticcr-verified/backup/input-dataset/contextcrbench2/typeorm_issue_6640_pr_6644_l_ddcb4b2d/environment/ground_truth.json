@@ -1,0 +1,42 @@
+[
+  {
+    "path": "test/github-issues/6640/issue-6640.ts",
+    "line": 79,
+    "original_line": 79,
+    "review_comment": [
+      "What about using the actual JSON notation, `form.extraSettings->'someNb'`?",
+      "Using the JSON notation (without the space before '->') does not work in other places either. Typeorm will not treat them as separate fields, only the '.' is recognized for it. And this will mess up the entity to table column translation.\r\n\r\nBut using the space before '->' does the trick in most cases (i.e. other parts of the code)."
+    ]
+  },
+  {
+    "path": "test/github-issues/6640/issue-6640.ts",
+    "line": 77,
+    "original_line": 77,
+    "review_comment": [
+      "Do we actually need this? Couldn't we simplify the model significantly and remove the extra pieces we aren't using?\r\n\r\nFor tests, I think we only really need...\r\n\r\n```\r\n@Entity()\r\nexport class Test {\r\n  @PrimaryColumn()\r\n  id: number;\r\n\r\n  // JSONB column\r\n  @Column(\"jsonb\", {nullable: true})\r\n  json?: any;\r\n}\r\n```\r\n\r\nWe don't even need to read the data in the json blob, right?  We can compare the `id` values & make sure the sort order is correct in that way.",
+      "Significantly no... but can simplify (I simplified our real-life example, so at one point I got tired removing stuff ;) )\r\n\r\nBut we need to have JOIN, ORDER BY (by a json field) and PAGINATION, only in that case we end up in that function I patched. In other case it works already."
+    ]
+  },
+  {
+    "path": "test/github-issues/6640/issue-6640.ts",
+    "line": 70,
+    "original_line": 70,
+    "review_comment": [
+      "Just to throw things off, can you include other JSON data in the fields as well - stuff that alphabetically comes before, etc",
+      "In `extraSettings->someStr` that would alphabetically come before the numbers?"
+    ]
+  },
+  {
+    "path": "test/github-issues/6640/issue-6640.ts",
+    "line": 84,
+    "original_line": 84,
+    "review_comment": [
+      "Is it possible to do the test with `take` separate from this case?",
+      "Not quite understand, could you explain?",
+      "You're testing a few different functionalities here.  One is order by with JSON notation, the other is grouping by & ordering by a JSON notation.\r\n\r\nIdeally we would have one test that's just a very basic case - eg, just ordering by the JSON field.  Nothing else, that way it's in isolation.\r\n\r\nThen a separate test which joins & uses take.",
+      "Yes, indeed this issue occurs only in this case when several functionalities are used together. This is not an issue with json fields, it's only this specific case using json fields. That is why I test this particular case.\r\n\r\nIf I test simpler cases (which were working fine before), it will be a non-regression test. I don't think these tests are supposed to cover non-regression... right?",
+      ":thinking: the notation `property ->'field'` works to order normally?  Wouldn't it get escaped erroneously?",
+      "Yes, it works, `replacePropertyNames()`, which is used in other parts (ex. in where) will translate `property`, but will leave `->'field'` untouched, due to the separating space and the fact that there is no property that can match \"->'field'\".\r\n\r\nAnd therefore in the resulting SQL we properly get `alias.column_name ->'field'`."
+    ]
+  }
+]

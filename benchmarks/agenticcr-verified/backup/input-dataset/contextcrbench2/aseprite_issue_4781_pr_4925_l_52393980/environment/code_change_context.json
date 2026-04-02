@@ -1,0 +1,6 @@
+{
+  "issue_title": "Add bestFitCriteria param to ChangePixelFormat command",
+  "issue_body": "Requested here: https://bsky.app/profile/joshuaskelly.bsky.social/post/3las4bof6zk2g",
+  "pr_title": "Add fitCriteria parameter to ChangePixelFormat command",
+  "pr_body": "Fix #4781 \r\n\r\nThis PR also includes:\r\n- A refactor of ChangePixelFormatCommand to make it inherit from CommandWithNewParams.\r\n- A new \"dithering-factor\" parameter to being able to specify this for the \"error-diffusion\" dithering algorithm.\r\n- A commit to avoid the BayerMatrix object slicing, not actually needed."
+}

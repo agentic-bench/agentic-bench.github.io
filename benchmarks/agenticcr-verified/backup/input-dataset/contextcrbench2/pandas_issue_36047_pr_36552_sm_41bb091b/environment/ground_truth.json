@@ -1,0 +1,22 @@
+[
+  {
+    "path": "pandas/core/ops/methods.py",
+    "line": 175,
+    "original_line": 175,
+    "review_comment": [
+      "This message should have been moved in #19649\r\n\r\nI think Ok if we have not had reports of floating point exceptions since enabled."
+    ]
+  },
+  {
+    "path": "pandas/core/computation/expressions.py",
+    "line": 136,
+    "original_line": 136,
+    "review_comment": [
+      "the relevant bug also affects rmod, floordiv, and rfloordiv",
+      "have you got an example of floordiv, and rfloordiv failing.\r\n\r\n```python\r\n>>> pd.__version__\r\n'1.1.2'\r\n>>>\r\n>>> from pandas.core.computation import expressions as expr\r\n>>>\r\n>>> expr.set_test_mode(True)\r\n>>>\r\n>>> s = pd.Series(np.arange(10001)) - 5000\r\n>>> print(expr.get_test_result())\r\n[True]\r\n>>> result = s % 24\r\n>>>\r\n>>> print(expr.get_test_result())\r\n[True]\r\n>>>\r\n>>> for i, elem in enumerate(s):\r\n...     assert elem % 24 == result[i]\r\n...\r\nTraceback (most recent call last):\r\n  File \"<stdin>\", line 2, in <module>\r\nAssertionError\r\n>>>\r\n>>> s = pd.Series(np.arange(10001)) - 5000\r\n>>>\r\n>>> print(expr.get_test_result())\r\n[True]\r\n>>> result = s % -24\r\n>>> print(expr.get_test_result())\r\n[True]\r\n>>>\r\n>>> for i, elem in enumerate(s):\r\n...     assert elem % -24 == result[i]\r\n...\r\nTraceback (most recent call last):\r\n  File \"<stdin>\", line 2, in <module>\r\nAssertionError\r\n>>>\r\n>>> s = pd.Series(np.arange(10001)) - 5000\r\n>>> print(expr.get_test_result())\r\n[True]\r\n>>> s[s == 0] = 1\r\n>>> print(expr.get_test_result())\r\n[True]\r\n>>> result = 24 % s\r\n>>>\r\n>>> print(expr.get_test_result())\r\n[True]\r\n>>>\r\n>>> for i, elem in enumerate(s):\r\n...     assert 24 % elem == result[i]\r\n...\r\nTraceback (most recent call last):\r\n  File \"<stdin>\", line 2, in <module>\r\nAssertionError\r\n>>>\r\n>>>\r\n>>> s = pd.Series(np.arange(10001)) - 5000\r\n>>> print(expr.get_test_result())\r\n[True]\r\n>>>\r\n>>> s[s == 0] = 1\r\n>>> print(expr.get_test_result())\r\n[True]\r\n>>> result = -24 % s\r\n>>>\r\n>>> print(expr.get_test_result())\r\n[True]\r\n>>>\r\n>>> for i, elem in enumerate(s):\r\n...     assert -24 % elem == result[i]\r\n...\r\nTraceback (most recent call last):\r\n  File \"<stdin>\", line 2, in <module>\r\nAssertionError\r\n>>>\r\n>>>\r\n>>> s = pd.Series(np.arange(10001)) - 5000\r\n>>> print(expr.get_test_result())\r\n[True]\r\n>>>\r\n>>> result = s // 24\r\n>>>\r\n>>> print(expr.get_test_result())\r\n[]\r\n>>>\r\n>>> for i, elem in enumerate(s):\r\n...     assert elem // 24 == result[i]\r\n...\r\n>>>\r\n>>> result = s // -24\r\n>>>\r\n>>> print(expr.get_test_result())\r\n[]\r\n>>>\r\n>>> for i, elem in enumerate(s):\r\n...     assert elem // -24 == result[i]\r\n...\r\n>>>\r\n>>> s = pd.Series(np.arange(10001)) - 5000\r\n>>> print(expr.get_test_result())\r\n[True]\r\n>>> s[s == 0] = 1\r\n>>> print(expr.get_test_result())\r\n[True]\r\n>>> result = 24 // s\r\n>>>\r\n>>> print(expr.get_test_result())\r\n[]\r\n>>>\r\n>>> for i, elem in enumerate(s):\r\n...     assert 24 // elem == result[i]\r\n...\r\n>>>\r\n>>> result = -24 // s\r\n>>>\r\n>>> print(expr.get_test_result())\r\n[]\r\n>>>\r\n>>> for i, elem in enumerate(s):\r\n...     assert -24 // elem == result[i]\r\n...\r\n>>>\r\n```\r\n\r\n> the relevant bug...\r\n\r\nI wasn't planning a bug fix, just a simple regression fix with revert of offending code. could open directly against 1.1.x?",
+      "My bad, assumed it had the same behavior as cython without checking.",
+      "it may do. not checked. but from the output above, numexpr not being used for floordiv, rfloordiv.\r\n\r\nIs there special handling for that?",
+      "In core.ops.array_ops.na_arithmetic_op we have a try/except for the numexpr call that catches TypeError.  Best guess is that floordiv _always_ gets caught here."
+    ]
+  }
+]

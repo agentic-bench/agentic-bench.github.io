@@ -1,0 +1,10 @@
+[
+  {
+    "path": "crates/uv/tests/workspace.rs",
+    "line": 173,
+    "original_line": 173,
+    "review_comment": [
+      "Can we just come up with an example that uses fewer, smaller packages? E.g., do we really need boltons, which is almost 200 KB?"
+    ]
+  }
+]

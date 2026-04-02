@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "tidb_issue_46577_pr_46665_sm_f22177b0"
+contextcrbench2_full_name = "pingcap/tidb"
+contextcrbench2_lang = "go"
+contextcrbench2_issue_number = "46577"
+contextcrbench2_issue_title = "no metrics data in the stats cache"
+contextcrbench2_pr_number = "46665"
+contextcrbench2_pr_title = "statistics: add update metrics for stats cache"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "f22177b0c0ee3d4ec7cf52881e37fd86c8ad7e9c"
+contextcrbench2_commit_id = "f22177b0c0ee3d4ec7cf52881e37fd86c8ad7e9c"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2023-09-05T06:56:24Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

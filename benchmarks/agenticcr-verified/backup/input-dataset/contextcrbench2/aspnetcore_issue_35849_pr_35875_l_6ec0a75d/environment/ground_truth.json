@@ -1,0 +1,10 @@
+[
+  {
+    "path": "src/Mvc/Mvc.Core/src/ConsumesAttribute.cs",
+    "line": 65,
+    "original_line": 65,
+    "review_comment": [
+      "```suggestion\r\n        /// <param name=\"otherContentTypes\">The list of additional allowed request content types.</param>\r\n```"
+    ]
+  }
+]

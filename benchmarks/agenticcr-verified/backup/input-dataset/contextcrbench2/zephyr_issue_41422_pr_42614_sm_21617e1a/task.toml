@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "zephyr_issue_41422_pr_42614_sm_21617e1a"
+contextcrbench2_full_name = "zephyrproject-rtos/zephyr"
+contextcrbench2_lang = "c"
+contextcrbench2_issue_number = "41422"
+contextcrbench2_issue_title = "The option CONFIG_SYSTEM_CLOCK_SLOPPY_IDLE blocks k_sleep when CONFIG_PM is enabled"
+contextcrbench2_pr_number = "42614"
+contextcrbench2_pr_title = "kernel: Fix timeout issue with SYSTEM_CLOCK_SLOPPY_IDLE"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "21617e1aa45f5dd148efc10a3fbee94a7894b17d"
+contextcrbench2_commit_id = "21617e1aa45f5dd148efc10a3fbee94a7894b17d"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2022-02-09T16:29:22Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

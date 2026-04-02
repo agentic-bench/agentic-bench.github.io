@@ -1,0 +1,13 @@
+[
+  {
+    "id": 63885,
+    "full_name": "pandas-dev/pandas",
+    "lang": "python",
+    "issue_number": 38601,
+    "pr_number": 39071,
+    "diff_hunk": "@@ -1933,12 +1934,14 @@ def _ensure_iterable_column_indexer(self, column_indexer):\n         \"\"\"\n         Ensure that our column indexer is something that can be iterated over.\n         \"\"\"\n-        # Ensure we have something we can iterate over\n         if is_integer(column_indexer):\n             ilocs = [column_indexer]\n         elif isinstance(column_indexer, slice):\n-            ri = Index(range(len(self.obj.columns)))\n-            ilocs = ri[column_indexer]\n+            ilocs = np.arange(len(self.obj.columns))[column_indexer]\n+        elif isinstance(column_indexer, np.ndarray) and is_bool_dtype(\n+            column_indexer.dtype\n+        ):\n+            ilocs = np.arange(len(column_indexer))[column_indexer]\n         else:\n             ilocs = column_indexer\n         return ilocs\n",
+    "diff_hunk_content_with_line_number": "[1933][1934]          \"\"\"\n[1934][1935]          Ensure that our column indexer is something that can be iterated over.\n[1935][1936]          \"\"\"\n[1936][] -        # Ensure we have something we can iterate over\n[1937][1937]          if is_integer(column_indexer):\n[1938][1938]              ilocs = [column_indexer]\n[1939][1939]          elif isinstance(column_indexer, slice):\n[1940][] -            ri = Index(range(len(self.obj.columns)))\n[1941][] -            ilocs = ri[column_indexer]\n[][1940] +            ilocs = np.arange(len(self.obj.columns))[column_indexer]\n[][1941] +        elif isinstance(column_indexer, np.ndarray) and is_bool_dtype(\n[][1942] +            column_indexer.dtype\n[][1943] +        ):\n[][1944] +            ilocs = np.arange(len(column_indexer))[column_indexer]\n[1942][1945]          else:\n[1943][1946]              ilocs = column_indexer\n[1944][1947]          return ilocs",
+    "checked_commit_id": "3c4ea6adeeaf04971725731aae77a7780ed3730a",
+    "pr_size": "sm"
+  }
+]

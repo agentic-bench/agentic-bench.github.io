@@ -1,0 +1,12 @@
+[
+  {
+    "path": "homeassistant/components/xiaomi_miio/const.py",
+    "line": 199,
+    "original_line": 199,
+    "review_comment": [
+      "Is there something holding up the pythonmiio release with these constants?",
+      "1. its not merged yet: https://github.com/rytilahti/python-miio/pull/1169\r\n2. There will be no release soon: https://github.com/home-assistant/core/issues/57474#issuecomment-946352575",
+      "Thanks for the backstory "
+    ]
+  }
+]

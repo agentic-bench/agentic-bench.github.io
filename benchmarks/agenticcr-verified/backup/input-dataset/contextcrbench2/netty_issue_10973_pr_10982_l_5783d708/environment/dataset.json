@@ -1,0 +1,13 @@
+[
+  {
+    "id": 50624,
+    "full_name": "netty/netty",
+    "lang": "java",
+    "issue_number": 10973,
+    "pr_number": 10982,
+    "diff_hunk": "@@ -321,7 +321,9 @@ public void cleanAllHttpData() {\n \n             List<HttpData> list = e.getValue();\n             for (HttpData data : list) {\n-                data.release();\n+                if (data.refCnt() > 0) {\n+                    data.release();\n+                }\n             }\n \n             i.remove();\n",
+    "diff_hunk_content_with_line_number": "[321][321]  \n[322][322]              List<HttpData> list = e.getValue();\n[323][323]              for (HttpData data : list) {\n[324][] -                data.release();\n[][324] +                if (data.refCnt() > 0) {\n[][325] +                    data.release();\n[][326] +                }\n[325][327]              }\n[326][328]  \n[327][329]              i.remove();",
+    "checked_commit_id": "5783d7087cc3fc445d5d3b57ecd5b5e85ba9afc8",
+    "pr_size": "l"
+  }
+]

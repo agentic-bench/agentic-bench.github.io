@@ -1,0 +1,10 @@
+[
+  {
+    "path": "packages/react-reconciler/src/ReactFiberCommitWork.js",
+    "line": 2206,
+    "original_line": 2206,
+    "review_comment": [
+      "Effectively I just moved the `!offscreenSubtreeWasHidden` check here which caused the whole block to be dedented. \r\n\r\n1. this code is responsible for destroying insertion and layout effects (passive effects are destroyed in `commitPassiveUnmountOnFiber`)\r\n2. layout effects are guaranteed to be already destroyed when `offscreenSubtreeWasHidden` because they are destroyed by `disappearLayoutEffects` immediately~ when the tree gets hidden. We can't destroy them here unconditionally because that would sometimes destroy them twice\r\n3. and yet we need to destroy insertion effects here since they are meant to stay \"connected\" when the tree gets hidden (that's what @gaearon suggested to me as the fix for this issue). That's why this loop through `updateQueue` is not completely avoidable here right now."
+    ]
+  }
+]

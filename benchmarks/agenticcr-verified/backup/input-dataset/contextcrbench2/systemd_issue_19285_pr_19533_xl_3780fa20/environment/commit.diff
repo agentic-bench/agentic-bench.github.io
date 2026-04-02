@@ -1,0 +1,30 @@
+diff --git a/src/basic/in-addr-util.h b/src/basic/in-addr-util.h
+index 5f3c717615f64..906b3fe97e567 100644
+--- a/src/basic/in-addr-util.h
++++ b/src/basic/in-addr-util.h
+@@ -126,3 +126,10 @@ extern const struct hash_ops in_addr_data_hash_ops;
+ extern const struct hash_ops in_addr_prefix_hash_ops;
+ extern const struct hash_ops in_addr_prefix_hash_ops_free;
+ extern const struct hash_ops in6_addr_hash_ops;
++
++#define IPV4_ADDRESS_FMT_STR     "%u.%u.%u.%u"
++#define IPV4_ADDRESS_FMT_VAL(address)              \
++        be32toh((address).s_addr) >> 24,           \
++        (be32toh((address).s_addr) >> 16) & 0xFFu, \
++        (be32toh((address).s_addr) >> 8) & 0xFFu,  \
++        be32toh((address).s_addr) & 0xFFu
+diff --git a/src/network/networkd-address.h b/src/network/networkd-address.h
+index 58f44cd4cd4e2..b8030c99df2e2 100644
+--- a/src/network/networkd-address.h
++++ b/src/network/networkd-address.h
+@@ -86,10 +86,3 @@ CONFIG_PARSER_PROTOTYPE(config_parse_address_flags);
+ CONFIG_PARSER_PROTOTYPE(config_parse_address_scope);
+ CONFIG_PARSER_PROTOTYPE(config_parse_address_route_metric);
+ CONFIG_PARSER_PROTOTYPE(config_parse_duplicate_address_detection);
+-
+-#define IPV4_ADDRESS_FMT_STR     "%u.%u.%u.%u"
+-#define IPV4_ADDRESS_FMT_VAL(address)              \
+-        be32toh((address).s_addr) >> 24,           \
+-        (be32toh((address).s_addr) >> 16) & 0xFFu, \
+-        (be32toh((address).s_addr) >> 8) & 0xFFu,  \
+-        be32toh((address).s_addr) & 0xFFu

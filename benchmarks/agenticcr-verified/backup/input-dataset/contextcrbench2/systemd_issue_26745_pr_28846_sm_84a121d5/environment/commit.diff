@@ -1,0 +1,93 @@
+diff --git a/man/networkd.conf.xml b/man/networkd.conf.xml
+index bf597cac2ecb0..13a746d2249b1 100644
+--- a/man/networkd.conf.xml
++++ b/man/networkd.conf.xml
+@@ -138,6 +138,13 @@
+             </para></listitem>
+           </varlistentry>
+ 
++          <varlistentry>
++            <term><option>custom</option></term>
++            <listitem><para>If <literal>DUIDType=custom</literal>, then the <literal>DUIDRawData=</literal> value will
++            used be as custom identifier. If <literal>DUIDType=custom</literal> is specified then
++            <literal>DUIDRawData=</literal> key is mandatory. Note it applies only on DHCPv6 clients.</para></listitem>
++          </varlistentry>
++
+           <varlistentry>
+             <term><option>uuid</option></term>
+             <listitem><para>If <literal>DUIDType=uuid</literal>, and <varname>DUIDRawData=</varname> is not set,
+diff --git a/src/libsystemd-network/dhcp-identifier.c b/src/libsystemd-network/dhcp-identifier.c
+index a27d67a315dfe..83fb6ce3408d4 100644
+--- a/src/libsystemd-network/dhcp-identifier.c
++++ b/src/libsystemd-network/dhcp-identifier.c
+@@ -15,10 +15,11 @@
+ #define USEC_2000       ((usec_t) 946684800000000) /* 2000-01-01 00:00:00 UTC */
+ 
+ static const char * const duid_type_table[_DUID_TYPE_MAX] = {
+-        [DUID_TYPE_LLT]  = "DUID-LLT",
+-        [DUID_TYPE_EN]   = "DUID-EN/Vendor",
+-        [DUID_TYPE_LL]   = "DUID-LL",
+-        [DUID_TYPE_UUID] = "UUID",
++        [DUID_TYPE_LLT]    = "DUID-LLT",
++        [DUID_TYPE_EN]     = "DUID-EN/Vendor",
++        [DUID_TYPE_LL]     = "DUID-LL",
++        [DUID_TYPE_UUID]   = "UUID",
++        [DUID_TYPE_CUSTOM] = "Custom",
+ };
+ 
+ DEFINE_STRING_TABLE_LOOKUP_TO_STRING(duid_type, DUIDType);
+diff --git a/src/libsystemd-network/dhcp-identifier.h b/src/libsystemd-network/dhcp-identifier.h
+index 523dfc4a71ba1..1ac34761573cc 100644
+--- a/src/libsystemd-network/dhcp-identifier.h
++++ b/src/libsystemd-network/dhcp-identifier.h
+@@ -17,6 +17,7 @@ typedef enum DUIDType {
+         DUID_TYPE_EN        = 2,
+         DUID_TYPE_LL        = 3,
+         DUID_TYPE_UUID      = 4,
++        DUID_TYPE_CUSTOM    = 5,
+         _DUID_TYPE_MAX,
+         _DUID_TYPE_INVALID  = -EINVAL,
+ } DUIDType;
+diff --git a/src/libsystemd-network/sd-dhcp6-client.c b/src/libsystemd-network/sd-dhcp6-client.c
+index 2f4053caad01e..e8d99718b3015 100644
+--- a/src/libsystemd-network/sd-dhcp6-client.c
++++ b/src/libsystemd-network/sd-dhcp6-client.c
+@@ -212,10 +212,14 @@ static int dhcp6_client_set_duid_internal(
+                         log_dhcp6_client(client, "Using DUID of type %i of incorrect length, proceeding.", duid_type);
+                 }
+ 
+-                client->duid.type = htobe16(duid_type);
+-                memcpy(&client->duid.raw.data, duid, duid_len);
+-                client->duid_len = sizeof(client->duid.type) + duid_len;
+-
++                if (duid_type == DUID_TYPE_CUSTOM) {
++                        memcpy(&client->duid, duid, duid_len);
++                        client->duid_len = duid_len;
++                } else {
++                        client->duid.type = htobe16(duid_type);
++                        memcpy(&client->duid.raw.data, duid, duid_len);
++                        client->duid_len = sizeof(client->duid.type) + duid_len;
++                }
+         } else {
+                 r = dhcp_identifier_set_duid(duid_type, &client->hw_addr, client->arp_type, llt_time,
+                                              client->test_mode, &client->duid, &client->duid_len);
+diff --git a/src/network/networkd-dhcp-common.c b/src/network/networkd-dhcp-common.c
+index 5f9ef80e3e5b6..baf80cb6442b1 100644
+--- a/src/network/networkd-dhcp-common.c
++++ b/src/network/networkd-dhcp-common.c
+@@ -1106,10 +1106,11 @@ static const char * const dhcp_option_data_type_table[_DHCP_OPTION_DATA_MAX] = {
+ DEFINE_STRING_TABLE_LOOKUP(dhcp_option_data_type, DHCPOptionDataType);
+ 
+ static const char* const duid_type_table[_DUID_TYPE_MAX] = {
+-        [DUID_TYPE_LLT]  = "link-layer-time",
+-        [DUID_TYPE_EN]   = "vendor",
+-        [DUID_TYPE_LL]   = "link-layer",
+-        [DUID_TYPE_UUID] = "uuid",
++        [DUID_TYPE_LLT]    = "link-layer-time",
++        [DUID_TYPE_EN]     = "vendor",
++        [DUID_TYPE_LL]     = "link-layer",
++        [DUID_TYPE_UUID]   = "uuid",
++        [DUID_TYPE_CUSTOM] = "custom",
+ };
+ DEFINE_PRIVATE_STRING_TABLE_LOOKUP_FROM_STRING(duid_type, DUIDType);
+ 

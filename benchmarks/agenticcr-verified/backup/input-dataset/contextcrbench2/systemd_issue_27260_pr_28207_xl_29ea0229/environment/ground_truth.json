@@ -1,0 +1,11 @@
+[
+  {
+    "path": "src/shared/creds-util.c",
+    "line": 128,
+    "original_line": 128,
+    "review_comment": [
+      "This sucks for generators outside of systemd's codebase since they won't have access to this function. Can't we set up a decrypted credentials directory for generators as well?",
+      "that would mean decrypting *all* passed credentials unconditionally. That's not only problematic because decrypting all this sensitive data of which most might not be consumed at all by the generators means we reveal secrets to way more code than necessary. more problematic is that creds are bound to TPM, and come with PCR policies by default, which can be bound to runtime phases. we should not try to decrypt those, since that's slow, and will quite possibly fail (simply because the cred in question was itended to be unlocked at a different time), and increase \"dictionary lockout\" counters in the tpm and so on (which will fuck up the object entirely).\r\n\r\ngenerators currently run with almost full system privileges, they are conceptually more part of pid 1 than part of the OS payload. They run in the /init.scope/ cgroup and such. Hence I think it's somewhat OK to have a slightly higher level of requirement on this. But yeah, it's not ideal.\r\n\r\nI think for now, people should just shell out to \"systemd-creds --system cat\" and it will do the right thing... One of those days we should maybe offer some form of IPC API for this in PID 1 or so dunno.\r\n"
+    ]
+  }
+]

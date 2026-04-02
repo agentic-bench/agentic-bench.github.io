@@ -1,0 +1,24 @@
+[
+  {
+    "id": 66727,
+    "full_name": "huggingface/transformers",
+    "lang": "python",
+    "issue_number": 24872,
+    "pr_number": 24916,
+    "diff_hunk": "@@ -193,8 +193,7 @@ def on_epoch_end(self, epoch, logs=None):\n             # This dense conditional recognizes the case where we have an encoder-decoder model, but\n             # avoids getting tangled up when we just have a model with a layer called 'encoder'\n             if hasattr(self.model, \"encoder\") and hasattr(self.model.encoder, \"main_input_name\"):\n-                if self.model.encoder.main_input_name != self.model.main_input_name:\n-                    main_input_name = self.model.encoder.main_input_name\n+                main_input_name = self.model.encoder.main_input_name\n             else:\n                 main_input_name = getattr(self.model, \"main_input_name\", \"input_ids\")\n \n",
+    "diff_hunk_content_with_line_number": "[193][193]              # This dense conditional recognizes the case where we have an encoder-decoder model, but\n[194][194]              # avoids getting tangled up when we just have a model with a layer called 'encoder'\n[195][195]              if hasattr(self.model, \"encoder\") and hasattr(self.model.encoder, \"main_input_name\"):\n[196][] -                if self.model.encoder.main_input_name != self.model.main_input_name:\n[197][] -                    main_input_name = self.model.encoder.main_input_name\n[][196] +                main_input_name = self.model.encoder.main_input_name\n[198][197]              else:\n[199][198]                  main_input_name = getattr(self.model, \"main_input_name\", \"input_ids\")\n[200][199]  ",
+    "checked_commit_id": "32e0f653d262dfbd13cb2a2641f2f34dc8019a31",
+    "pr_size": "sm"
+  },
+  {
+    "id": 66728,
+    "full_name": "huggingface/transformers",
+    "lang": "python",
+    "issue_number": 24872,
+    "pr_number": 24916,
+    "diff_hunk": "@@ -193,8 +193,7 @@ def on_epoch_end(self, epoch, logs=None):\n             # This dense conditional recognizes the case where we have an encoder-decoder model, but\n             # avoids getting tangled up when we just have a model with a layer called 'encoder'\n             if hasattr(self.model, \"encoder\") and hasattr(self.model.encoder, \"main_input_name\"):\n-                if self.model.encoder.main_input_name != self.model.main_input_name:\n-                    main_input_name = self.model.encoder.main_input_name\n+                main_input_name = self.model.encoder.main_input_name\n             else:\n                 main_input_name = getattr(self.model, \"main_input_name\", \"input_ids\")\n \n",
+    "diff_hunk_content_with_line_number": "[193][193]              # This dense conditional recognizes the case where we have an encoder-decoder model, but\n[194][194]              # avoids getting tangled up when we just have a model with a layer called 'encoder'\n[195][195]              if hasattr(self.model, \"encoder\") and hasattr(self.model.encoder, \"main_input_name\"):\n[196][] -                if self.model.encoder.main_input_name != self.model.main_input_name:\n[197][] -                    main_input_name = self.model.encoder.main_input_name\n[][196] +                main_input_name = self.model.encoder.main_input_name\n[198][197]              else:\n[199][198]                  main_input_name = getattr(self.model, \"main_input_name\", \"input_ids\")\n[200][199]  ",
+    "checked_commit_id": "32e0f653d262dfbd13cb2a2641f2f34dc8019a31",
+    "pr_size": "sm"
+  }
+]

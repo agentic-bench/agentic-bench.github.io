@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "ruff_issue_15456_pr_15613_l_07c51c89"
+contextcrbench2_full_name = "astral-sh/ruff"
+contextcrbench2_lang = "rust"
+contextcrbench2_issue_number = "15456"
+contextcrbench2_issue_title = "[red-knot] Out-of-body (re-)definitions of class variables"
+contextcrbench2_pr_number = "15613"
+contextcrbench2_pr_title = "[red-knot] Invalid assignments to attributes"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "07c51c89e9c6e2bb14cdf5e569f4b374ee2ee570"
+contextcrbench2_commit_id = "818f4c1b7d0554be7adcd255b11e2c57dcbaa192"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2025-01-20T12:48:26Z"
+contextcrbench2_entry_count = "2"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

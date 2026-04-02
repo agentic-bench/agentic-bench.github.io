@@ -1,0 +1,13 @@
+[
+  {
+    "id": 61886,
+    "full_name": "pandas-dev/pandas",
+    "lang": "python",
+    "issue_number": 50557,
+    "pr_number": 54744,
+    "diff_hunk": "@@ -3795,6 +3796,13 @@ def get_loc(self, key):\n             ):\n                 raise InvalidIndexError(key)\n             raise KeyError(key) from err\n+\n+        except KeyError:\n+            if not self.index.is_monotonic_increasing:\n+                # Handle non-sorted index case\n+                warnings.warn(\"The index is not sorted. Slicing may not behave as expected.\")\n+                return pd.DataFrame()  # Return an empty DataFrame\n+\n         except TypeError:\n             # If we have a listlike key, _check_indexing_error will raise\n             #  InvalidIndexError. Otherwise we fall through and re-raise\n",
+    "diff_hunk_content_with_line_number": "[3795][3796]              ):\n[3796][3797]                  raise InvalidIndexError(key)\n[3797][3798]              raise KeyError(key) from err\n[][3799] +\n[][3800] +        except KeyError:\n[][3801] +            if not self.index.is_monotonic_increasing:\n[][3802] +                # Handle non-sorted index case\n[][3803] +                warnings.warn(\"The index is not sorted. Slicing may not behave as expected.\")\n[][3804] +                return pd.DataFrame()  # Return an empty DataFrame\n[][3805] +\n[3798][3806]          except TypeError:\n[3799][3807]              # If we have a listlike key, _check_indexing_error will raise\n[3800][3808]              #  InvalidIndexError. Otherwise we fall through and re-raise",
+    "checked_commit_id": "33d25969d962fd33dbc75fe98eab2d97b9c0933c",
+    "pr_size": "xl"
+  }
+]

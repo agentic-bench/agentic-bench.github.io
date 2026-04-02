@@ -1,0 +1,22 @@
+[
+  {
+    "path": "packages/vite/src/node/optimizer/scan.ts",
+    "line": 288,
+    "original_line": 277,
+    "review_comment": [
+      "I think we should have an incrementing `scriptId` for per-file basis. So every file's script would start with 1 first as it's a bit more predictable.",
+      "I noticed you used a `scriptIdMap` to map the id. I think we can directly have a new incrementing number variable somewhere beside this spot:\r\n\r\nhttps://github.com/vitejs/vite/blob/c226e860ae5fb2092ac042b8abe1858887057646/packages/vite/src/node/optimizer/scan.ts#L235\r\n\r\nand use that number to create the `key` instead. We don't need to worry about the key clashing here as for every `path` esbuild loads, it is only processed once, so the `key` is always unique.",
+      "Oh, right. I'm overthinking it. I'll change it later",
+      "@bluwy  I have made some changes based on your newly comments. sorry for changing it several times \ud83d\ude02"
+    ]
+  },
+  {
+    "path": "packages/vite/src/node/optimizer/scan.ts",
+    "line": 285,
+    "original_line": 285,
+    "review_comment": [
+      "shouldn't this vue script setup check still be present?",
+      "In a Vue file with this PR, all script tags will become `export * from 'virtual-module:...'`. And I believe this should cover Vue's case too since script setup doesn't have exports (?), and there would be no export name clashes."
+    ]
+  }
+]

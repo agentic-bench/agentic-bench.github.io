@@ -1,0 +1,11 @@
+[
+  {
+    "path": "crates/bevy_reflect/bevy_reflect_derive/src/fq_std.rs",
+    "line": 33,
+    "original_line": 1,
+    "review_comment": [
+      "Nit: Not super necessary but it would be nice to either have a module-level doc here stating the purpose of these `FQ***` types or doc comments on the individual structs (or both haha).\r\n\r\nIt's pretty simple/self-explanatory so definitely not required, but I like to make sure the barrier to contributing is low for newcomers :)",
+      "I have added the doc too."
+    ]
+  }
+]

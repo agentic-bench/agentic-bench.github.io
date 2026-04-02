@@ -1,0 +1,25 @@
+diff --git a/src/element/textWysiwyg.tsx b/src/element/textWysiwyg.tsx
+index 6eee0d386159..590d6452d4ff 100644
+--- a/src/element/textWysiwyg.tsx
++++ b/src/element/textWysiwyg.tsx
+@@ -30,7 +30,7 @@ const getTransform = (
+   let translateX = ((width - offsetLeft * 2) * (zoom.value - 1)) / 2;
+   const translateY = ((height - offsetTop * 2) * (zoom.value - 1)) / 2;
+   if (width > maxWidth && zoom.value !== 1) {
+-    translateX = (maxWidth / 2) * (zoom.value - 1);
++    translateX = ((maxWidth - offsetLeft * 2) * (zoom.value - 1)) / 2;
+   }
+   return `translate(${translateX}px, ${translateY}px) scale(${zoom.value}) rotate(${degree}deg)`;
+ };
+@@ -68,7 +68,10 @@ export const textWysiwyg = ({
+       const lines = updatedElement.text.replace(/\r\n?/g, "\n").split("\n");
+       const lineHeight = updatedElement.height / lines.length;
+       const maxWidth =
+-        (appState.offsetLeft + appState.width - viewportX - 8) /
++        (appState.width -
++          8 -
++          ((appState.scrollX + updatedElement.x) * appState.zoom.value +
++            appState.zoom.translation.x)) /
+           appState.zoom.value -
+         // margin-right of parent if any
+         Number(

@@ -1,0 +1,26 @@
+[
+  {
+    "path": "modules/structs/repo.go",
+    "line": 203,
+    "original_line": 203,
+    "review_comment": [
+      "7 lines below (I can't comment further down), the same problem might exist.",
+      "Fixed."
+    ]
+  },
+  {
+    "path": "services/pull/merge_ff_only.go",
+    "line": 13,
+    "original_line": 13,
+    "review_comment": [
+      "Please also add a test inside `tests/integration/pull_merge_test.go` for example.\r\nPreferably, it covers at least the cases `fast forward is possible`, and `fast forward is not possible`",
+      "I've started working on this using the other tests in that file as an example. As I was doing that, I started wondering if I should create a new `error` type for the case of a failed `--ff-only` merge because the PR head is not up-to-date, similar to `ErrMergeConflicts` and `ErrMergeUnrelatedHistories`. The other tests in that file use those for the failing cases, but maybe I shouldn't add my own error at this layer because it only applies to one merge style, whereas those other two should apply to any kind of merge. What do you think?",
+      "I think `ErrMergeConflicts` is fine already as that's basically the reason why the merge is not working\u2026",
+      "Hm... the problem with that is that it's detected in a different way that won't apply to this case (`runMergeCommand` looks for `.git/MERGE_HEAD`, which doesn't exist after a failed `--ff-only`). It's also misleading because an `--ff-only` merge will fail even if there are no conflicts, as long as the base has any commits that the head does not have.",
+      "Yes, that was what I intended to imply: For a `ff-only` merge, the only possible merge conflicts are `branch is outdated` since there is no real merge.\r\nOf course, I also have no problem with adding i.e. an `ErrBranchOutdated` or something like that.\r\nIf you want to go through the extra effort, fine with me.",
+      "Having conflicts implies being outdated, but the reverse isn't true, so I think a new error makes sense here. I'll use a similar method as the `ErrMergeUnrelatedHistories` one, checking for a substring in `git`'s error output.",
+      "Yep, I don't think you have any other choice here.",
+      "New error is implemented along with integration tests for successful and failing `fast-forward-only` merges."
+    ]
+  }
+]

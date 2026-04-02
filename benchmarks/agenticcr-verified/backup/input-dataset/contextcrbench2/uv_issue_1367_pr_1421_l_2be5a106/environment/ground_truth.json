@@ -1,0 +1,10 @@
+[
+  {
+    "path": "crates/uv/tests/pip_compile.rs",
+    "line": 3323,
+    "original_line": 3323,
+    "review_comment": [
+      "Also verified that this fails on `main`."
+    ]
+  }
+]

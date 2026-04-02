@@ -1,0 +1,460 @@
+diff --git a/ddl/delete_range.go b/ddl/delete_range.go
+index 8734d2c482968..31603ba8dcd35 100644
+--- a/ddl/delete_range.go
++++ b/ddl/delete_range.go
+@@ -23,6 +23,7 @@ import (
+ 	"sync"
+ 
+ 	"github.com/pingcap/errors"
++	"github.com/pingcap/failpoint"
+ 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
+ 	"github.com/pingcap/tidb/ddl/util"
+ 	"github.com/pingcap/tidb/kv"
+@@ -301,7 +302,11 @@ func insertJobIntoDeleteRangeTable(ctx context.Context, sctx sessionctx.Context,
+ 					return errors.Trace(err)
+ 				}
+ 			}
+-			return nil
++			// logical table may contain global index regions, so delete the logical table range.
++			startKey = tablecodec.EncodeTablePrefix(tableID)
++			endKey := tablecodec.EncodeTablePrefix(tableID + 1)
++			elemID := ea.allocForPhysicalID(tableID)
++			return doInsert(ctx, s, job.ID, elemID, startKey, endKey, now, fmt.Sprintf("table ID is %d", tableID))
+ 		}
+ 		startKey = tablecodec.EncodeTablePrefix(tableID)
+ 		endKey := tablecodec.EncodeTablePrefix(tableID + 1)
+@@ -364,7 +369,14 @@ func insertJobIntoDeleteRangeTable(ctx context.Context, sctx sessionctx.Context,
+ 		if err := job.DecodeArgs(&indexName, &ifExists, &indexID, &partitionIDs); err != nil {
+ 			return errors.Trace(err)
+ 		}
++
++		// partitionIDs len is 0 if the dropped index is a global index, even if it is a partitioned table.
+ 		if len(partitionIDs) > 0 {
++			failpoint.Inject("checkDropGlobalIndex", func(val failpoint.Value) {
++				if val.(bool) {
++					panic("drop global index must not delete partition index range")
++				}
++			})
+ 			for _, pid := range partitionIDs {
+ 				startKey := tablecodec.EncodeTableIndexPrefix(pid, indexID)
+ 				endKey := tablecodec.EncodeTableIndexPrefix(pid, indexID+1)
+diff --git a/ddl/index.go b/ddl/index.go
+index 8770ef9745f69..fa9d19b65e489 100644
+--- a/ddl/index.go
++++ b/ddl/index.go
+@@ -1088,7 +1088,13 @@ func onDropIndex(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, _ error) {
+ 			// the partition ids were append by convertAddIdxJob2RollbackJob, it is weird, but for the compatibility,
+ 			// we should keep appending the partitions in the convertAddIdxJob2RollbackJob.
+ 			job.FinishTableJob(model.JobStateDone, model.StateNone, ver, tblInfo)
+-			job.Args = append(job.Args, indexInfo.ID, getPartitionIDs(tblInfo))
++			// Global index key has t{tableID}_ prefix.
++			// Assign partitionIDs empty to guarantee correct prefix in insertJobIntoDeleteRangeTable.
++			if indexInfo.Global {
++				job.Args = append(job.Args, indexInfo.ID, []int64{})
++			} else {
++				job.Args = append(job.Args, indexInfo.ID, getPartitionIDs(tblInfo))
++			}
+ 		}
+ 	default:
+ 		return ver, errors.Trace(dbterror.ErrInvalidDDLState.GenWithStackByArgs("index", indexInfo.State))
+diff --git a/ddl/sanity_check.go b/ddl/sanity_check.go
+index 63eb94d4592a4..151eb8c44b469 100644
+--- a/ddl/sanity_check.go
++++ b/ddl/sanity_check.go
+@@ -97,7 +97,7 @@ func expectedDeleteRangeCnt(ctx delRangeCntCtx, job *model.Job) (int, error) {
+ 		if err := job.DecodeArgs(&startKey, &physicalTableIDs, &ruleIDs); err != nil {
+ 			return 0, errors.Trace(err)
+ 		}
+-		return mathutil.Max(len(physicalTableIDs), 1), nil
++		return len(physicalTableIDs) + 1, nil
+ 	case model.ActionDropTablePartition, model.ActionTruncateTablePartition,
+ 		model.ActionReorganizePartition:
+ 		var physicalTableIDs []int64
+diff --git a/executor/builder.go b/executor/builder.go
+index 0bdc35afadbd2..25644cb081042 100644
+--- a/executor/builder.go
++++ b/executor/builder.go
+@@ -3939,6 +3939,22 @@ func (b *executorBuilder) buildIndexLookUpReader(v *plannercore.PhysicalIndexLoo
+ 	}
+ 
+ 	if is.Index.Global {
++		tmp, ok := b.is.TableByID(ts.Table.ID)
++		if !ok {
++			b.err = err
++			return nil
++		}
++		tbl, ok1 := tmp.(table.PartitionedTable)
++		if !ok1 {
++			b.err = ErrBuildExecutor
++			return nil
++		}
++		ret.partitionIDMap, err = getPartitionIdsAfterPruning(b.ctx, tbl, &v.PartitionInfo)
++		if err != nil {
++			b.err = err
++			return nil
++		}
++
+ 		return ret
+ 	}
+ 	if ok, _ := is.IsPartition(); ok {
+@@ -5141,6 +5157,33 @@ func partitionPruning(ctx sessionctx.Context, tbl table.PartitionedTable, conds
+ 	return ret, nil
+ }
+ 
++func getPartitionIdsAfterPruning(ctx sessionctx.Context, tbl table.PartitionedTable, partInfo *plannercore.PartitionInfo) (map[int64]struct{}, error) {
++	if partInfo == nil {
++		return nil, errors.New("partInfo in getPartitionIdsAfterPruning must not be nil")
++	}
++	idxArr, err := plannercore.PartitionPruning(ctx, tbl, partInfo.PruningConds, partInfo.PartitionNames, partInfo.Columns, partInfo.ColumnNames)
++	if err != nil {
++		return nil, err
++	}
++
++	var ret map[int64]struct{}
++
++	pi := tbl.Meta().GetPartitionInfo()
++	if fullRangePartition(idxArr) {
++		ret = make(map[int64]struct{}, len(pi.Definitions))
++		for _, def := range pi.Definitions {
++			ret[def.ID] = struct{}{}
++		}
++	} else {
++		ret = make(map[int64]struct{}, len(idxArr))
++		for _, idx := range idxArr {
++			pid := pi.Definitions[idx].ID
++			ret[pid] = struct{}{}
++		}
++	}
++	return ret, nil
++}
++
+ func fullRangePartition(idxArr []int) bool {
+ 	return len(idxArr) == 1 && idxArr[0] == plannercore.FullRange
+ }
+diff --git a/executor/distsql.go b/executor/distsql.go
+index 063fcbf3d65e1..06ff8896d2226 100644
+--- a/executor/distsql.go
++++ b/executor/distsql.go
+@@ -373,6 +373,7 @@ type IndexLookUpExecutor struct {
+ 	// fields about accessing partition tables
+ 	partitionTableMode bool                  // if this executor is accessing a partition table
+ 	prunedPartitions   []table.PhysicalTable // partition tables need to access
++	partitionIDMap     map[int64]struct{}    // partitionIDs that global index access
+ 	partitionRangeMap  map[int64][]*ranger.Range
+ 	partitionKVRanges  [][]kv.KeyRange // kvRanges of each prunedPartitions
+ 
+@@ -990,6 +991,11 @@ func (w *indexWorker) extractTaskHandles(ctx context.Context, chk *chunk.Chunk,
+ 			if err != nil {
+ 				return handles, retChk, err
+ 			}
++			if ph, ok := h.(kv.PartitionHandle); ok {
++				if _, exist := w.idxLookup.partitionIDMap[ph.PartitionID]; !exist {
++					continue
++				}
++			}
+ 			handles = append(handles, h)
+ 		}
+ 		if w.checkIndexValue != nil {
+diff --git a/executor/partition_table_test.go b/executor/partition_table_test.go
+index 85b096c28ff0d..6b271e46c1b21 100644
+--- a/executor/partition_table_test.go
++++ b/executor/partition_table_test.go
+@@ -3164,6 +3164,28 @@ partition p2 values less than (10))`)
+ 	tk.MustQuery("select * from p use index (idx)").Sort().Check(testkit.Rows("1 3", "3 4", "5 6", "7 9"))
+ }
+ 
++func TestDropGlobalIndex(t *testing.T) {
++	store := testkit.CreateMockStore(t)
++
++	tk := testkit.NewTestKit(t, store)
++	restoreConfig := config.RestoreFunc()
++	defer restoreConfig()
++	config.UpdateGlobal(func(conf *config.Config) {
++		conf.EnableGlobalIndex = true
++	})
++	tk.MustExec("use test")
++	tk.MustExec("drop table if exists p")
++	tk.MustExec(`create table p (id int, c int) partition by range (c) (
++partition p0 values less than (4),
++partition p1 values less than (7),
++partition p2 values less than (10))`)
++	tk.MustExec("alter table p add unique idx(id)")
++
++	failpoint.Enable("github.com/pingcap/tidb/ddl/checkDropGlobalIndex", `return(true)`)
++	tk.MustExec("alter table p drop index idx")
++	failpoint.Disable("github.com/pingcap/tidb/ddl/checkDropGlobalIndex")
++}
++
+ func TestIssue20028(t *testing.T) {
+ 	store := testkit.CreateMockStore(t)
+ 
+@@ -3916,21 +3938,75 @@ func TestIssue35181(t *testing.T) {
+ }
+ 
+ func TestIssue21732(t *testing.T) {
++	failpoint.Enable("github.com/pingcap/tidb/planner/core/forceDynamicPrune", `return(true)`)
++	defer failpoint.Disable("github.com/pingcap/tidb/planner/core/forceDynamicPrune")
++	restoreConfig := config.RestoreFunc()
++	defer restoreConfig()
++	config.UpdateGlobal(func(conf *config.Config) {
++		conf.EnableGlobalIndex = true
++	})
++
+ 	store := testkit.CreateMockStore(t)
+ 
+ 	tk := testkit.NewTestKit(t, store)
+-	for _, mode := range []variable.PartitionPruneMode{variable.StaticOnly, variable.DynamicOnly} {
+-		testkit.WithPruneMode(tk, mode, func() {
+-			tk.MustExec("create database TestIssue21732")
+-			tk.MustExec("use TestIssue21732")
+-			tk.MustExec("drop table if exists p")
+-			tk.MustExec(`create table p (a int, b int GENERATED ALWAYS AS (3*a-2*a) VIRTUAL) partition by hash(b) partitions 2;`)
+-			tk.MustExec("alter table p add unique index idx (a, b);")
+-			tk.MustExec("insert into p (a) values  (1),(2),(3);")
+-			tk.MustExec("select * from p ignore index (idx);")
+-			tk.MustQuery("select * from p use index (idx)").Sort().Check(testkit.Rows("1 1", "2 2", "3 3"))
+-			tk.MustExec("drop database TestIssue21732")
+-		})
++	tk.MustExec("create database TestIssue21732")
++	tk.MustExec("use TestIssue21732")
++	tk.MustExec("drop table if exists p")
++	tk.MustExec(`create table p (a int, b int GENERATED ALWAYS AS (3*a-2*a) VIRTUAL) partition by hash(b) partitions 2;`)
++	tk.MustExec("alter table p add unique index idx (a);")
++	tk.MustExec("insert into p (a) values  (1),(2),(3);")
++	tk.MustQuery("select * from p use index (idx)").Sort().Check(testkit.Rows("1 1", "2 2", "3 3"))
++	tk.MustExec("drop database TestIssue21732")
++}
++
++func TestGlobalIndexSelectSpecifiedPartition(t *testing.T) {
++	failpoint.Enable("github.com/pingcap/tidb/planner/core/forceDynamicPrune", `return(true)`)
++	defer failpoint.Disable("github.com/pingcap/tidb/planner/core/forceDynamicPrune")
++	restoreConfig := config.RestoreFunc()
++	defer restoreConfig()
++	config.UpdateGlobal(func(conf *config.Config) {
++		conf.EnableGlobalIndex = true
++	})
++
++	store := testkit.CreateMockStore(t)
++
++	tk := testkit.NewTestKit(t, store)
++	tk.MustExec("use test")
++	tk.MustExec("drop table if exists p")
++	tk.MustExec(`create table p (id int, c int) partition by range (c) (
++partition p0 values less than (4),
++partition p1 values less than (7),
++partition p2 values less than (10))`)
++	tk.MustExec("alter table p add unique idx(id)")
++	tk.MustExec("insert into p values (1,3), (3,4), (5,6), (7,9)")
++	tk.MustQuery("select * from p partition(p0) use index (idx)").Sort().Check(testkit.Rows("1 3"))
++}
++
++func TestGlobalIndexForIssue40149(t *testing.T) {
++	restoreConfig := config.RestoreFunc()
++	defer restoreConfig()
++	config.UpdateGlobal(func(conf *config.Config) {
++		conf.EnableGlobalIndex = true
++	})
++
++	store := testkit.CreateMockStore(t)
++
++	tk := testkit.NewTestKit(t, store)
++	for _, opt := range []string{"true", "false"} {
++		failpoint.Enable("github.com/pingcap/tidb/planner/core/forceDynamicPrune", `return(`+opt+`)`)
++		tk.MustExec("use test")
++		tk.MustExec("drop table if exists test_t1")
++		tk.MustExec(`CREATE TABLE test_t1 (
++  		a int(11) NOT NULL,
++  		b int(11) DEFAULT NULL,
++  		c int(11) DEFAULT NULL
++	) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin PARTITION BY RANGE (c) (
++ 	PARTITION p0 VALUES LESS THAN (10),
++ 	PARTITION p1 VALUES LESS THAN (MAXVALUE));`)
++		tk.MustExec("alter table test_t1 add unique  p_a (a);")
++		tk.MustExec("insert into test_t1 values (1,1,1);")
++		tk.MustQuery("select * from test_t1 where a = 1;").Sort().Check(testkit.Rows("1 1 1"))
++		failpoint.Disable("github.com/pingcap/tidb/planner/core/forceDynamicPrune")
+ 	}
+ }
+ 
+diff --git a/planner/core/logical_plan_builder.go b/planner/core/logical_plan_builder.go
+index e3e5a215e1ef6..c34e63fc82143 100644
+--- a/planner/core/logical_plan_builder.go
++++ b/planner/core/logical_plan_builder.go
+@@ -4524,53 +4524,6 @@ func (b *PlanBuilder) buildDataSource(ctx context.Context, tn *ast.TableName, as
+ 	if tblName.L == "" {
+ 		tblName = tn.Name
+ 	}
+-	possiblePaths, err := getPossibleAccessPaths(b.ctx, b.TableHints(), tn.IndexHints, tbl, dbName, tblName, b.isForUpdateRead, b.is.SchemaMetaVersion())
+-	if err != nil {
+-		return nil, err
+-	}
+-
+-	if tableInfo.IsView() {
+-		if tn.TableSample != nil {
+-			return nil, expression.ErrInvalidTableSample.GenWithStackByArgs("Unsupported TABLESAMPLE in views")
+-		}
+-
+-		// Get the hints belong to the current view.
+-		currentQBNameMap4View := make(map[string][]ast.HintTable)
+-		currentViewHints := make(map[string][]*ast.TableOptimizerHint)
+-		for qbName, viewQBNameHintTable := range b.hintProcessor.QbNameMap4View {
+-			if len(viewQBNameHintTable) == 0 {
+-				continue
+-			}
+-			viewSelectOffset := b.getSelectOffset()
+-
+-			var viewHintSelectOffset int
+-			if viewQBNameHintTable[0].QBName.L == "" {
+-				// If we do not explicit set the qbName, we will set the empty qb name to @sel_1.
+-				viewHintSelectOffset = 1
+-			} else {
+-				viewHintSelectOffset = b.hintProcessor.GetHintOffset(viewQBNameHintTable[0].QBName, viewSelectOffset)
+-			}
+-
+-			// Check whether the current view can match the view name in the hint.
+-			if viewQBNameHintTable[0].TableName.L == tblName.L && viewHintSelectOffset == viewSelectOffset {
+-				// If the view hint can match the current view, we pop the first view table in the query block hint's table list.
+-				// It means the hint belong the current view, the first view name in hint is matched.
+-				// Because of the nested views, so we should check the left table list in hint when build the data source from the view inside the current view.
+-				currentQBNameMap4View[qbName] = viewQBNameHintTable[1:]
+-				currentViewHints[qbName] = b.hintProcessor.QbHints4View[qbName]
+-				b.hintProcessor.QbNameUsed4View[qbName] = struct{}{}
+-			}
+-		}
+-		return b.BuildDataSourceFromView(ctx, dbName, tableInfo, currentQBNameMap4View, currentViewHints)
+-	}
+-
+-	if tableInfo.IsSequence() {
+-		if tn.TableSample != nil {
+-			return nil, expression.ErrInvalidTableSample.GenWithStackByArgs("Unsupported TABLESAMPLE in sequences")
+-		}
+-		// When the source is a Sequence, we convert it to a TableDual, as what most databases do.
+-		return b.buildTableDual(), nil
+-	}
+ 
+ 	if tableInfo.GetPartitionInfo() != nil {
+ 		// If `UseDynamicPruneMode` already been false, then we don't need to check whether execute `flagPartitionProcessor`
+@@ -4624,6 +4577,54 @@ func (b *PlanBuilder) buildDataSource(ctx context.Context, tn *ast.TableName, as
+ 		return nil, ErrPartitionClauseOnNonpartitioned
+ 	}
+ 
++	possiblePaths, err := getPossibleAccessPaths(b.ctx, b.TableHints(), tn.IndexHints, tbl, dbName, tblName, b.isForUpdateRead, b.optFlag&flagPartitionProcessor > 0)
++	if err != nil {
++		return nil, err
++	}
++
++	if tableInfo.IsView() {
++		if tn.TableSample != nil {
++			return nil, expression.ErrInvalidTableSample.GenWithStackByArgs("Unsupported TABLESAMPLE in views")
++		}
++
++		// Get the hints belong to the current view.
++		currentQBNameMap4View := make(map[string][]ast.HintTable)
++		currentViewHints := make(map[string][]*ast.TableOptimizerHint)
++		for qbName, viewQBNameHintTable := range b.hintProcessor.QbNameMap4View {
++			if len(viewQBNameHintTable) == 0 {
++				continue
++			}
++			viewSelectOffset := b.getSelectOffset()
++
++			var viewHintSelectOffset int
++			if viewQBNameHintTable[0].QBName.L == "" {
++				// If we do not explicit set the qbName, we will set the empty qb name to @sel_1.
++				viewHintSelectOffset = 1
++			} else {
++				viewHintSelectOffset = b.hintProcessor.GetHintOffset(viewQBNameHintTable[0].QBName, viewSelectOffset)
++			}
++
++			// Check whether the current view can match the view name in the hint.
++			if viewQBNameHintTable[0].TableName.L == tblName.L && viewHintSelectOffset == viewSelectOffset {
++				// If the view hint can match the current view, we pop the first view table in the query block hint's table list.
++				// It means the hint belong the current view, the first view name in hint is matched.
++				// Because of the nested views, so we should check the left table list in hint when build the data source from the view inside the current view.
++				currentQBNameMap4View[qbName] = viewQBNameHintTable[1:]
++				currentViewHints[qbName] = b.hintProcessor.QbHints4View[qbName]
++				b.hintProcessor.QbNameUsed4View[qbName] = struct{}{}
++			}
++		}
++		return b.BuildDataSourceFromView(ctx, dbName, tableInfo, currentQBNameMap4View, currentViewHints)
++	}
++
++	if tableInfo.IsSequence() {
++		if tn.TableSample != nil {
++			return nil, expression.ErrInvalidTableSample.GenWithStackByArgs("Unsupported TABLESAMPLE in sequences")
++		}
++		// When the source is a Sequence, we convert it to a TableDual, as what most databases do.
++		return b.buildTableDual(), nil
++	}
++
+ 	// remain tikv access path to generate point get acceess path if existed
+ 	// see detail in issue: https://github.com/pingcap/tidb/issues/39543
+ 	if !(b.isForUpdateRead && b.ctx.GetSessionVars().TxnCtx.IsExplicit) {
+diff --git a/planner/core/planbuilder.go b/planner/core/planbuilder.go
+index bf89312495f40..c3cf44b16465d 100644
+--- a/planner/core/planbuilder.go
++++ b/planner/core/planbuilder.go
+@@ -1304,7 +1304,7 @@ func getLatestIndexInfo(ctx sessionctx.Context, id int64, startVer int64) (map[i
+ 	return latestIndexes, true, nil
+ }
+ 
+-func getPossibleAccessPaths(ctx sessionctx.Context, tableHints *tableHintInfo, indexHints []*ast.IndexHint, tbl table.Table, dbName, tblName model.CIStr, check bool, _ int64) ([]*util.AccessPath, error) {
++func getPossibleAccessPaths(ctx sessionctx.Context, tableHints *tableHintInfo, indexHints []*ast.IndexHint, tbl table.Table, dbName, tblName model.CIStr, check bool, hasFlagPartitionProcessor bool) ([]*util.AccessPath, error) {
+ 	tblInfo := tbl.Meta()
+ 	publicPaths := make([]*util.AccessPath, 0, len(tblInfo.Indices)+2)
+ 	tp := kv.TiKV
+@@ -1409,10 +1409,6 @@ func getPossibleAccessPaths(ctx sessionctx.Context, tableHints *tableHintInfo, i
+ 				ctx.GetSessionVars().StmtCtx.AppendWarning(err)
+ 				continue
+ 			}
+-			if path.Index != nil && path.Index.Global {
+-				ignored = append(ignored, path)
+-				continue
+-			}
+ 			if hint.HintType == ast.HintIgnore {
+ 				// Collect all the ignored index hints.
+ 				ignored = append(ignored, path)
+@@ -1438,6 +1434,12 @@ func getPossibleAccessPaths(ctx sessionctx.Context, tableHints *tableHintInfo, i
+ 
+ 	available = removeIgnoredPaths(available, ignored, tblInfo)
+ 
++	// global index must not use partition pruning optimization, as LogicalPartitionAll not suitable for global index.
++	// ignore global index if flagPartitionProcessor exists.
++	if hasFlagPartitionProcessor {
++		available = removeGlobalIndexPaths(available)
++	}
++
+ 	// If we have got "FORCE" or "USE" index hint but got no available index,
+ 	// we have to use table scan.
+ 	if len(available) == 0 {
+@@ -1497,6 +1499,18 @@ func removeIgnoredPaths(paths, ignoredPaths []*util.AccessPath, tblInfo *model.T
+ 	return remainedPaths
+ }
+ 
++func removeGlobalIndexPaths(paths []*util.AccessPath) []*util.AccessPath {
++	i := 0
++	for _, path := range paths {
++		if path.Index != nil && path.Index.Global {
++			continue
++		}
++		paths[i] = path
++		i++
++	}
++	return paths[:i]
++}
++
+ func removeTiflashDuringStaleRead(paths []*util.AccessPath) []*util.AccessPath {
+ 	n := 0
+ 	for _, path := range paths {
+diff --git a/planner/core/rule_partition_processor.go b/planner/core/rule_partition_processor.go
+index 5982bcb32d6ba..6a9b623ceab0f 100644
+--- a/planner/core/rule_partition_processor.go
++++ b/planner/core/rule_partition_processor.go
+@@ -1464,7 +1464,7 @@ func pruneUseBinarySearch(lessThan lessThanDataInt, data dataForPrune, unsigned
+ func (s *partitionProcessor) resolveAccessPaths(ds *DataSource) error {
+ 	possiblePaths, err := getPossibleAccessPaths(
+ 		ds.ctx, &tableHintInfo{indexMergeHintList: ds.indexMergeHints, indexHintList: ds.IndexHints},
+-		ds.astIndexHints, ds.table, ds.DBName, ds.tableInfo.Name, ds.isForUpdateRead, ds.is.SchemaMetaVersion())
++		ds.astIndexHints, ds.table, ds.DBName, ds.tableInfo.Name, ds.isForUpdateRead, true)
+ 	if err != nil {
+ 		return err
+ 	}

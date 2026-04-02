@@ -1,0 +1,13 @@
+[
+  {
+    "id": 1990,
+    "full_name": "OpenRA/OpenRA",
+    "lang": "c_sharp",
+    "issue_number": 18092,
+    "pr_number": 18114,
+    "diff_hunk": "@@ -234,6 +234,25 @@ public override void Tick()\n \t\t\t\t\tvar ownerHandler = new EditorActorOptionActionHandle<PlayerReference>(updateOwner, actor.Owner);\n \t\t\t\t\teditActorPreview.Add(ownerHandler);\n \n+\t\t\t\t\tvar specificOwnerInfo = actor.Info.TraitInfoOrDefault<RequiresSpecificOwnersInfo>();\n+\t\t\t\t\tDictionary<string, PlayerReference>.ValueCollection owners;\n+\n+\t\t\t\t\tif (specificOwnerInfo != null)\n+\t\t\t\t\t{\n+\t\t\t\t\t\towners = editorActorLayer.Players.Players.Values.Where(x =>\n+\t\t\t\t\t\t\t\tspecificOwnerInfo.ValidOwnerNames.Any(y => x.Name == y))\n+\t\t\t\t\t\t\t.ToDictionary(player => player.Name)\n+\t\t\t\t\t\t\t.Values;\n+\t\t\t\t\t\tif (owners.Count == 1)\n+\t\t\t\t\t\t{\n+\t\t\t\t\t\t\townerDropdown.IsDisabled = () => true;\n+\t\t\t\t\t\t}\n+\t\t\t\t\t}\n+\t\t\t\t\telse\n+\t\t\t\t\t{\n+\t\t\t\t\t\towners = editorActorLayer.Players.Players.Values;\n+\t\t\t\t\t}\n+\n \t\t\t\t\tFunc<PlayerReference, ScrollItemWidget, ScrollItemWidget> setupItem = (option, template) =>\n \t\t\t\t\t{\n \t\t\t\t\t\tvar item = ScrollItemWidget.Setup(template, () => selectedOwner == option, () =>",
+    "diff_hunk_content_with_line_number": "[234][234]  \t\t\t\t\tvar ownerHandler = new EditorActorOptionActionHandle<PlayerReference>(updateOwner, actor.Owner);\n[235][235]  \t\t\t\t\teditActorPreview.Add(ownerHandler);\n[236][236]  \n[][237] +\t\t\t\t\tvar specificOwnerInfo = actor.Info.TraitInfoOrDefault<RequiresSpecificOwnersInfo>();\n[][238] +\t\t\t\t\tDictionary<string, PlayerReference>.ValueCollection owners;\n[][239] +\n[][240] +\t\t\t\t\tif (specificOwnerInfo != null)\n[][241] +\t\t\t\t\t{\n[][242] +\t\t\t\t\t\towners = editorActorLayer.Players.Players.Values.Where(x =>\n[][243] +\t\t\t\t\t\t\t\tspecificOwnerInfo.ValidOwnerNames.Any(y => x.Name == y))\n[][244] +\t\t\t\t\t\t\t.ToDictionary(player => player.Name)\n[][245] +\t\t\t\t\t\t\t.Values;\n[][246] +\t\t\t\t\t\tif (owners.Count == 1)\n[][247] +\t\t\t\t\t\t{\n[][248] +\t\t\t\t\t\t\townerDropdown.IsDisabled = () => true;\n[][249] +\t\t\t\t\t\t}\n[][250] +\t\t\t\t\t}\n[][251] +\t\t\t\t\telse\n[][252] +\t\t\t\t\t{\n[][253] +\t\t\t\t\t\towners = editorActorLayer.Players.Players.Values;\n[][254] +\t\t\t\t\t}\n[][255] +\n[237][256]  \t\t\t\t\tFunc<PlayerReference, ScrollItemWidget, ScrollItemWidget> setupItem = (option, template) =>\n[238][257]  \t\t\t\t\t{\n[239][258]  \t\t\t\t\t\tvar item = ScrollItemWidget.Setup(template, () => selectedOwner == option, () =>",
+    "checked_commit_id": "a2eb02416bb7533d2c15aa411e83831030e435a3",
+    "pr_size": "sm"
+  }
+]

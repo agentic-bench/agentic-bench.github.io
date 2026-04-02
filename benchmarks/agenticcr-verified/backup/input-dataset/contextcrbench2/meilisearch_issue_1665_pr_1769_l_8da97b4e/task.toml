@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "meilisearch_issue_1665_pr_1769_l_8da97b4e"
+contextcrbench2_full_name = "meilisearch/meilisearch"
+contextcrbench2_lang = "rust"
+contextcrbench2_issue_number = "1665"
+contextcrbench2_issue_title = "Enforce the `Content-Type` header for routes with payload"
+contextcrbench2_pr_number = "1769"
+contextcrbench2_pr_title = "Enforce `Content-Type` header for routes requiring a body payload"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "8da97b4eca51864c8b8c0363bcc2c432a56cdba4"
+contextcrbench2_commit_id = "66dbd3cd341c50a3fbb4de09935db1553e904e60"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2021-10-05T16:06:06Z"
+contextcrbench2_entry_count = "2"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

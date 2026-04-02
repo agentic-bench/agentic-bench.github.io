@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "bevy_issue_698_pr_719_l_fc83a1b3"
+contextcrbench2_full_name = "bevyengine/bevy"
+contextcrbench2_lang = "rust"
+contextcrbench2_issue_number = "698"
+contextcrbench2_issue_title = "removing a bundle from an entity when one of the component has already been removed crashes"
+contextcrbench2_pr_number = "719"
+contextcrbench2_pr_title = "fallback to remove components one by one when failing to remove a bundle"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "fc83a1b3ce5d332f76b29d0e363b244c5d88389b"
+contextcrbench2_commit_id = "fc83a1b3ce5d332f76b29d0e363b244c5d88389b"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2020-10-30T19:13:40Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

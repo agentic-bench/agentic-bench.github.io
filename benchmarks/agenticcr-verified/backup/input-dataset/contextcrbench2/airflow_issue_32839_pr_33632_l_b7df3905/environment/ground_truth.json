@@ -1,0 +1,10 @@
+[
+  {
+    "path": "airflow/www/security.py",
+    "line": 685,
+    "original_line": 685,
+    "review_comment": [
+      "This is the most important change in this PR - `if access control` will proceed into the following block if and only if access_control is a non-empty dict, whereas `if access control is not None` will proceed given any dict, including an empty one."
+    ]
+  }
+]

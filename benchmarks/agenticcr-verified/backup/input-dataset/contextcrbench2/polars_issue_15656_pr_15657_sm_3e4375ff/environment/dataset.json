@@ -1,0 +1,13 @@
+[
+  {
+    "id": 53066,
+    "full_name": "pola-rs/polars",
+    "lang": "rust",
+    "issue_number": 15656,
+    "pr_number": 15657,
+    "diff_hunk": "@@ -1208,7 +1208,7 @@ impl Expr {\n             self.apply_many_private(\n                 FunctionExpr::RollingExpr(rolling_function_by(options)),\n                 &[col(&name)],\n-                true,\n+                false,\n                 false,\n             )\n         } else {\n",
+    "diff_hunk_content_with_line_number": "[1208][1208]              self.apply_many_private(\n[1209][1209]                  FunctionExpr::RollingExpr(rolling_function_by(options)),\n[1210][1210]                  &[col(&name)],\n[1211][] -                true,\n[][1211] +                false,\n[1212][1212]                  false,\n[1213][1213]              )\n[1214][1214]          } else {",
+    "checked_commit_id": "3e4375ff87f3e052984d0e1f3ad113ac00ee5533",
+    "pr_size": "sm"
+  }
+]

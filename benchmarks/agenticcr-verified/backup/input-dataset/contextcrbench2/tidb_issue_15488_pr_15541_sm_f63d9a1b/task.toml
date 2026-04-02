@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "tidb_issue_15488_pr_15541_sm_f63d9a1b"
+contextcrbench2_full_name = "pingcap/tidb"
+contextcrbench2_lang = "go"
+contextcrbench2_issue_number = "15488"
+contextcrbench2_issue_title = "planner: plan of GROUP BY a constant can be optimized"
+contextcrbench2_pr_number = "15541"
+contextcrbench2_pr_title = "planner/cascades: optimize plan when group by a constant"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "f63d9a1b4c5d916c4cf3abab1ebc5e72fda5a5e1"
+contextcrbench2_commit_id = "f63d9a1b4c5d916c4cf3abab1ebc5e72fda5a5e1"
+contextcrbench2_created_at = "2020-03-21T03:05:55Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

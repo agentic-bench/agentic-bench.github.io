@@ -1,0 +1,12 @@
+[
+  {
+    "path": "aclk/aclk_common.c",
+    "line": 168,
+    "original_line": 168,
+    "review_comment": [
+      "In this function I put the following config by accident (trailing /) \r\n```\r\ncloud base url = https://dev.private.netdata.cloud/\r\n```\r\n\r\nand it fails to parse correctly \r\n\r\n```\r\n2020-03-20 10:27:27: netdata INFO  : ACLK_Main : (0200@aclk/aclk_:aclk_decode_bas): Setting ACLK target host=(null) port=(null) from https://dev.private.netdata.cloud/\r\n```",
+      "Thanks, bug is in decode_base_url from master (this PR just moves it to another file). Therefore we have this bug in master. I will fix it",
+      "That won't work on https://host:1234/ - there needs to be an `else` to make the new case distinct."
+    ]
+  }
+]

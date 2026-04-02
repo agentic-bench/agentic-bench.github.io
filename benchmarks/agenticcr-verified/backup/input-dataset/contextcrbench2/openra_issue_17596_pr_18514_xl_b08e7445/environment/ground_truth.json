@@ -1,0 +1,10 @@
+[
+  {
+    "path": "OpenRA.Mods.Common/UtilityCommands/CheckMissingSprites.cs",
+    "line": 52,
+    "original_line": 52,
+    "review_comment": [
+      "Same here."
+    ]
+  }
+]

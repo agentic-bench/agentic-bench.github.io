@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "aspnetcore_issue_34595_pr_34652_l_fe209b42"
+contextcrbench2_full_name = "dotnet/aspnetcore"
+contextcrbench2_lang = "c_sharp"
+contextcrbench2_issue_number = "34595"
+contextcrbench2_issue_title = "W3CLogger should write to a new file when Fields change"
+contextcrbench2_pr_number = "34652"
+contextcrbench2_pr_title = "FileLoggerProcessor write to a new file on new instance or Fields change"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "fe209b42c3407920692bcf109face45a71d6ece8"
+contextcrbench2_commit_id = "e6b2605a8d5ca5efdb07baa96f59c5c8416e567b"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2021-07-23T21:12:21Z"
+contextcrbench2_entry_count = "3"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

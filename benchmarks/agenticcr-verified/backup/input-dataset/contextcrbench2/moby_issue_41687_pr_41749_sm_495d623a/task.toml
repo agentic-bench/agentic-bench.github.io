@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "moby_issue_41687_pr_41749_sm_495d623a"
+contextcrbench2_full_name = "moby/moby"
+contextcrbench2_lang = "go"
+contextcrbench2_issue_number = "41687"
+contextcrbench2_issue_title = "[docker.pkg.github.com] Docker pull is not working on 20.10 RC1"
+contextcrbench2_pr_number = "41749"
+contextcrbench2_pr_title = "Add fallback for pull by tag"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "495d623ae5b1b601667d82682c5c265be189a29b"
+contextcrbench2_commit_id = "495d623ae5b1b601667d82682c5c265be189a29b"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2020-12-03T21:21:29Z"
+contextcrbench2_entry_count = "2"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

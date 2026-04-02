@@ -1,0 +1,20 @@
+[
+  {
+    "path": "homeassistant/components/apcupsd/config_flow.py",
+    "line": 54,
+    "original_line": 54,
+    "review_comment": [
+      "Usually we don't create coordinators in config flows.\r\n\r\nIn a future PR it would be nice to replace this with `await aioapcaccess.request_status(host, port)` and trap  the exceptions instead",
+      "Sounds good, will do!"
+    ]
+  },
+  {
+    "path": "homeassistant/components/apcupsd/config_flow.py",
+    "line": 57,
+    "original_line": 57,
+    "review_comment": [
+      "This will wait for everything, not just the integration so it will likely never finish once startup has completed.",
+      "Huh, that makes sense now! Thanks for the explanations! \r\n\r\nUpdated the PR description!"
+    ]
+  }
+]

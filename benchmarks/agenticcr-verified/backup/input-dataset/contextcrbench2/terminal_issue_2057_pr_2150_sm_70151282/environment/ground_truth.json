@@ -1,0 +1,12 @@
+[
+  {
+    "path": "src/cascadia/WindowsTerminal/NonClientIslandWindow.cpp",
+    "line": 629,
+    "original_line": 629,
+    "review_comment": [
+      "should basewindow call this?",
+      "@DHowett-MSFT I honestly don't know. IslandWindow seems fine right now as it is. Do you want this for 0.3? If so, I won't have time to spin builds to verify before EOD. I'm fine making a follow up to investigate doing this. Thoughts?",
+      "this fix is fine"
+    ]
+  }
+]

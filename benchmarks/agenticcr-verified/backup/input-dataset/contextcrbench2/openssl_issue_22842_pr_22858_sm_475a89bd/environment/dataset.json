@@ -1,0 +1,13 @@
+[
+  {
+    "id": 43193,
+    "full_name": "openssl/openssl",
+    "lang": "c",
+    "issue_number": 22842,
+    "pr_number": 22858,
+    "diff_hunk": "@@ -101,8 +101,12 @@ static void *cmac_dup(void *vsrc)\n static size_t cmac_size(void *vmacctx)\n {\n     struct cmac_data_st *macctx = vmacctx;\n+    const EVP_CIPHER_CTX *cipherctx = CMAC_CTX_get0_cipher_ctx(macctx->ctx);\n \n-    return EVP_CIPHER_CTX_get_block_size(CMAC_CTX_get0_cipher_ctx(macctx->ctx));\n+    if (EVP_CIPHER_CTX_get0_cipher(cipherctx) == NULL)\n+        return 0;\n+\n+    return EVP_CIPHER_CTX_get_block_size(cipherctx);\n }\n \n static int cmac_setkey(struct cmac_data_st *macctx,\n",
+    "diff_hunk_content_with_line_number": "[101][101]  static size_t cmac_size(void *vmacctx)\n[102][102]  {\n[103][103]      struct cmac_data_st *macctx = vmacctx;\n[][104] +    const EVP_CIPHER_CTX *cipherctx = CMAC_CTX_get0_cipher_ctx(macctx->ctx);\n[104][105]  \n[105][] -    return EVP_CIPHER_CTX_get_block_size(CMAC_CTX_get0_cipher_ctx(macctx->ctx));\n[][106] +    if (EVP_CIPHER_CTX_get0_cipher(cipherctx) == NULL)\n[][107] +        return 0;\n[][108] +\n[][109] +    return EVP_CIPHER_CTX_get_block_size(cipherctx);\n[106][110]  }\n[107][111]  \n[108][112]  static int cmac_setkey(struct cmac_data_st *macctx,",
+    "checked_commit_id": "475a89bd796dec51075efca7d32a5a482540d2ea",
+    "pr_size": "sm"
+  }
+]

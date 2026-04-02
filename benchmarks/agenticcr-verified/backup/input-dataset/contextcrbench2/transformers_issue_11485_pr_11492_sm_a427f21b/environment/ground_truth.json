@@ -1,0 +1,14 @@
+[
+  {
+    "path": "examples/pytorch/language-modeling/run_clm.py",
+    "line": 419,
+    "original_line": 419,
+    "review_comment": [
+      "Now probably need to rework this code earlier in the script:\r\n```\r\n    # Detecting last checkpoint.\r\n    last_checkpoint = None\r\n    if os.path.isdir(training_args.output_dir) and training_args.do_train and not training_args.overwrite_output_dir:\r\n        last_checkpoint = get_last_checkpoint(training_args.output_dir)\r\n        if last_checkpoint is None and len(os.listdir(training_args.output_dir)) > 0:\r\n            raise ValueError(\r\n                f\"Output directory ({training_args.output_dir}) already exists and is not empty. \"\r\n                \"Use --overwrite_output_dir to overcome.\"\r\n            )\r\n        elif last_checkpoint is not None:\r\n            logger.info(\r\n                f\"Checkpoint detected, resuming training at {last_checkpoint}. To avoid this behavior, change \"\r\n                \"the `--output_dir` or add `--overwrite_output_dir` to train from scratch.\"\r\n            )\r\n```\r\n\r\nOtherwise it's now reporting incorrect things. Perhaps putting all of the above into a small function and call it in this context:\r\n\r\n```\r\n        if training_args.resume_from_checkpoint is not None:\r\n            checkpoint = training_args.resume_from_checkpoint\r\n        else:\r\n            checkpoint = detect_last_checkpoint()\r\n```",
+      "No this is all correct. This is the automatic resuming from checkpoint if you pass an `output_dir` that contains a checkpoint, which is the first documented point [here](https://github.com/huggingface/transformers/blob/master/examples/pytorch/README.md#resuming-training).",
+      "I was addressing the situation for when a user passes an `--output_dir` that contains a checkpoint and `--resume_from_checkpoint` - we aren't preventing this ambiguity and the `logger.info` will report potentially incorrect info, since we are going to ignore `last_checkpoint` that the logger reported will be used.\r\n\r\nMy point is that this large block of code shouldn't run if `--resume_from_checkpoint`  is set.",
+      "Ah, sorry! I misunderstood your point. Yes the block above should not run when `resume_from_checkpoint` is set.",
+      "Adapted. Note that the part resulting in the `ValueError` still needs to be run so I only put the test for the logger info."
+    ]
+  }
+]

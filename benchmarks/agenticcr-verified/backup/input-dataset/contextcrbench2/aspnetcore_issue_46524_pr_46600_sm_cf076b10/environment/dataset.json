@@ -1,0 +1,13 @@
+[
+  {
+    "id": 12864,
+    "full_name": "dotnet/aspnetcore",
+    "lang": "c_sharp",
+    "issue_number": 46524,
+    "pr_number": 46600,
+    "diff_hunk": "@@ -154,6 +156,13 @@ static TestData()\n                 \"System.Threading.RateLimiting\",\n             };\n \n+        // System.Diagnostics.EventLog.Messages is only present in the Windows build.\n+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows) &&\n+            !SkipOnHelixAttribute.OnHelix()) // Helix tests always run against the Windows assets (even on non-Windows)\n+        {\n+            ListedSharedFxAssemblies.Remove(\"System.Diagnostics.EventLog.Messages\");\n+        }\n+\n         ListedTargetingPackAssemblies = new List<string>\n             {\n                 { \"Microsoft.AspNetCore.Antiforgery\" },\n",
+    "diff_hunk_content_with_line_number": "[154][156]                  \"System.Threading.RateLimiting\",\n[155][157]              };\n[156][158]  \n[][159] +        // System.Diagnostics.EventLog.Messages is only present in the Windows build.\n[][160] +        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows) &&\n[][161] +            !SkipOnHelixAttribute.OnHelix()) // Helix tests always run against the Windows assets (even on non-Windows)\n[][162] +        {\n[][163] +            ListedSharedFxAssemblies.Remove(\"System.Diagnostics.EventLog.Messages\");\n[][164] +        }\n[][165] +\n[157][166]          ListedTargetingPackAssemblies = new List<string>\n[158][167]              {\n[159][168]                  { \"Microsoft.AspNetCore.Antiforgery\" },",
+    "checked_commit_id": "cf076b10cb5d30b056f6d99ea672b2df7425bd68",
+    "pr_size": "sm"
+  }
+]

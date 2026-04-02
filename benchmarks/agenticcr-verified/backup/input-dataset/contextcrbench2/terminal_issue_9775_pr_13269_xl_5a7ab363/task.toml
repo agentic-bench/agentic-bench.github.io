@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "terminal_issue_9775_pr_13269_xl_5a7ab363"
+contextcrbench2_full_name = "microsoft/terminal"
+contextcrbench2_lang = "cpp"
+contextcrbench2_issue_number = "9775"
+contextcrbench2_issue_title = "People think the Color Scheme editor will change the current colors"
+contextcrbench2_pr_number = "13269"
+contextcrbench2_pr_title = "Rejuvenate the color schemes page"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "5a7ab363ace3fe5f68566a77a4381437c5ae8943"
+contextcrbench2_commit_id = "acd8b71b89975edbc24746f6b8caef1b2a3f3505"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2022-08-30T00:37:52Z"
+contextcrbench2_entry_count = "2"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

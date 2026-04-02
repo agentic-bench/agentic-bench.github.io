@@ -1,0 +1,11 @@
+[
+  {
+    "path": "src/Servers/Kestrel/test/InMemory.FunctionalTests/Http2/Http2StreamTests.cs",
+    "line": 4457,
+    "original_line": 4457,
+    "review_comment": [
+      "It's interesting that the encoder didn't need to be modified.",
+      "Yeah. I though I was going to have to use a custom HPackEncoder, but it turns out that it's just [casting chars to bytes](https://github.com/dotnet/aspnetcore/blob/master/src/Shared/Http2/Hpack/HPackEncoder.cs#L155). The response header's are normally [validated by Kestrel's HttpResponseHeaders dictionary](https://github.com/dotnet/aspnetcore/blob/4dd9bfc492452174f9329c3e1fc4807cb393c05a/src/Servers/Kestrel/Core/src/Internal/Http/HttpHeaders.cs#L247-L267)."
+    ]
+  }
+]

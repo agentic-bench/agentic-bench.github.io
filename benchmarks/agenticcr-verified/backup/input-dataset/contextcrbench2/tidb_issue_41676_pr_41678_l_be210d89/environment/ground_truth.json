@@ -1,0 +1,11 @@
+[
+  {
+    "path": "planner/optimize.go",
+    "line": 167,
+    "original_line": 167,
+    "review_comment": [
+      "Do we need to check if the resource control is enabled?",
+      "check added"
+    ]
+  }
+]

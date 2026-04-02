@@ -1,0 +1,13 @@
+[
+  {
+    "id": 19164,
+    "full_name": "home-assistant/core",
+    "lang": "python",
+    "issue_number": 40020,
+    "pr_number": 40024,
+    "diff_hunk": "@@ -213,7 +213,8 @@ async def async_ping(self):\n                     out_error,\n                 )\n \n-            if pinger.returncode != 0:\n+            if pinger.returncode > 1:\n+                # returncode of 1 means the host is unreachable\n                 _LOGGER.exception(\n                     \"Error running command: `%s`, return code: %s\",\n                     \" \".join(self._ping_cmd),\n",
+    "diff_hunk_content_with_line_number": "[213][213]                      out_error,\n[214][214]                  )\n[215][215]  \n[216][] -            if pinger.returncode != 0:\n[][216] +            if pinger.returncode > 1:\n[][217] +                # returncode of 1 means the host is unreachable\n[217][218]                  _LOGGER.exception(\n[218][219]                      \"Error running command: `%s`, return code: %s\",\n[219][220]                      \" \".join(self._ping_cmd),",
+    "checked_commit_id": "c1c7506abd399b8317828fc027c30dca08ca22e2",
+    "pr_size": "sm"
+  }
+]

@@ -1,0 +1,10 @@
+[
+  {
+    "path": "Algorithm/QCAlgorithm.Indicators.cs",
+    "line": 538,
+    "original_line": 538,
+    "review_comment": [
+      "Docs seem wrong, think `optionModel` should to estimate delta?"
+    ]
+  }
+]

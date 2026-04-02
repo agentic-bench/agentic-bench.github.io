@@ -1,0 +1,10 @@
+[
+  {
+    "path": "examples/3d/volumetric_fog.rs",
+    "line": 92,
+    "original_line": 92,
+    "review_comment": [
+      "It would be nice to add a UI option to cycle whether the lights are enabled, so that users can still see the raw effect."
+    ]
+  }
+]

@@ -1,0 +1,11 @@
+[
+  {
+    "path": "homeassistant/components/fritzbox/climate.py",
+    "line": 93,
+    "original_line": 93,
+    "review_comment": [
+      "Does the second return even happen? I think a device that `has_temperature_sensor` will always have the `temperature` attribute, but only a device that is also a thermostat will additionally have the `actual_temperature` attribute.",
+      "TBH i agree with you - a thermostat has usual always also a temperature sensor, but i left this in as a guard \ud83e\udd14 "
+    ]
+  }
+]

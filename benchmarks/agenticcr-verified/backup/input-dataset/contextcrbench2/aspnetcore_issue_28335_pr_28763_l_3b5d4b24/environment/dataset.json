@@ -1,0 +1,13 @@
+[
+  {
+    "id": 12642,
+    "full_name": "dotnet/aspnetcore",
+    "lang": "c_sharp",
+    "issue_number": 28335,
+    "pr_number": 28763,
+    "diff_hunk": "@@ -173,6 +173,8 @@ public void Decode(in ReadOnlySequence<byte> headerBlock, IHttpHeadersHandler ha\n             {\n                 Decode(segment.Span, handler);\n             }\n+\n+            _state = State.RequiredInsertCount;\n         }\n \n         public void Decode(ReadOnlySpan<byte> headerBlock, IHttpHeadersHandler handler)\n",
+    "diff_hunk_content_with_line_number": "[173][173]              {\n[174][174]                  Decode(segment.Span, handler);\n[175][175]              }\n[][176] +\n[][177] +            _state = State.RequiredInsertCount;\n[176][178]          }\n[177][179]  \n[178][180]          public void Decode(ReadOnlySpan<byte> headerBlock, IHttpHeadersHandler handler)",
+    "checked_commit_id": "3b5d4b24655dcdf04fd31086eee7e13a0eed0500",
+    "pr_size": "l"
+  }
+]

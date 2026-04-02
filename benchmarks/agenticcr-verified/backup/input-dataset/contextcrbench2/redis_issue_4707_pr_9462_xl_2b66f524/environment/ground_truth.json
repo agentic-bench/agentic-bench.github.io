@@ -1,0 +1,11 @@
+[
+  {
+    "path": "src/zmalloc.c",
+    "line": 193,
+    "original_line": 187,
+    "review_comment": [
+      "maybe put an overflow check here too?",
+      "being discussed in\r\nhttps://github.com/redis/redis/pull/9462/files/90523e04ddb46b7a35776c5376ddd73d5dcea6a2..2b66f5249f4ad3623bde77def23de6b9f79706ed#r778617183"
+    ]
+  }
+]

@@ -1,0 +1,20 @@
+diff --git a/src/transformers/models/swin/modeling_tf_swin.py b/src/transformers/models/swin/modeling_tf_swin.py
+index 6a86dc3e2e39..f1aa0bfef743 100644
+--- a/src/transformers/models/swin/modeling_tf_swin.py
++++ b/src/transformers/models/swin/modeling_tf_swin.py
+@@ -742,7 +742,14 @@ def build(self, input_shape=None):
+ 
+ class TFSwinLayer(keras.layers.Layer):
+     def __init__(
+-        self, config, dim, input_resolution: Tuple[int, int], num_heads: int,drop_path_rate:float=0.0, shift_size: int = 0, **kwargs
++        self,
++        config,
++        dim,
++        input_resolution: Tuple[int, int],
++        num_heads: int,
++        drop_path_rate: float = 0.0,
++        shift_size: int = 0,
++        **kwargs,
+     ) -> None:
+         super().__init__(**kwargs)
+         self.chunk_size_feed_forward = config.chunk_size_feed_forward

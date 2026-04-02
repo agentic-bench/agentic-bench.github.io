@@ -1,0 +1,13 @@
+[
+  {
+    "id": 2798,
+    "full_name": "fastify/fastify",
+    "lang": "javascript",
+    "issue_number": 4624,
+    "pr_number": 5020,
+    "diff_hunk": "@@ -203,6 +203,27 @@ const codes = {\n     TypeError\n   ),\n \n+  FST_ERR_LOG_INVALID_LOGGER_INSTANCE: createError(\n+    'FST_ERR_LOG_INVALID_LOGGER_INSTANCE',\n+    'loggerInstance only accepts a logger instance.',\n+    500,\n+    TypeError\n+  ),\n+\n+  FST_ERR_LOG_INVALID_LOGGER_CONFIG: createError(\n+    'FST_ERR_LOG_INVALID_LOGGER_CONFIG',\n+    'logger options only accepts a configuration object.',\n+    500,\n+    TypeError\n+  ),\n+\n+  FST_ERR_LOG_LOGGER_AND_LOGGER_INSTANCE_PROVIDED: createError(\n+    'FST_ERR_LOG_LOGGER_AND_LOGGER_INSTANCE_PROVIDED',\n+    'You cannot provide both logger and loggerInstance. Please provide only one.',\n+    500,\n+    TypeError\n+  ),\n+\n   /**\n    * reply\n   */\n",
+    "diff_hunk_content_with_line_number": "[203][203]      TypeError\n[204][204]    ),\n[205][205]  \n[][206] +  FST_ERR_LOG_INVALID_LOGGER_INSTANCE: createError(\n[][207] +    'FST_ERR_LOG_INVALID_LOGGER_INSTANCE',\n[][208] +    'loggerInstance only accepts a logger instance.',\n[][209] +    500,\n[][210] +    TypeError\n[][211] +  ),\n[][212] +\n[][213] +  FST_ERR_LOG_INVALID_LOGGER_CONFIG: createError(\n[][214] +    'FST_ERR_LOG_INVALID_LOGGER_CONFIG',\n[][215] +    'logger options only accepts a configuration object.',\n[][216] +    500,\n[][217] +    TypeError\n[][218] +  ),\n[][219] +\n[][220] +  FST_ERR_LOG_LOGGER_AND_LOGGER_INSTANCE_PROVIDED: createError(\n[][221] +    'FST_ERR_LOG_LOGGER_AND_LOGGER_INSTANCE_PROVIDED',\n[][222] +    'You cannot provide both logger and loggerInstance. Please provide only one.',\n[][223] +    500,\n[][224] +    TypeError\n[][225] +  ),\n[][226] +\n[206][227]    /**\n[207][228]     * reply\n[208][229]    */",
+    "checked_commit_id": "3f8c84e1a75523290afac1c9c740aa306a7311bf",
+    "pr_size": "l"
+  }
+]

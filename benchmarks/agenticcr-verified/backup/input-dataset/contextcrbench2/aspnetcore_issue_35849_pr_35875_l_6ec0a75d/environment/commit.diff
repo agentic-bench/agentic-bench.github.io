@@ -1,0 +1,39 @@
+diff --git a/src/Mvc/Mvc.Core/src/ConsumesAttribute.cs b/src/Mvc/Mvc.Core/src/ConsumesAttribute.cs
+index 08d91fb67be3..75b044d2c393 100644
+--- a/src/Mvc/Mvc.Core/src/ConsumesAttribute.cs
++++ b/src/Mvc/Mvc.Core/src/ConsumesAttribute.cs
+@@ -60,9 +60,9 @@ public ConsumesAttribute(string contentType, params string[] otherContentTypes)
+ 
+         /// <summary>
+         /// Creates a new instance of <see cref="ConsumesAttribute"/>.
+-        /// <param name="requestType"> The type being read from the request </param>
+-        /// <param name="contentType"> The request content type </param>
+-        /// <param name="otherContentTypes">The additional list of allowed request content types </param>
++        /// <param name="requestType"> The type being read from the request.</param>
++        /// <param name="contentType"> The request content type.</param>
++        /// <param name="otherContentTypes">The additional list of allowed request content types.</param>
+         /// </summary>
+         public ConsumesAttribute(Type requestType, string contentType, params string[] otherContentTypes)
+         {
+@@ -98,7 +98,7 @@ public ConsumesAttribute(Type requestType, string contentType, params string[] o
+         public MediaTypeCollection ContentTypes { get; set; }
+ 
+         /// <summary>
+-        /// Indicates whether the request body is required or not
++        /// Indicates whether the request body is required or not.
+         /// </summary>
+         public bool IsRequired { get; set; } = true;
+ 
+diff --git a/src/Shared/RoutingMetadata/AcceptsMetadata.cs b/src/Shared/RoutingMetadata/AcceptsMetadata.cs
+index f0f2ffc50fe9..a724c1f2353b 100644
+--- a/src/Shared/RoutingMetadata/AcceptsMetadata.cs
++++ b/src/Shared/RoutingMetadata/AcceptsMetadata.cs
+@@ -53,7 +53,7 @@ public AcceptsMetadata(Type? type, bool isRequired, string[] contentTypes)
+         public Type? RequestType { get; }
+ 
+         /// <summary>
+-        /// Indicates whether the request body is required or not
++        /// Indicates whether the request body is required or not.
+         /// </summary>
+         public bool IsRequired { get; }
+     }

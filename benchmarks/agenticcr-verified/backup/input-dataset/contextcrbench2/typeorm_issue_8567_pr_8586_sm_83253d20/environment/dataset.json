@@ -1,0 +1,13 @@
+[
+  {
+    "id": 24645,
+    "full_name": "typeorm/typeorm",
+    "lang": "typescript",
+    "issue_number": 8567,
+    "pr_number": 8586,
+    "diff_hunk": "@@ -88,7 +88,11 @@ export async function createConnections(options?: ConnectionOptions[]): Promise<\n     if (!options)\n         options = await new ConnectionOptionsReader().all();\n     const connections = options.map(options => getConnectionManager().create(options));\n-    return Promise.all(connections.map(connection => connection.connect()));\n+    // Do not use Promise.all or test 8522 will produce a dangling sqlite connection\n+    for (const connection of connections) {\n+        await connection.connect()\n+    }\n+    return connections;\n }\n \n /**\n",
+    "diff_hunk_content_with_line_number": "[88][88]      if (!options)\n[89][89]          options = await new ConnectionOptionsReader().all();\n[90][90]      const connections = options.map(options => getConnectionManager().create(options));\n[91][] -    return Promise.all(connections.map(connection => connection.connect()));\n[][91] +    // Do not use Promise.all or test 8522 will produce a dangling sqlite connection\n[][92] +    for (const connection of connections) {\n[][93] +        await connection.connect()\n[][94] +    }\n[][95] +    return connections;\n[92][96]  }\n[93][97]  \n[94][98]  /**",
+    "checked_commit_id": "83253d20a6c3227706c367363e4beaf2fcd28498",
+    "pr_size": "sm"
+  }
+]

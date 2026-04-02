@@ -1,0 +1,12 @@
+[
+  {
+    "path": "src/main/java/com/google/devtools/build/lib/runtime/StarlarkOptionsParser.java",
+    "line": 151,
+    "original_line": 151,
+    "review_comment": [
+      "@fmeum the imported cl contains failures for tests related to the clean and info command due to the removal of these lines. The code for clean and info are looking at the residues https://github.com/bazelbuild/bazel/blob/09c621e4cf5b968f4c6cdf905ab142d5961f9ddc/src/main/java/com/google/devtools/build/lib/runtime/commands/CleanCommand.java#L124 \r\n\r\nCan we make sure that the behavior for clean and info do not change for starlark options after this change? \r\n\r\nTo my surprise, the tests for these two commands were only available internally.",
+      "I pushed a new commit that should restore the original behavior for the commands - please let me know whether the tests pass now. Along the way, I ended up deleting quite a bit of code that is not needed anymore with these changes.",
+      "Thanks! @sgowroji is working with me on the import cl. We will update soon."
+    ]
+  }
+]

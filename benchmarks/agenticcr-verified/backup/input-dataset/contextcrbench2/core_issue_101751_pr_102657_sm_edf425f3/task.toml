@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "core_issue_101751_pr_102657_sm_edf425f3"
+contextcrbench2_full_name = "home-assistant/core"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "101751"
+contextcrbench2_issue_title = "Automation is cancelled on API client disconnect"
+contextcrbench2_pr_number = "102657"
+contextcrbench2_pr_title = "Shield service call from cancellation on REST API connection loss"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "edf425f334a0b9403fa3d0876145874193c7e6ef"
+contextcrbench2_commit_id = "0c7ddfaa33bd1af608f2ad30bc10d06328c6f204"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2023-11-02T10:45:48Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "files_issue_9911_pr_9966_l_6f354897"
+contextcrbench2_full_name = "files-community/Files"
+contextcrbench2_lang = "c_sharp"
+contextcrbench2_issue_number = "9911"
+contextcrbench2_issue_title = "Bug: Title bar close/minimize/maximize buttons color don't match the app theme"
+contextcrbench2_pr_number = "9966"
+contextcrbench2_pr_title = "Remove WindowDecorationsHelper, fix theme in properties window"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "6f354897ba5702f9b2d8a90d7ffb7c491f801de1"
+contextcrbench2_commit_id = "080e7e0c662941a6545dbce27204d9e63b34f4d3"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2022-09-09T21:01:16Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

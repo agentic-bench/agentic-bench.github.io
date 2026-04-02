@@ -1,0 +1,1596 @@
+diff --git a/.github/actions/spelling/allow/apis.txt b/.github/actions/spelling/allow/apis.txt
+index 0b8c0d91a9f..35c035e8330 100644
+--- a/.github/actions/spelling/allow/apis.txt
++++ b/.github/actions/spelling/allow/apis.txt
+@@ -86,6 +86,7 @@ istream
+ IStringable
+ ITab
+ ITaskbar
++itow
+ IUri
+ IVirtual
+ KEYSELECT
+diff --git a/src/buffer/out/LineRendition.hpp b/src/buffer/out/LineRendition.hpp
+index db7a5489ca7..7be4a7b59bf 100644
+--- a/src/buffer/out/LineRendition.hpp
++++ b/src/buffer/out/LineRendition.hpp
+@@ -28,6 +28,13 @@ constexpr til::inclusive_rect ScreenToBufferLine(const til::inclusive_rect& line
+     return { line.Left >> scale, line.Top, line.Right >> scale, line.Bottom };
+ }
+ 
++constexpr til::point ScreenToBufferLine(const til::point& line, const LineRendition lineRendition)
++{
++    // Use shift right to quickly divide the Left and Right by 2 for double width lines.
++    const auto scale = lineRendition == LineRendition::SingleWidth ? 0 : 1;
++    return { line.X >> scale, line.Y };
++}
++
+ constexpr til::inclusive_rect BufferToScreenLine(const til::inclusive_rect& line, const LineRendition lineRendition)
+ {
+     // Use shift left to quickly multiply the Left and Right by 2 for double width lines.
+diff --git a/src/buffer/out/search.cpp b/src/buffer/out/search.cpp
+index 30731eec7cc..67b7359ac2d 100644
+--- a/src/buffer/out/search.cpp
++++ b/src/buffer/out/search.cpp
+@@ -106,17 +106,14 @@ void Search::Select() const
+ }
+ 
+ // Routine Description:
+-// - In console host, we take the found word and apply the given color to it in the screen buffer
+-// - In Windows Terminal, we just select the found word, but we do not modify the buffer
++// - Applies the supplied TextAttribute to the current search result.
+ // Arguments:
+-// - ulAttr - The legacy color attribute to apply to the word
++// - attr - The attribute to apply to the result
+ void Search::Color(const TextAttribute attr) const
+ {
+-    // Only select if we've found something.
+-    if (_coordSelStart != _coordSelEnd)
+-    {
+-        _uiaData.ColorSelection(_coordSelStart, _coordSelEnd, attr);
+-    }
++    // Note that _coordSelStart may be equal to _coordSelEnd (but it's an inclusive
++    // selection: if they are equal, it means we are applying to a single character).
++    _uiaData.ColorSelection(_coordSelStart, _coordSelEnd, attr);
+ }
+ 
+ // Routine Description:
+diff --git a/src/buffer/out/textBuffer.cpp b/src/buffer/out/textBuffer.cpp
+index ac699ec4351..6089c99fb24 100644
+--- a/src/buffer/out/textBuffer.cpp
++++ b/src/buffer/out/textBuffer.cpp
+@@ -1611,7 +1611,7 @@ bool TextBuffer::MoveToPreviousGlyph(til::point& pos, std::optional<til::point>
+ // - bufferCoordinates: when enabled, treat the coordinates as relative to
+ //                      the buffer rather than the screen.
+ // Return Value:
+-// - the delimiter class for the given char
++// - One or more rects corresponding to the selection area
+ const std::vector<til::inclusive_rect> TextBuffer::GetTextRects(til::point start, til::point end, bool blockSelection, bool bufferCoordinates) const
+ {
+     std::vector<til::inclusive_rect> textRects;
+@@ -1660,6 +1660,72 @@ const std::vector<til::inclusive_rect> TextBuffer::GetTextRects(til::point start
+     return textRects;
+ }
+ 
++// Method Description:
++// - Computes the span(s) for the given selection
++// - If not a blockSelection, returns a single span (start - end)
++// - Else if a blockSelection, returns spans corresponding to each line in the block selection
++// Arguments:
++// - start: beginning of the text region of interest (inclusive)
++// - end: the other end of the text region of interest (inclusive)
++// - blockSelection: when enabled, get spans for each line covered by the block
++// - bufferCoordinates: when enabled, treat the coordinates as relative to
++//                      the buffer rather than the screen.
++// Return Value:
++// - one or more sets of start-end coordinates
++const std::vector<std::tuple<til::point, til::point>> TextBuffer::GetTextSpans(til::point start, til::point end, bool blockSelection, bool bufferCoordinates) const
++{
++    std::vector<std::tuple<til::point, til::point>> textSpans;
++
++    if (blockSelection)
++    {
++        // If blockSelection, this is effectively the same operation as GetTextRects, but
++        // expressed in til::point coordinates.
++        auto rects = GetTextRects(start, end, /*blockSelection*/ true, bufferCoordinates);
++        textSpans.reserve(rects.size());
++
++        for (auto rect : rects)
++        {
++            til::point first = { rect.Left, rect.Top };
++            til::point second = { rect.Right, rect.Bottom };
++            auto span = std::make_tuple(first, second);
++            textSpans.emplace_back(span);
++        }
++    }
++    else
++    {
++        const auto bufferSize = GetSize();
++
++        // (0,0) is the top-left of the screen
++        // the physically "higher" coordinate is closer to the top-left
++        // the physically "lower" coordinate is closer to the bottom-right
++        auto [higherCoord, lowerCoord] = start <= end ?
++                                             std::make_tuple(start, end) :
++                                             std::make_tuple(end, start);
++
++        textSpans.reserve(1);
++
++        // If we were passed screen coordinates, convert the given range into
++        // equivalent buffer offsets, taking line rendition into account.
++        if (!bufferCoordinates)
++        {
++            higherCoord = ScreenToBufferLine(higherCoord, GetLineRendition(higherCoord.Y));
++            lowerCoord = ScreenToBufferLine(lowerCoord, GetLineRendition(lowerCoord.Y));
++        }
++
++        til::inclusive_rect asRect = { higherCoord.X, higherCoord.Y, lowerCoord.X, lowerCoord.Y };
++        _ExpandTextRow(asRect);
++        higherCoord.X = asRect.Left;
++        higherCoord.Y = asRect.Top;
++        lowerCoord.X = asRect.Right;
++        lowerCoord.Y = asRect.Bottom;
++
++        auto span = std::make_tuple(higherCoord, lowerCoord);
++        textSpans.emplace_back(span);
++    }
++
++    return textSpans;
++}
++
+ // Method Description:
+ // - Expand the selection row according to include wide glyphs fully
+ // - this is particularly useful for box selections (ALT + selection)
+@@ -1832,6 +1898,77 @@ const TextBuffer::TextAndColor TextBuffer::GetText(const bool includeCRLF,
+     return data;
+ }
+ 
++size_t TextBuffer::SpanLength(const til::point coordStart, const til::point coordEnd) const
++{
++    assert((coordEnd.Y > coordStart.Y) ||
++           ((coordEnd.Y == coordStart.Y) && (coordEnd.X >= coordStart.X)));
++
++    // Note that this could also be computed using CompareInBounds, but that function
++    // seems disfavored lately.
++    //
++    // CompareInBounds version:
++    //
++    //  const auto bufferSize = GetSize();
++    //  // Note that we negate because CompareInBounds is backwards from what we are trying to calculate.
++    //  auto length = - bufferSize.CompareInBounds(coordStart, coordEnd);
++    //  length += 1; // because we need "inclusive" behavior.
++
++    const auto rowSize = gsl::narrow<SHORT>(GetRowByOffset(0).size());
++
++    size_t length = (static_cast<size_t>(coordEnd.Y) - coordStart.Y) * rowSize;
++    length += (static_cast<size_t>(coordEnd.X) - coordStart.X) + 1; // "+1" is because we need "inclusive" behavior
++
++    return length;
++}
++
++// Routine Description:
++// - Retrieves the plain text data between the specified coordinates.
++// Arguments:
++// - trimTrailingWhitespace - remove the trailing whitespace at the end of the result.
++// - start - where to start getting text (should be at or prior to "end")
++// - end - where to end getting text
++// Return Value:
++// - Just the text.
++const std::wstring TextBuffer::GetPlainText(const bool trimTrailingWhitespace,
++                                            const til::point& start,
++                                            const til::point& end) const
++{
++    std::wstring text;
++    // TODO: should I put in protections for start coming before end?
++    auto spanLength = SpanLength(start, end);
++    text.reserve(spanLength);
++
++    auto it = GetCellDataAt(start);
++
++    // copy char data into the string buffer, skipping trailing bytes
++    // TODO: is using spanLength like this the right way to do it?
++    while (it && ((spanLength) > 0))
++    {
++        const auto& cell = *it;
++        spanLength--;
++
++        if (!cell.DbcsAttr().IsTrailing())
++        {
++            const auto chars = cell.Chars();
++            text.append(chars);
++        }
++#pragma warning(suppress : 26444)
++        // TODO GH 2675: figure out why there's custom construction/destruction happening here
++        it++;
++    }
++
++    if (trimTrailingWhitespace)
++    {
++        // remove the spaces at the end (aka trim the trailing whitespace)
++        while (!text.empty() && text.back() == UNICODE_SPACE)
++        {
++            text.pop_back();
++        }
++    }
++
++    return text;
++}
++
+ // Routine Description:
+ // - Generates a CF_HTML compliant structure based on the passed in text and color data
+ // Arguments:
+diff --git a/src/buffer/out/textBuffer.hpp b/src/buffer/out/textBuffer.hpp
+index 61f82599acd..c0cc35681c1 100644
+--- a/src/buffer/out/textBuffer.hpp
++++ b/src/buffer/out/textBuffer.hpp
+@@ -166,6 +166,7 @@ class TextBuffer final
+     bool MoveToPreviousGlyph(til::point& pos, std::optional<til::point> limitOptional = std::nullopt) const;
+ 
+     const std::vector<til::inclusive_rect> GetTextRects(til::point start, til::point end, bool blockSelection, bool bufferCoordinates) const;
++    const std::vector<std::tuple<til::point, til::point>> GetTextSpans(til::point start, til::point end, bool blockSelection, bool bufferCoordinates) const;
+ 
+     void AddHyperlinkToMap(std::wstring_view uri, uint16_t id);
+     std::wstring GetHyperlinkUriFromId(uint16_t id) const;
+@@ -182,12 +183,18 @@ class TextBuffer final
+         std::vector<std::vector<COLORREF>> BkAttr;
+     };
+ 
++    size_t SpanLength(const til::point coordStart, const til::point coordEnd) const;
++
+     const TextAndColor GetText(const bool includeCRLF,
+                                const bool trimTrailingWhitespace,
+                                const std::vector<til::inclusive_rect>& textRects,
+                                std::function<std::pair<COLORREF, COLORREF>(const TextAttribute&)> GetAttributeColors = nullptr,
+                                const bool formatWrappedRows = false) const;
+ 
++    const std::wstring GetPlainText(const bool trimTrailingWhitespace,
++                                    const til::point& start,
++                                    const til::point& end) const;
++
+     static std::string GenHTML(const TextAndColor& rows,
+                                const int fontHeightPoints,
+                                const std::wstring_view fontFaceName,
+diff --git a/src/cascadia/TerminalApp/AppActionHandlers.cpp b/src/cascadia/TerminalApp/AppActionHandlers.cpp
+index 10a7f8cfa31..8a628c85dfe 100644
+--- a/src/cascadia/TerminalApp/AppActionHandlers.cpp
++++ b/src/cascadia/TerminalApp/AppActionHandlers.cpp
+@@ -1122,4 +1122,19 @@ namespace winrt::TerminalApp::implementation
+             args.Handled(handled);
+         }
+     }
++
++    void TerminalPage::_HandleColorSelection(const IInspectable& /*sender*/,
++                                             const ActionEventArgs& args)
++    {
++        if (args)
++        {
++            if (const auto& realArgs = args.ActionArgs().try_as<ColorSelectionArgs>())
++            {
++                const auto res = _ApplyToActiveControls([&](auto& control) {
++                    control.ColorSelection(realArgs.Foreground(), realArgs.Background(), realArgs.MatchMode());
++                });
++                args.Handled(res);
++            }
++        }
++    }
+ }
+diff --git a/src/cascadia/TerminalControl/ControlCore.cpp b/src/cascadia/TerminalControl/ControlCore.cpp
+index 89512563e4c..da6e3b46dc2 100644
+--- a/src/cascadia/TerminalControl/ControlCore.cpp
++++ b/src/cascadia/TerminalControl/ControlCore.cpp
+@@ -16,6 +16,7 @@
+ #include "../../renderer/atlas/AtlasEngine.h"
+ #include "../../renderer/dx/DxRenderer.hpp"
+ 
++#include "SelectionColor.g.cpp"
+ #include "ControlCore.g.cpp"
+ 
+ using namespace ::Microsoft::Console::Types;
+@@ -2094,4 +2095,57 @@ namespace winrt::Microsoft::Terminal::Control::implementation
+             }
+         }
+     }
++
++    void ControlCore::ColorSelection(Control::SelectionColor fg, Control::SelectionColor bg, uint32_t matchMode)
++    {
++        if (HasSelection())
++        {
++            auto pForeground = winrt::get_self<implementation::SelectionColor>(fg);
++            auto pBackground = winrt::get_self<implementation::SelectionColor>(bg);
++
++            TextColor foregroundAsTextColor;
++            TextColor backgroundAsTextColor;
++
++            if (pForeground)
++            {
++                auto colorFg = pForeground->Color();
++                if (colorFg.a == 1)
++                {
++                    // We're dealing with indexed colors.
++                    foregroundAsTextColor.SetIndex(colorFg.r, false);
++                }
++                else
++                {
++                    foregroundAsTextColor.SetColor(colorFg);
++                }
++            }
++
++            if (pBackground)
++            {
++                auto colorBg = pBackground->Color();
++                if (colorBg.a == 1)
++                {
++                    // We're dealing with indexed colors.
++                    backgroundAsTextColor.SetIndex(colorBg.r, false);
++                }
++                else
++                {
++                    backgroundAsTextColor.SetColor(colorBg);
++                }
++            }
++
++            TextAttribute attr;
++            attr.SetForeground(foregroundAsTextColor);
++            attr.SetBackground(backgroundAsTextColor);
++
++            _terminal->ColorSelection(attr, matchMode);
++            _terminal->ClearSelection();
++            if (matchMode > 0)
++            {
++                // TODO: can this be scoped down further?
++                // one problem is that at this point on the stack, we don't know what changed
++                _renderer->TriggerRedrawAll();
++            }
++        }
++    }
+ }
+diff --git a/src/cascadia/TerminalControl/ControlCore.h b/src/cascadia/TerminalControl/ControlCore.h
+index 4208798e10d..7d54b242756 100644
+--- a/src/cascadia/TerminalControl/ControlCore.h
++++ b/src/cascadia/TerminalControl/ControlCore.h
+@@ -15,6 +15,7 @@
+ 
+ #pragma once
+ 
++#include "SelectionColor.g.h"
+ #include "ControlCore.g.h"
+ #include "ControlSettings.h"
+ #include "../../audio/midi/MidiAudio.hpp"
+@@ -40,6 +41,28 @@ public:                                                           \
+ 
+ namespace winrt::Microsoft::Terminal::Control::implementation
+ {
++    struct SelectionColor : SelectionColorT<SelectionColor>
++    {
++        SelectionColor() = default;
++        WINRT_PROPERTY(uint32_t, TextColor);
++
++    public:
++        til::color Color() const
++        {
++            if (_TextColor & 0xff000000)
++            {
++                // We indicate that this is an indexed color by setting alpha to 1:
++                return til::color(gsl::narrow_cast<uint8_t>(_TextColor), 0, 0, 1);
++            }
++            else
++            {
++                return til::color(static_cast<uint8_t>((_TextColor & 0xff000000) >> 24),
++                                  static_cast<uint8_t>((_TextColor & 0x00ff0000) >> 16),
++                                  static_cast<uint8_t>((_TextColor & 0x0000ff00) >> 8));
++            }
++        };
++    };
++
+     struct ControlCore : ControlCoreT<ControlCore>
+     {
+     public:
+@@ -104,6 +127,8 @@ namespace winrt::Microsoft::Terminal::Control::implementation
+ 
+         ::Microsoft::Console::Types::IUiaData* GetUiaData() const;
+ 
++        void ColorSelection(Control::SelectionColor fg, Control::SelectionColor bg, uint32_t matchMode);
++
+         void Close();
+ 
+ #pragma region ICoreState
+@@ -335,5 +360,6 @@ namespace winrt::Microsoft::Terminal::Control::implementation
+ 
+ namespace winrt::Microsoft::Terminal::Control::factory_implementation
+ {
++    BASIC_FACTORY(SelectionColor);
+     BASIC_FACTORY(ControlCore);
+ }
+diff --git a/src/cascadia/TerminalControl/ControlCore.idl b/src/cascadia/TerminalControl/ControlCore.idl
+index 1d7801bdad4..8a075c63a33 100644
+--- a/src/cascadia/TerminalControl/ControlCore.idl
++++ b/src/cascadia/TerminalControl/ControlCore.idl
+@@ -53,6 +53,13 @@ namespace Microsoft.Terminal.Control
+         Boolean EndAtRightBoundary;
+     };
+ 
++    [default_interface] runtimeclass SelectionColor
++    {
++        SelectionColor();
++        // UInt32 to literally be a TextColor from buffer/out/TextColor.h
++        UInt32 TextColor;
++    }
++
+     [default_interface] runtimeclass ControlCore : ICoreState
+     {
+         ControlCore(IControlSettings settings,
+@@ -132,6 +139,8 @@ namespace Microsoft.Terminal.Control
+         void AdjustOpacity(Double Opacity, Boolean relative);
+         void WindowVisibilityChanged(Boolean showOrHide);
+ 
++        void ColorSelection(SelectionColor fg, SelectionColor bg, UInt32 matchMode);
++
+         event FontSizeChangedEventArgs FontSizeChanged;
+ 
+         event Windows.Foundation.TypedEventHandler<Object, CopyToClipboardEventArgs> CopyToClipboard;
+diff --git a/src/cascadia/TerminalControl/TermControl.cpp b/src/cascadia/TerminalControl/TermControl.cpp
+index 821f8885e24..32e60bf0e06 100644
+--- a/src/cascadia/TerminalControl/TermControl.cpp
++++ b/src/cascadia/TerminalControl/TermControl.cpp
+@@ -3062,4 +3062,8 @@ namespace winrt::Microsoft::Terminal::Control::implementation
+         return _core.ScrollMarks();
+     }
+ 
++    void TermControl::ColorSelection(Control::SelectionColor fg, Control::SelectionColor bg, uint32_t matchMode)
++    {
++        _core.ColorSelection(fg, bg, matchMode);
++    }
+ }
+diff --git a/src/cascadia/TerminalControl/TermControl.h b/src/cascadia/TerminalControl/TermControl.h
+index 655fce03fdb..89446fae7da 100644
+--- a/src/cascadia/TerminalControl/TermControl.h
++++ b/src/cascadia/TerminalControl/TermControl.h
+@@ -48,6 +48,8 @@ namespace winrt::Microsoft::Terminal::Control::implementation
+ 
+         void WindowVisibilityChanged(const bool showOrHide);
+ 
++        void ColorSelection(Control::SelectionColor fg, Control::SelectionColor bg, uint32_t matchMode);
++
+ #pragma region ICoreState
+         const uint64_t TaskbarState() const noexcept;
+         const uint64_t TaskbarProgress() const noexcept;
+diff --git a/src/cascadia/TerminalControl/TermControl.idl b/src/cascadia/TerminalControl/TermControl.idl
+index 101359b30e9..0b989b150b1 100644
+--- a/src/cascadia/TerminalControl/TermControl.idl
++++ b/src/cascadia/TerminalControl/TermControl.idl
+@@ -92,5 +92,7 @@ namespace Microsoft.Terminal.Control
+         Double BackgroundOpacity { get; };
+ 
+         Windows.UI.Xaml.Media.Brush BackgroundBrush { get; };
++
++        void ColorSelection(SelectionColor fg, SelectionColor bg, UInt32 matchMode);
+     }
+ }
+diff --git a/src/cascadia/TerminalCore/Terminal.cpp b/src/cascadia/TerminalCore/Terminal.cpp
+index d41e4f53b65..c24d9cee2a9 100644
+--- a/src/cascadia/TerminalCore/Terminal.cpp
++++ b/src/cascadia/TerminalCore/Terminal.cpp
+@@ -8,6 +8,7 @@
+ #include "../../inc/unicode.hpp"
+ #include "../../types/inc/utils.hpp"
+ #include "../../types/inc/colorTable.hpp"
++#include "../../buffer/out/search.h"
+ 
+ #include <winrt/Microsoft.Terminal.Core.h>
+ 
+@@ -1615,3 +1616,33 @@ til::color Terminal::GetColorForMark(const Microsoft::Console::VirtualTerminal::
+     }
+     }
+ }
++
++void Terminal::ColorSelection(const TextAttribute& attr, uint32_t matchMode)
++{
++    for (const auto [start, end] : _GetSelectionSpans())
++    {
++        try
++        {
++            if (matchMode == 0)
++            {
++                auto length = _activeBuffer().SpanLength(start, end);
++                _activeBuffer().Write(OutputCellIterator(attr, length), start);
++            }
++            else if (matchMode == 1)
++            {
++                auto text = _activeBuffer().GetPlainText(/*trimTrailingWhitespace*/ IsBlockSelection(), start, end);
++
++                if (!text.empty())
++                {
++                    Search search(*this, text, Search::Direction::Forward, Search::Sensitivity::CaseInsensitive, { 0, 0 });
++
++                    while (search.FindNext())
++                    {
++                        search.Color(attr);
++                    }
++                }
++            }
++        }
++        CATCH_LOG();
++    }
++}
+diff --git a/src/cascadia/TerminalCore/Terminal.hpp b/src/cascadia/TerminalCore/Terminal.hpp
+index c63eb887b65..a9ea1ef4130 100644
+--- a/src/cascadia/TerminalCore/Terminal.hpp
++++ b/src/cascadia/TerminalCore/Terminal.hpp
+@@ -231,6 +231,8 @@ class Microsoft::Terminal::Core::Terminal final :
+     const size_t GetTaskbarState() const noexcept;
+     const size_t GetTaskbarProgress() const noexcept;
+ 
++    void ColorSelection(const TextAttribute& attr, uint32_t matchMode);
++
+ #pragma region TextSelection
+     // These methods are defined in TerminalSelection.cpp
+     enum class SelectionInteractionMode
+@@ -421,6 +423,7 @@ class Microsoft::Terminal::Core::Terminal final :
+ #pragma region TextSelection
+     // These methods are defined in TerminalSelection.cpp
+     std::vector<til::inclusive_rect> _GetSelectionRects() const noexcept;
++    std::vector<std::tuple<til::point, til::point>> _GetSelectionSpans() const noexcept;
+     std::pair<til::point, til::point> _PivotSelection(const til::point targetPos, bool& targetStart) const;
+     std::pair<til::point, til::point> _ExpandSelectionAnchors(std::pair<til::point, til::point> anchors) const;
+     til::point _ConvertToBufferCell(const til::point viewportPos) const;
+diff --git a/src/cascadia/TerminalCore/TerminalSelection.cpp b/src/cascadia/TerminalCore/TerminalSelection.cpp
+index 007a26b0c3f..2e8021f9b9d 100644
+--- a/src/cascadia/TerminalCore/TerminalSelection.cpp
++++ b/src/cascadia/TerminalCore/TerminalSelection.cpp
+@@ -62,6 +62,27 @@ std::vector<til::inclusive_rect> Terminal::_GetSelectionRects() const noexcept
+     return result;
+ }
+ 
++// Method Description:
++// - Identical to GetTextRects if it's a block selection, else returns a single span for the whole selection.
++// Return Value:
++// - A vector of one or more spans representing the selection. They are absolute coordinates relative to the buffer origin.
++std::vector<std::tuple<til::point, til::point>> Terminal::_GetSelectionSpans() const noexcept
++{
++    std::vector<std::tuple<til::point, til::point>> result;
++
++    if (!IsSelectionActive())
++    {
++        return result;
++    }
++
++    try
++    {
++        return _activeBuffer().GetTextSpans(_selection->start, _selection->end, _blockSelection, false);
++    }
++    CATCH_LOG();
++    return result;
++}
++
+ // Method Description:
+ // - Get the current anchor position relative to the whole text buffer
+ // Arguments:
+@@ -675,13 +696,14 @@ til::point Terminal::_ConvertToBufferCell(const til::point viewportPos) const
+ }
+ 
+ // Method Description:
+-// - This method won't be used. We just throw and do nothing. For now we
+-//   need this method to implement UiaData interface
++// - apply the TextAttribute "attr" to the active buffer
+ // Arguments:
+-// - coordSelectionStart - Not used
+-// - coordSelectionEnd - Not used
+-// - attr - Not used.
+-void Terminal::ColorSelection(const til::point, const til::point, const TextAttribute)
++// - coordStart - where to begin applying attr
++// - coordEnd - where to end applying attr (inclusive)
++// - attr - the text attributes to apply
++void Terminal::ColorSelection(const til::point coordStart, const til::point coordEnd, const TextAttribute attr)
+ {
+-    THROW_HR(E_NOTIMPL);
++    size_t spanLength = _activeBuffer().SpanLength(coordStart, coordEnd);
++
++    _activeBuffer().Write(OutputCellIterator(attr, spanLength), coordStart);
+ }
+diff --git a/src/cascadia/TerminalSettingsModel/ActionAndArgs.cpp b/src/cascadia/TerminalSettingsModel/ActionAndArgs.cpp
+index 8591457e611..b31ce0ba8c3 100644
+--- a/src/cascadia/TerminalSettingsModel/ActionAndArgs.cpp
++++ b/src/cascadia/TerminalSettingsModel/ActionAndArgs.cpp
+@@ -83,6 +83,7 @@ static constexpr std::string_view SelectAllKey{ "selectAll" };
+ static constexpr std::string_view MarkModeKey{ "markMode" };
+ static constexpr std::string_view ToggleBlockSelectionKey{ "toggleBlockSelection" };
+ static constexpr std::string_view SwitchSelectionEndpointKey{ "switchSelectionEndpoint" };
++static constexpr std::string_view ColorSelectionKey{ "experimental.colorSelection" };
+ 
+ static constexpr std::string_view ActionKey{ "action" };
+ 
+@@ -402,6 +403,7 @@ namespace winrt::Microsoft::Terminal::Settings::Model::implementation
+                 { ShortcutAction::MarkMode, RS_(L"MarkModeCommandKey") },
+                 { ShortcutAction::ToggleBlockSelection, RS_(L"ToggleBlockSelectionCommandKey") },
+                 { ShortcutAction::SwitchSelectionEndpoint, RS_(L"SwitchSelectionEndpointCommandKey") },
++                { ShortcutAction::ColorSelection, L"" }, // Intentionally omitted, must be generated by GenerateName
+             };
+         }();
+ 
+diff --git a/src/cascadia/TerminalSettingsModel/ActionArgs.cpp b/src/cascadia/TerminalSettingsModel/ActionArgs.cpp
+index 3b3c56543a1..e3b5a6541c4 100644
+--- a/src/cascadia/TerminalSettingsModel/ActionArgs.cpp
++++ b/src/cascadia/TerminalSettingsModel/ActionArgs.cpp
+@@ -43,6 +43,7 @@
+ #include "ClearBufferArgs.g.cpp"
+ #include "MultipleActionsArgs.g.cpp"
+ #include "AdjustOpacityArgs.g.cpp"
++#include "ColorSelectionArgs.g.cpp"
+ 
+ #include <LibraryResources.h>
+ #include <WtExeUtils.h>
+@@ -840,4 +841,158 @@ namespace winrt::Microsoft::Terminal::Settings::Model::implementation
+             };
+         }
+     }
++
++    // TODO: Localization?
++    template<size_t bufLen>
++    const wchar_t* _FormatColorString(wchar_t (&tempBuf)[bufLen], uint32_t color)
++    {
++        const wchar_t* colorStr = nullptr;
++
++        if ((color & 0x01000000) == 0x01000000)
++        {
++            // It's an indexed color.
++            uint8_t idx = color & 0x000000ff;
++
++            switch (idx)
++            {
++            case 0:
++                colorStr = L"black";
++                break;
++
++            case 1:
++                colorStr = L"dark red";
++                break;
++
++            case 2:
++                colorStr = L"dark green";
++                break;
++
++            case 3:
++                colorStr = L"dark yellow";
++                break;
++
++            case 4:
++                colorStr = L"dark blue";
++                break;
++
++            case 5:
++                colorStr = L"dark magenta";
++                break;
++
++            case 6:
++                colorStr = L"dark cyan";
++                break;
++
++            case 7:
++                colorStr = L"gray"; // "dark white"?
++                break;
++
++            case 8:
++                colorStr = L"dark gray"; // "bright black"?
++                break;
++
++            case 9:
++                colorStr = L"red";
++                break;
++
++            case 10:
++                colorStr = L"green";
++                break;
++
++            case 11:
++                colorStr = L"yellow";
++                break;
++
++            case 12:
++                colorStr = L"blue";
++                break;
++
++            case 13:
++                colorStr = L"magenta";
++                break;
++
++            case 14:
++                colorStr = L"cyan";
++                break;
++
++            case 15:
++                colorStr = L"white";
++                break;
++
++            default:
++                swprintf_s(tempBuf, L"i%02i", idx);
++                colorStr = tempBuf;
++            }
++        }
++        else
++        {
++            auto err = _itow_s(color, tempBuf, 16);
++            assert(err == 0);
++            UNREFERENCED_PARAMETER(err);
++            colorStr = tempBuf;
++        }
++
++        return colorStr;
++    }
++
++    // TODO: Localization?
++    winrt::hstring ColorSelectionArgs::GenerateName() const
++    {
++        auto matchMode = MatchMode() ? MatchMode() : 0;
++
++        auto matchModeStr = L"";
++        if (matchMode)
++        {
++            if (matchMode == 1)
++            {
++                matchModeStr = L", all matches";
++            }
++        }
++
++        bool hasForeground = (bool)Foreground();
++        bool hasBackground = (bool)Background();
++
++        wchar_t fgBuf[9] = { 0 };
++        wchar_t bgBuf[9] = { 0 };
++
++        const wchar_t* fgStr = nullptr;
++        const wchar_t* bgStr = nullptr;
++
++        fgStr = hasForeground ? _FormatColorString(fgBuf, Foreground().TextColor()) : L"(default)";
++        bgStr = hasBackground ? _FormatColorString(bgBuf, Background().TextColor()) : L"(default)";
++
++        // To try to keep things simple for the user, we'll try to show only the
++        // "interesting" color (i.e. leave off the bg or fg if it is either unspecified or
++        // black or index 0).
++        //
++        // Note that we mask off the alpha channel, which is used to indicate if it's an
++        // indexed color.
++        bool foregroundIsExplicitBlack = hasForeground && (Foreground().TextColor() & 0x00ffffff) == 0;
++        bool backgroundIsExplicitBlack = hasBackground && (Background().TextColor() & 0x00ffffff) == 0;
++
++        if (hasForeground && (!hasBackground || backgroundIsExplicitBlack))
++        {
++            return winrt::hstring{
++                fmt::format(L"Color selection, foreground: {}{}", fgStr, matchModeStr)
++            };
++        }
++        else if (hasBackground && (!hasForeground || foregroundIsExplicitBlack))
++        {
++            return winrt::hstring{
++                fmt::format(L"Color selection, background: {}{}", bgStr, matchModeStr)
++            };
++        }
++        else if (hasForeground && hasBackground)
++        {
++            return winrt::hstring{
++                fmt::format(L"Color selection, foreground: {}, background: {}{}", fgStr, bgStr, matchModeStr)
++            };
++        }
++        else
++        {
++            return winrt::hstring{
++                fmt::format(L"Color selection, (default fg/bg){}", matchModeStr)
++            };
++        }
++    }
+ }
+diff --git a/src/cascadia/TerminalSettingsModel/ActionArgs.h b/src/cascadia/TerminalSettingsModel/ActionArgs.h
+index 03f69252561..5bba7206a02 100644
+--- a/src/cascadia/TerminalSettingsModel/ActionArgs.h
++++ b/src/cascadia/TerminalSettingsModel/ActionArgs.h
+@@ -45,6 +45,7 @@
+ #include "ClearBufferArgs.g.h"
+ #include "MultipleActionsArgs.g.h"
+ #include "AdjustOpacityArgs.g.h"
++#include "ColorSelectionArgs.g.h"
+ 
+ #include "JsonUtils.h"
+ #include "HashUtils.h"
+@@ -235,6 +236,12 @@ private:
+     X(int32_t, Opacity, "opacity", false, 0) \
+     X(bool, Relative, "relative", false, true)
+ 
++////////////////////////////////////////////////////////////////////////////////
++#define COLOR_SELECTION_ARGS(X)                                                                      \
++    X(winrt::Microsoft::Terminal::Control::SelectionColor, Foreground, "foreground", false, nullptr) \
++    X(winrt::Microsoft::Terminal::Control::SelectionColor, Background, "background", false, nullptr) \
++    X(uint32_t, MatchMode, "matchMode", false, 0u)
++
+ ////////////////////////////////////////////////////////////////////////////////
+ 
+ namespace winrt::Microsoft::Terminal::Settings::Model::implementation
+@@ -384,6 +391,25 @@ struct til::hash_trait<winrt::Microsoft::Terminal::Settings::Model::NewTerminalA
+         }
+     }
+ };
++template<>
++struct til::hash_trait<winrt::Microsoft::Terminal::Control::SelectionColor>
++{
++    using M = winrt::Microsoft::Terminal::Control::SelectionColor;
++
++    void operator()(hasher& h, const M& value) const noexcept
++    {
++        if (value)
++        {
++            h.write(value.TextColor());
++        }
++        else
++        {
++            // N.B. it is important even for a non-value to contribute to the hash, else
++            // it is easier to have hash collisions.
++            h.write(-1);
++        }
++    }
++};
+ 
+ namespace winrt::Microsoft::Terminal::Settings::Model::implementation
+ {
+@@ -713,6 +739,8 @@ namespace winrt::Microsoft::Terminal::Settings::Model::implementation
+ 
+     ACTION_ARGS_STRUCT(AdjustOpacityArgs, ADJUST_OPACITY_ARGS);
+ 
++    ACTION_ARGS_STRUCT(ColorSelectionArgs, COLOR_SELECTION_ARGS);
++
+ }
+ 
+ namespace winrt::Microsoft::Terminal::Settings::Model::factory_implementation
+diff --git a/src/cascadia/TerminalSettingsModel/ActionArgs.idl b/src/cascadia/TerminalSettingsModel/ActionArgs.idl
+index 77c817315b6..fa0c01bbbf2 100644
+--- a/src/cascadia/TerminalSettingsModel/ActionArgs.idl
++++ b/src/cascadia/TerminalSettingsModel/ActionArgs.idl
+@@ -377,4 +377,11 @@ namespace Microsoft.Terminal.Settings.Model
+         Int32 Opacity { get; };
+         Boolean Relative { get; };
+     };
++
++    [default_interface] runtimeclass ColorSelectionArgs : IActionArgs
++    {
++        Microsoft.Terminal.Control.SelectionColor Foreground;
++        Microsoft.Terminal.Control.SelectionColor Background;
++        UInt32 MatchMode { get; };
++    };
+ }
+diff --git a/src/cascadia/TerminalSettingsModel/ActionMap.cpp b/src/cascadia/TerminalSettingsModel/ActionMap.cpp
+index 9e7bb650ddf..5809369a660 100644
+--- a/src/cascadia/TerminalSettingsModel/ActionMap.cpp
++++ b/src/cascadia/TerminalSettingsModel/ActionMap.cpp
+@@ -196,7 +196,6 @@ namespace winrt::Microsoft::Terminal::Settings::Model::implementation
+     {
+         // Update NameMap with our parents.
+         // Starting with this means we're doing a top-down approach.
+-        assert(_parents.size() <= 1);
+         for (const auto& parent : _parents)
+         {
+             parent->_PopulateNameMapWithSpecialCommands(nameMap);
+@@ -274,7 +273,6 @@ namespace winrt::Microsoft::Terminal::Settings::Model::implementation
+         });
+ 
+         // Now, add the accumulated actions from our parents
+-        assert(_parents.size() <= 1);
+         for (const auto& parent : _parents)
+         {
+             const auto parentActions{ parent->_GetCumulativeActions() };
+@@ -367,7 +365,6 @@ namespace winrt::Microsoft::Terminal::Settings::Model::implementation
+         }
+ 
+         // Update keyBindingsMap and unboundKeys with our parents
+-        assert(_parents.size() <= 1);
+         for (const auto& parent : _parents)
+         {
+             parent->_PopulateKeyBindingMapWithStandardCommands(keyBindingsMap, unboundKeys);
+@@ -408,7 +405,6 @@ namespace winrt::Microsoft::Terminal::Settings::Model::implementation
+             actionMap->_IterableCommands.emplace_back(*winrt::get_self<Command>(cmd)->Copy());
+         }
+ 
+-        assert(_parents.size() <= 1);
+         actionMap->_parents.reserve(_parents.size());
+         for (const auto& parent : _parents)
+         {
+@@ -737,7 +733,6 @@ namespace winrt::Microsoft::Terminal::Settings::Model::implementation
+ 
+         // the command was not bound in this layer,
+         // ask my parents
+-        assert(_parents.size() <= 1);
+         for (const auto& parent : _parents)
+         {
+             const auto& inheritedCmd{ parent->_GetActionByKeyChordInternal(keys) };
+@@ -787,7 +782,6 @@ namespace winrt::Microsoft::Terminal::Settings::Model::implementation
+         }
+ 
+         // Check our parents
+-        assert(_parents.size() <= 1);
+         for (const auto& parent : _parents)
+         {
+             if (const auto& keys{ parent->GetKeyBindingForAction(myAction, myArgs) })
+diff --git a/src/cascadia/TerminalSettingsModel/AllShortcutActions.h b/src/cascadia/TerminalSettingsModel/AllShortcutActions.h
+index 23d4cf2110c..4409d5a8598 100644
+--- a/src/cascadia/TerminalSettingsModel/AllShortcutActions.h
++++ b/src/cascadia/TerminalSettingsModel/AllShortcutActions.h
+@@ -23,80 +23,81 @@
+ // each action. This is _NOT_ something that should be used when any individual
+ // case should be customized.
+ 
+-#define ALL_SHORTCUT_ACTIONS               \
+-    ON_ALL_ACTIONS(CopyText)               \
+-    ON_ALL_ACTIONS(PasteText)              \
+-    ON_ALL_ACTIONS(OpenNewTabDropdown)     \
+-    ON_ALL_ACTIONS(DuplicateTab)           \
+-    ON_ALL_ACTIONS(NewTab)                 \
+-    ON_ALL_ACTIONS(CloseWindow)            \
+-    ON_ALL_ACTIONS(CloseTab)               \
+-    ON_ALL_ACTIONS(ClosePane)              \
+-    ON_ALL_ACTIONS(NextTab)                \
+-    ON_ALL_ACTIONS(PrevTab)                \
+-    ON_ALL_ACTIONS(SendInput)              \
+-    ON_ALL_ACTIONS(SplitPane)              \
+-    ON_ALL_ACTIONS(ToggleSplitOrientation) \
+-    ON_ALL_ACTIONS(TogglePaneZoom)         \
+-    ON_ALL_ACTIONS(SwitchToTab)            \
+-    ON_ALL_ACTIONS(AdjustFontSize)         \
+-    ON_ALL_ACTIONS(ResetFontSize)          \
+-    ON_ALL_ACTIONS(ScrollUp)               \
+-    ON_ALL_ACTIONS(ScrollDown)             \
+-    ON_ALL_ACTIONS(ScrollUpPage)           \
+-    ON_ALL_ACTIONS(ScrollDownPage)         \
+-    ON_ALL_ACTIONS(ScrollToTop)            \
+-    ON_ALL_ACTIONS(ScrollToBottom)         \
+-    ON_ALL_ACTIONS(ScrollToMark)           \
+-    ON_ALL_ACTIONS(AddMark)                \
+-    ON_ALL_ACTIONS(ClearMark)              \
+-    ON_ALL_ACTIONS(ClearAllMarks)          \
+-    ON_ALL_ACTIONS(ResizePane)             \
+-    ON_ALL_ACTIONS(MoveFocus)              \
+-    ON_ALL_ACTIONS(MovePane)               \
+-    ON_ALL_ACTIONS(SwapPane)               \
+-    ON_ALL_ACTIONS(Find)                   \
+-    ON_ALL_ACTIONS(ToggleShaderEffects)    \
+-    ON_ALL_ACTIONS(ToggleFocusMode)        \
+-    ON_ALL_ACTIONS(ToggleFullscreen)       \
+-    ON_ALL_ACTIONS(ToggleAlwaysOnTop)      \
+-    ON_ALL_ACTIONS(OpenSettings)           \
+-    ON_ALL_ACTIONS(SetFocusMode)           \
+-    ON_ALL_ACTIONS(SetFullScreen)          \
+-    ON_ALL_ACTIONS(SetMaximized)           \
+-    ON_ALL_ACTIONS(SetColorScheme)         \
+-    ON_ALL_ACTIONS(SetTabColor)            \
+-    ON_ALL_ACTIONS(OpenTabColorPicker)     \
+-    ON_ALL_ACTIONS(RenameTab)              \
+-    ON_ALL_ACTIONS(OpenTabRenamer)         \
+-    ON_ALL_ACTIONS(ExecuteCommandline)     \
+-    ON_ALL_ACTIONS(ToggleCommandPalette)   \
+-    ON_ALL_ACTIONS(CloseOtherTabs)         \
+-    ON_ALL_ACTIONS(CloseTabsAfter)         \
+-    ON_ALL_ACTIONS(TabSearch)              \
+-    ON_ALL_ACTIONS(MoveTab)                \
+-    ON_ALL_ACTIONS(BreakIntoDebugger)      \
+-    ON_ALL_ACTIONS(TogglePaneReadOnly)     \
+-    ON_ALL_ACTIONS(FindMatch)              \
+-    ON_ALL_ACTIONS(NewWindow)              \
+-    ON_ALL_ACTIONS(IdentifyWindow)         \
+-    ON_ALL_ACTIONS(IdentifyWindows)        \
+-    ON_ALL_ACTIONS(RenameWindow)           \
+-    ON_ALL_ACTIONS(OpenWindowRenamer)      \
+-    ON_ALL_ACTIONS(GlobalSummon)           \
+-    ON_ALL_ACTIONS(QuakeMode)              \
+-    ON_ALL_ACTIONS(FocusPane)              \
+-    ON_ALL_ACTIONS(OpenSystemMenu)         \
+-    ON_ALL_ACTIONS(ExportBuffer)           \
+-    ON_ALL_ACTIONS(ClearBuffer)            \
+-    ON_ALL_ACTIONS(MultipleActions)        \
+-    ON_ALL_ACTIONS(Quit)                   \
+-    ON_ALL_ACTIONS(AdjustOpacity)          \
+-    ON_ALL_ACTIONS(RestoreLastClosed)      \
+-    ON_ALL_ACTIONS(SelectAll)              \
+-    ON_ALL_ACTIONS(MarkMode)               \
+-    ON_ALL_ACTIONS(ToggleBlockSelection)   \
+-    ON_ALL_ACTIONS(SwitchSelectionEndpoint)
++#define ALL_SHORTCUT_ACTIONS                \
++    ON_ALL_ACTIONS(CopyText)                \
++    ON_ALL_ACTIONS(PasteText)               \
++    ON_ALL_ACTIONS(OpenNewTabDropdown)      \
++    ON_ALL_ACTIONS(DuplicateTab)            \
++    ON_ALL_ACTIONS(NewTab)                  \
++    ON_ALL_ACTIONS(CloseWindow)             \
++    ON_ALL_ACTIONS(CloseTab)                \
++    ON_ALL_ACTIONS(ClosePane)               \
++    ON_ALL_ACTIONS(NextTab)                 \
++    ON_ALL_ACTIONS(PrevTab)                 \
++    ON_ALL_ACTIONS(SendInput)               \
++    ON_ALL_ACTIONS(SplitPane)               \
++    ON_ALL_ACTIONS(ToggleSplitOrientation)  \
++    ON_ALL_ACTIONS(TogglePaneZoom)          \
++    ON_ALL_ACTIONS(SwitchToTab)             \
++    ON_ALL_ACTIONS(AdjustFontSize)          \
++    ON_ALL_ACTIONS(ResetFontSize)           \
++    ON_ALL_ACTIONS(ScrollUp)                \
++    ON_ALL_ACTIONS(ScrollDown)              \
++    ON_ALL_ACTIONS(ScrollUpPage)            \
++    ON_ALL_ACTIONS(ScrollDownPage)          \
++    ON_ALL_ACTIONS(ScrollToTop)             \
++    ON_ALL_ACTIONS(ScrollToBottom)          \
++    ON_ALL_ACTIONS(ScrollToMark)            \
++    ON_ALL_ACTIONS(AddMark)                 \
++    ON_ALL_ACTIONS(ClearMark)               \
++    ON_ALL_ACTIONS(ClearAllMarks)           \
++    ON_ALL_ACTIONS(ResizePane)              \
++    ON_ALL_ACTIONS(MoveFocus)               \
++    ON_ALL_ACTIONS(MovePane)                \
++    ON_ALL_ACTIONS(SwapPane)                \
++    ON_ALL_ACTIONS(Find)                    \
++    ON_ALL_ACTIONS(ToggleShaderEffects)     \
++    ON_ALL_ACTIONS(ToggleFocusMode)         \
++    ON_ALL_ACTIONS(ToggleFullscreen)        \
++    ON_ALL_ACTIONS(ToggleAlwaysOnTop)       \
++    ON_ALL_ACTIONS(OpenSettings)            \
++    ON_ALL_ACTIONS(SetFocusMode)            \
++    ON_ALL_ACTIONS(SetFullScreen)           \
++    ON_ALL_ACTIONS(SetMaximized)            \
++    ON_ALL_ACTIONS(SetColorScheme)          \
++    ON_ALL_ACTIONS(SetTabColor)             \
++    ON_ALL_ACTIONS(OpenTabColorPicker)      \
++    ON_ALL_ACTIONS(RenameTab)               \
++    ON_ALL_ACTIONS(OpenTabRenamer)          \
++    ON_ALL_ACTIONS(ExecuteCommandline)      \
++    ON_ALL_ACTIONS(ToggleCommandPalette)    \
++    ON_ALL_ACTIONS(CloseOtherTabs)          \
++    ON_ALL_ACTIONS(CloseTabsAfter)          \
++    ON_ALL_ACTIONS(TabSearch)               \
++    ON_ALL_ACTIONS(MoveTab)                 \
++    ON_ALL_ACTIONS(BreakIntoDebugger)       \
++    ON_ALL_ACTIONS(TogglePaneReadOnly)      \
++    ON_ALL_ACTIONS(FindMatch)               \
++    ON_ALL_ACTIONS(NewWindow)               \
++    ON_ALL_ACTIONS(IdentifyWindow)          \
++    ON_ALL_ACTIONS(IdentifyWindows)         \
++    ON_ALL_ACTIONS(RenameWindow)            \
++    ON_ALL_ACTIONS(OpenWindowRenamer)       \
++    ON_ALL_ACTIONS(GlobalSummon)            \
++    ON_ALL_ACTIONS(QuakeMode)               \
++    ON_ALL_ACTIONS(FocusPane)               \
++    ON_ALL_ACTIONS(OpenSystemMenu)          \
++    ON_ALL_ACTIONS(ExportBuffer)            \
++    ON_ALL_ACTIONS(ClearBuffer)             \
++    ON_ALL_ACTIONS(MultipleActions)         \
++    ON_ALL_ACTIONS(Quit)                    \
++    ON_ALL_ACTIONS(AdjustOpacity)           \
++    ON_ALL_ACTIONS(RestoreLastClosed)       \
++    ON_ALL_ACTIONS(SelectAll)               \
++    ON_ALL_ACTIONS(MarkMode)                \
++    ON_ALL_ACTIONS(ToggleBlockSelection)    \
++    ON_ALL_ACTIONS(SwitchSelectionEndpoint) \
++    ON_ALL_ACTIONS(ColorSelection)
+ 
+ #define ALL_SHORTCUT_ACTIONS_WITH_ARGS             \
+     ON_ALL_ACTIONS_WITH_ARGS(AdjustFontSize)       \
+@@ -136,4 +137,5 @@
+     ON_ALL_ACTIONS_WITH_ARGS(ExportBuffer)         \
+     ON_ALL_ACTIONS_WITH_ARGS(ClearBuffer)          \
+     ON_ALL_ACTIONS_WITH_ARGS(MultipleActions)      \
+-    ON_ALL_ACTIONS_WITH_ARGS(AdjustOpacity)
++    ON_ALL_ACTIONS_WITH_ARGS(AdjustOpacity)        \
++    ON_ALL_ACTIONS_WITH_ARGS(ColorSelection)
+diff --git a/src/cascadia/TerminalSettingsModel/CascadiaSettingsSerialization.cpp b/src/cascadia/TerminalSettingsModel/CascadiaSettingsSerialization.cpp
+index f8e4dc4f80f..64e740a0521 100644
+--- a/src/cascadia/TerminalSettingsModel/CascadiaSettingsSerialization.cpp
++++ b/src/cascadia/TerminalSettingsModel/CascadiaSettingsSerialization.cpp
+@@ -22,6 +22,7 @@
+ #include <LegacyProfileGeneratorNamespaces.h>
+ 
+ #include "userDefaults.h"
++#include "enableColorSelection.h"
+ 
+ #include "ApplicationState.h"
+ #include "DefaultTerminal.h"
+@@ -309,6 +310,16 @@ void SettingsLoader::FinalizeLayering()
+ {
+     // Layer default globals -> user globals
+     userSettings.globals->AddLeastImportantParent(inboxSettings.globals);
++
++    // Actions are currently global, so if we want to conditionally light up a bunch of
++    // actions, this is the time to do it.
++    if (userSettings.globals->EnableColorSelection())
++    {
++        const auto json = _parseJson(EnableColorSelectionSettingsJson);
++        const auto globals = GlobalAppSettings::FromJson(json.root);
++        userSettings.globals->AddLeastImportantParent(globals);
++    }
++
+     userSettings.globals->_FinalizeInheritance();
+     // Layer default profile defaults -> user profile defaults
+     userSettings.baseLayerProfile->AddLeastImportantParent(inboxSettings.baseLayerProfile);
+diff --git a/src/cascadia/TerminalSettingsModel/GlobalAppSettings.idl b/src/cascadia/TerminalSettingsModel/GlobalAppSettings.idl
+index 9e6564740f1..4cd0610c16d 100644
+--- a/src/cascadia/TerminalSettingsModel/GlobalAppSettings.idl
++++ b/src/cascadia/TerminalSettingsModel/GlobalAppSettings.idl
+@@ -93,6 +93,7 @@ namespace Microsoft.Terminal.Settings.Model
+         INHERITABLE_SETTING(Boolean, AlwaysShowNotificationIcon);
+         INHERITABLE_SETTING(IVector<String>, DisabledProfileSources);
+         INHERITABLE_SETTING(Boolean, ShowAdminShield);
++        INHERITABLE_SETTING(Boolean, EnableColorSelection);
+ 
+         Windows.Foundation.Collections.IMapView<String, ColorScheme> ColorSchemes();
+         void AddColorScheme(ColorScheme scheme);
+diff --git a/src/cascadia/TerminalSettingsModel/MTSMSettings.h b/src/cascadia/TerminalSettingsModel/MTSMSettings.h
+index c7abda9a29a..32c7ea2e3d5 100644
+--- a/src/cascadia/TerminalSettingsModel/MTSMSettings.h
++++ b/src/cascadia/TerminalSettingsModel/MTSMSettings.h
+@@ -59,7 +59,8 @@ Author(s):
+     X(bool, AlwaysShowNotificationIcon, "alwaysShowNotificationIcon", false)                                                                               \
+     X(winrt::Windows::Foundation::Collections::IVector<winrt::hstring>, DisabledProfileSources, "disabledProfileSources", nullptr)                         \
+     X(bool, ShowAdminShield, "showAdminShield", true)                                                                                                      \
+-    X(bool, TrimPaste, "trimPaste", true)
++    X(bool, TrimPaste, "trimPaste", true)                                                                                                                  \
++    X(bool, EnableColorSelection, "experimental.enableColorSelection", false)
+ 
+ #define MTSM_PROFILE_SETTINGS(X)                                                                                                                               \
+     X(int32_t, HistorySize, "historySize", DEFAULT_HISTORY_SIZE)                                                                                               \
+diff --git a/src/cascadia/TerminalSettingsModel/Microsoft.Terminal.Settings.ModelLib.vcxproj b/src/cascadia/TerminalSettingsModel/Microsoft.Terminal.Settings.ModelLib.vcxproj
+index 678446dff77..4d2c41b4754 100644
+--- a/src/cascadia/TerminalSettingsModel/Microsoft.Terminal.Settings.ModelLib.vcxproj
++++ b/src/cascadia/TerminalSettingsModel/Microsoft.Terminal.Settings.ModelLib.vcxproj
+@@ -302,6 +302,10 @@
+   <Target Name="_TerminalAppGenerateUserSettingsH" Inputs="userDefaults.json" Outputs="Generated Files\userDefaults.h" BeforeTargets="BeforeClCompile">
+     <Exec Command="pwsh.exe -NoProfile -ExecutionPolicy Unrestricted &quot;$(OpenConsoleDir)\tools\GenerateHeaderForJson.ps1&quot; -JsonFile userDefaults.json -OutPath &quot;Generated Files\userDefaults.h&quot; -VariableName UserSettingsJson" />
+   </Target>
++  <!-- Same as above, but for the enableColorSelection actions -->
++  <Target Name="_TerminalAppGenerateEnableColorSelectionSettingsH" Inputs="enableColorSelection.json" Outputs="Generated Files\enableColorSelection.h" BeforeTargets="BeforeClCompile">
++    <Exec Command="pwsh.exe -NoProfile –ExecutionPolicy Unrestricted $(OpenConsoleDir)\tools\GenerateHeaderForJson.ps1 -JsonFile enableColorSelection.json -OutPath &quot;Generated Files\enableColorSelection.h&quot; -VariableName EnableColorSelectionSettingsJson" />
++  </Target>
+   <Import Project="$(SolutionDir)build\rules\CollectWildcardResources.targets" />
+ 
+ </Project>
+diff --git a/src/cascadia/TerminalSettingsModel/TerminalSettingsSerializationHelpers.h b/src/cascadia/TerminalSettingsModel/TerminalSettingsSerializationHelpers.h
+index 50a17a5abb2..0cada1e29e6 100644
+--- a/src/cascadia/TerminalSettingsModel/TerminalSettingsSerializationHelpers.h
++++ b/src/cascadia/TerminalSettingsModel/TerminalSettingsSerializationHelpers.h
+@@ -638,3 +638,70 @@ JSON_ENUM_MAPPER(::winrt::Microsoft::Terminal::Control::ScrollToMarkDirection)
+         pair_type{ "last", ValueType::Last },
+     };
+ };
++
++template<>
++struct ::Microsoft::Terminal::Settings::Model::JsonUtils::ConversionTrait<::winrt::Microsoft::Terminal::Control::SelectionColor>
++{
++    ::winrt::Microsoft::Terminal::Control::SelectionColor FromJson(const Json::Value& json)
++    {
++        winrt::Microsoft::Terminal::Control::SelectionColor selection{};
++        auto str = Detail::GetStringView(json);
++
++        if ((str.size() == 3) && (str.at(0) == 'i'))
++        {
++            auto indexStr = std::string(&str.at(1));
++            // This will throw for something like "j0", but return 0 for something like
++            // "0j".
++            int idx = std::stoi(indexStr, 0, 16);
++
++            til::color rgba = til::color(gsl::narrow_cast<uint8_t>(idx), 0, 0);
++            // We need to manually convert to COLORREF up front, so that we can sneak in a
++            // special value into the "alpha" channel.
++            COLORREF cr = rgba;
++            cr |= 0x01000000;
++            selection.TextColor(cr);
++        }
++        else
++        {
++            til::color rgb = ::Microsoft::Console::Utils::ColorFromHexString(Detail::GetStringView(json));
++            uint32_t val = (rgb.r << 24) | (rgb.g << 16) | (rgb.b << 8);
++            selection.TextColor(val);
++        }
++        return selection;
++    }
++
++    bool CanConvert(const Json::Value& json)
++    {
++        if (!json.isString())
++        {
++            return false;
++        }
++
++        const auto string{ Detail::GetStringView(json) };
++
++        // Looks like "#NNN" or "#NNNNNN" (RGB)
++        //         or "iNN" (index)
++        return ((string.length() == 7 || string.length() == 4) && string.front() == '#') ||
++               ((string.length() == 3) && (string.front() == 'i'));
++    }
++
++    Json::Value ToJson(const ::winrt::Microsoft::Terminal::Control::SelectionColor& val)
++    {
++        uint32_t raw = val.TextColor();
++
++        if ((raw & 0x01000000) == 0x01000000)
++        {
++            // It's an indexed color
++            return fmt::format("i{:02x}", (raw & 0x000000ff));
++        }
++        else
++        {
++            return fmt::format("{:06x}", raw);
++        }
++    }
++
++    std::string TypeDescription() const
++    {
++        return "either a hex \"#RRGGBB\" value, or a color index (\"iNN\")";
++    }
++};
+diff --git a/src/cascadia/TerminalSettingsModel/enableColorSelection.json b/src/cascadia/TerminalSettingsModel/enableColorSelection.json
+new file mode 100644
+index 00000000000..ad1efcd04b2
+--- /dev/null
++++ b/src/cascadia/TerminalSettingsModel/enableColorSelection.json
+@@ -0,0 +1,370 @@
++{
++    "actions":
++    [
++        // Foreground
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection"
++                // default fg and bg (i07 and i00)
++            },
++            "keys": "alt+1"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "foreground": "i08"
++            },
++            "keys": "alt+2"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "foreground": "i0c"
++            },
++            "keys": "alt+3"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "foreground": "i0a"
++            },
++            "keys": "alt+4"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "foreground": "i0e"
++            },
++            "keys": "alt+5"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "foreground": "i09"
++            },
++            "keys": "alt+6"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "foreground": "i0d"
++            },
++            "keys": "alt+7"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "foreground": "i0b"
++            },
++            "keys": "alt+8"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "foreground": "i0f"
++            },
++            "keys": "alt+9"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "foreground": "i03"
++            },
++            "keys": "alt+0"
++        },
++        // background
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "foreground": "i00",
++                "background": "i07"
++            },
++            "keys": "ctrl+1"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "foreground": "i00",
++                "background": "i08"
++            },
++            "keys": "ctrl+2"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "foreground": "i00",
++                "background": "i0c"
++            },
++            "keys": "ctrl+3"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "foreground": "i00",
++                "background": "i0a"
++            },
++            "keys": "ctrl+4"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "foreground": "i00",
++                "background": "i0e"
++            },
++            "keys": "ctrl+5"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "foreground": "i00",
++                "background": "i09"
++            },
++            "keys": "ctrl+6"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "foreground": "i00",
++                "background": "i0d"
++            },
++            "keys": "ctrl+7"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "foreground": "i00",
++                "background": "i0b"
++            },
++            "keys": "ctrl+8"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "foreground": "i00",
++                "background": "i0f"
++            },
++            "keys": "ctrl+9"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "foreground": "i00",
++                "background": "i03"
++            },
++            "keys": "ctrl+0"
++        },
++        // with matching
++        // Foreground, all matches
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1
++                // default fg and bg (i07 and i00)
++            },
++            "keys": "alt+shift+1"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1,
++                "foreground": "i08"
++            },
++            "keys": "alt+shift+2"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1,
++                "foreground": "i0c"
++            },
++            "keys": "alt+shift+3"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1,
++                "foreground": "i0a"
++            },
++            "keys": "alt+shift+4"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1,
++                "foreground": "i0e"
++            },
++            "keys": "alt+shift+5"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1,
++                "foreground": "i09"
++            },
++            "keys": "alt+shift+6"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1,
++                "foreground": "i0d"
++            },
++            "keys": "alt+shift+7"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1,
++                "foreground": "i0b"
++            },
++            "keys": "alt+shift+8"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1,
++                "foreground": "i0f"
++            },
++            "keys": "alt+shift+9"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1,
++                "foreground": "i03"
++            },
++            "keys": "alt+shift+0"
++        },
++        // background, all matches
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1,
++                "foreground": "i00",
++                "background": "i07"
++            },
++            "keys": "ctrl+shift+1"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1,
++                "foreground": "i00",
++                "background": "i08"
++            },
++            "keys": "ctrl+shift+2"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1,
++                "foreground": "i00",
++                "background": "i0c"
++            },
++            "keys": "ctrl+shift+3"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1,
++                "foreground": "i00",
++                "background": "i0a"
++            },
++            "keys": "ctrl+shift+4"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1,
++                "foreground": "i00",
++                "background": "i0e"
++            },
++            "keys": "ctrl+shift+5"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1,
++                "foreground": "i00",
++                "background": "i09"
++            },
++            "keys": "ctrl+shift+6"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1,
++                "foreground": "i00",
++                "background": "i0d"
++            },
++            "keys": "ctrl+shift+7"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1,
++                "foreground": "i00",
++                "background": "i0b"
++            },
++            "keys": "ctrl+shift+8"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1,
++                "foreground": "i00",
++                "background": "i0f"
++            },
++            "keys": "ctrl+shift+9"
++        },
++        {
++            "command":
++            {
++                "action": "experimental.colorSelection",
++                "matchMode": 1,
++                "foreground": "i00",
++                "background": "i03"
++            },
++            "keys": "ctrl+shift+0"
++        }
++    ]
++}

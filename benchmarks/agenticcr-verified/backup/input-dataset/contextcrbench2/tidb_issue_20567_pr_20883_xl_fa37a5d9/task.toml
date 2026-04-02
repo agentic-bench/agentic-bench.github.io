@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "tidb_issue_20567_pr_20883_xl_fa37a5d9"
+contextcrbench2_full_name = "pingcap/tidb"
+contextcrbench2_lang = "go"
+contextcrbench2_issue_number = "20567"
+contextcrbench2_issue_title = "Support SELECT FROM TABLESAMPLE"
+contextcrbench2_pr_number = "20883"
+contextcrbench2_pr_title = "*: support select from tablesample"
+contextcrbench2_pr_size = "xl"
+contextcrbench2_checked_commit_id = "fa37a5d90da99c9b91ccc576c3e4819076f273b5"
+contextcrbench2_commit_id = "41561327d416abca468c154a352f53bfd5f0707e"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2020-11-13T12:27:18Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

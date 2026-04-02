@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "bevy_issue_3004_pr_6752_l_490562a1"
+contextcrbench2_full_name = "bevyengine/bevy"
+contextcrbench2_lang = "rust"
+contextcrbench2_issue_number = "3004"
+contextcrbench2_issue_title = "Reflect proc-macro causes compile errors when using custom Result type"
+contextcrbench2_pr_number = "6752"
+contextcrbench2_pr_title = "[Merged by Bors] - Make proc macros hygienic in bevy_reflect_derive"
+contextcrbench2_pr_size = "l"
+contextcrbench2_checked_commit_id = "490562a127884bf2f4b0eae372b486468580d937"
+contextcrbench2_commit_id = "31df182becb6d422877485fcb493087b12dea0a4"
+contextcrbench2_created_at = "2022-12-03T19:57:22Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

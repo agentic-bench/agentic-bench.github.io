@@ -1,0 +1,41 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "core_issue_31109_pr_32817_sm_547025b2"
+contextcrbench2_full_name = "home-assistant/core"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "31109"
+contextcrbench2_issue_title = "Unifi presence detection not updating"
+contextcrbench2_pr_number = "32817"
+contextcrbench2_pr_title = "UniFi - Improve client tracker attributes based on connection"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "547025b2d8925f9b8b7232a6de1415c8038150c0"
+contextcrbench2_commit_id = "663f257bf60e1f75ee95ed0c810a7b572b701571"
+contextcrbench2_merged = "True"
+contextcrbench2_created_at = "2020-03-15T14:58:44Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

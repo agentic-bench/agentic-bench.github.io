@@ -1,0 +1,13 @@
+[
+  {
+    "id": 34638,
+    "full_name": "parcel-bundler/parcel",
+    "lang": "javascript",
+    "issue_number": 4729,
+    "pr_number": 5769,
+    "diff_hunk": "@@ -15,10 +15,6 @@ export default (new Transformer({\n     return preSerialize(config);\n   },\n \n-  postDeserializeConfig({config, options}) {\n-    return postDeserialize(config, options);\n-  },\n-\n   canReuseAST({ast}) {\n     return ast.type === 'babel' && semver.satisfies(ast.version, '^7.0.0');\n   },\n",
+    "diff_hunk_content_with_line_number": "[15][15]      return preSerialize(config);\n[16][16]    },\n[17][17]  \n[18][] -  postDeserializeConfig({config, options}) {\n[19][] -    return postDeserialize(config, options);\n[20][] -  },\n[21][] -\n[22][18]    canReuseAST({ast}) {\n[23][19]      return ast.type === 'babel' && semver.satisfies(ast.version, '^7.0.0');\n[24][20]    },",
+    "checked_commit_id": "5b7aff96750501203cb2a2a290baacaa368a4361",
+    "pr_size": "xl"
+  }
+]

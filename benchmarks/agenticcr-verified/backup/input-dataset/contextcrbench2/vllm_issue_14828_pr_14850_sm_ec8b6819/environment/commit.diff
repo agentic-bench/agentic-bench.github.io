@@ -1,0 +1,32 @@
+diff --git a/vllm/model_executor/models/gemma2.py b/vllm/model_executor/models/gemma2.py
+index cf744fc2b9d1..d125c666f3cd 100644
+--- a/vllm/model_executor/models/gemma2.py
++++ b/vllm/model_executor/models/gemma2.py
+@@ -358,11 +358,6 @@ def load_weights(self, weights: Iterable[Tuple[str,
+                 weight_loader(param, loaded_weight)
+             loaded_params.add(name)
+ 
+-        unloaded_params = params_dict.keys() - loaded_params
+-        if unloaded_params:
+-            logger.warning(
+-                "Some weights are not initialized from checkpoints: %s",
+-                unloaded_params)
+         return loaded_params
+ 
+ 
+diff --git a/vllm/model_executor/models/gemma3.py b/vllm/model_executor/models/gemma3.py
+index f1ecf7fa821d..55c96f649fbe 100644
+--- a/vllm/model_executor/models/gemma3.py
++++ b/vllm/model_executor/models/gemma3.py
+@@ -452,11 +452,6 @@ def load_weights(self, weights: Iterable[Tuple[str,
+                 weight_loader(param, loaded_weight)
+             loaded_params.add(name)
+ 
+-        unloaded_params = params_dict.keys() - loaded_params
+-        if unloaded_params:
+-            logger.warning(
+-                "Some weights are not initialized from checkpoints: %s",
+-                unloaded_params)
+         return loaded_params
+ 
+ 

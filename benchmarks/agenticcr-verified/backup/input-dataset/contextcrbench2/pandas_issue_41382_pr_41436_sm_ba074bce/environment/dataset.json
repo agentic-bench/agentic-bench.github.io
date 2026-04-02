@@ -1,0 +1,13 @@
+[
+  {
+    "id": 60679,
+    "full_name": "pandas-dev/pandas",
+    "lang": "python",
+    "issue_number": 41382,
+    "pr_number": 41436,
+    "diff_hunk": "@@ -10,6 +10,21 @@\n \n \n class TestDatetimeIndex:\n+    def test_datetimeindex_transpose_empty_df(self):\n+        \"\"\"\n+        Regression test for:\n+        https://github.com/pandas-dev/pandas/issues/41382\n+        \"\"\"\n+        df = DataFrame(index=pd.DatetimeIndex([]))\n+\n+        expected = pd.DatetimeIndex([], dtype=\"datetime64[ns]\", freq=None)\n+\n+        result1 = df.T.sum().index\n+        result2 = df.sum(axis=1).index\n+\n+        tm.assert_index_equal(result1, expected)\n+        tm.assert_index_equal(result2, expected)\n+\n     def test_indexing_with_datetime_tz(self):\n \n         # GH#8260\n",
+    "diff_hunk_content_with_line_number": "[10][10]  \n[11][11]  \n[12][12]  class TestDatetimeIndex:\n[][13] +    def test_datetimeindex_transpose_empty_df(self):\n[][14] +        \"\"\"\n[][15] +        Regression test for:\n[][16] +        https://github.com/pandas-dev/pandas/issues/41382\n[][17] +        \"\"\"\n[][18] +        df = DataFrame(index=pd.DatetimeIndex([]))\n[][19] +\n[][20] +        expected = pd.DatetimeIndex([], dtype=\"datetime64[ns]\", freq=None)\n[][21] +\n[][22] +        result1 = df.T.sum().index\n[][23] +        result2 = df.sum(axis=1).index\n[][24] +\n[][25] +        tm.assert_index_equal(result1, expected)\n[][26] +        tm.assert_index_equal(result2, expected)\n[][27] +\n[13][28]      def test_indexing_with_datetime_tz(self):\n[14][29]  \n[15][30]          # GH#8260",
+    "checked_commit_id": "ba074bceb739f67eb6032a382a40f17e0f3a75f4",
+    "pr_size": "sm"
+  }
+]

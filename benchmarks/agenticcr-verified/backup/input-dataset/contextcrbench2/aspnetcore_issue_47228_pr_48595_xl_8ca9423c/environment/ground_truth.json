@@ -1,0 +1,11 @@
+[
+  {
+    "path": "src/Security/Authentication/BearerToken/src/BearerTokenConfigureOptions.cs",
+    "line": 21,
+    "original_line": 21,
+    "review_comment": [
+      "You don't need a separate data protector, you can pass a purpose directly to Un/Protect. Or is this just to make it so the refresh endpoint doesn't need to know the purpose?",
+      "This mainly so the refresh endpoint doesn't need to know the purpose. I thought another protector was easier to use than having to know what constant to look for."
+    ]
+  }
+]

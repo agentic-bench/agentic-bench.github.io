@@ -1,0 +1,215 @@
+diff --git a/codec-http/src/main/java/io/netty/handler/codec/http/multipart/DefaultHttpDataFactory.java b/codec-http/src/main/java/io/netty/handler/codec/http/multipart/DefaultHttpDataFactory.java
+index 3f730c9e777..fc0d1c360a9 100644
+--- a/codec-http/src/main/java/io/netty/handler/codec/http/multipart/DefaultHttpDataFactory.java
++++ b/codec-http/src/main/java/io/netty/handler/codec/http/multipart/DefaultHttpDataFactory.java
+@@ -321,7 +321,9 @@ public void cleanAllHttpData() {
+ 
+             List<HttpData> list = e.getValue();
+             for (HttpData data : list) {
+-                data.release();
++                if (data.refCnt() > 0) {
++                    data.release();
++                }
+             }
+ 
+             i.remove();
+diff --git a/codec-http/src/main/java/io/netty/handler/codec/http/multipart/HttpPostMultipartRequestDecoder.java b/codec-http/src/main/java/io/netty/handler/codec/http/multipart/HttpPostMultipartRequestDecoder.java
+index 9e82ad7caf0..c76dee57cf5 100644
+--- a/codec-http/src/main/java/io/netty/handler/codec/http/multipart/HttpPostMultipartRequestDecoder.java
++++ b/codec-http/src/main/java/io/netty/handler/codec/http/multipart/HttpPostMultipartRequestDecoder.java
+@@ -1170,8 +1170,41 @@ private boolean loadDataMultipart(ByteBuf undecodedChunk, String delimiter,
+         try {
+             newOffset = findDelimiter(undecodedChunk, delimiter, lastDataPosition);
+             if (newOffset < 0) {
+-                // delimiter not found
++                // delimiter not found, so add content up to newOffset (does not contains part of delimiter)
+                 lastDataPosition = -newOffset;
++                // Check if LF or CRLF at the end
++                if (undecodedChunk.getByte(startReaderIndex + lastDataPosition - 1) == HttpConstants.LF) {
++                    lastDataPosition--;
++                    if (undecodedChunk.getByte(startReaderIndex + lastDataPosition - 1) == HttpConstants.CR) {
++                        lastDataPosition--;
++                    }
++                }
++                if (lastDataPosition > 0) {
++                    ByteBuf content = undecodedChunk.retainedSlice(startReaderIndex, lastDataPosition);
++                    try {
++                        httpData.addContent(content, false);
++                        if (content.refCnt() == 1) {
++                            // Can remove partial buffer virtually since content was consumed
++                            // But need to move existing finaly bytes from lastDataPosition to end
++                            int leftBytes = undecodedChunk.writerIndex() - startReaderIndex - lastDataPosition;
++                            if (leftBytes > 0) {
++                                undecodedChunk
++                                        .getBytes(startReaderIndex + lastDataPosition, undecodedChunk,
++                                                  startReaderIndex, leftBytes);
++                            } else {
++                                leftBytes = 0;
++                            }
++                            undecodedChunk.readerIndex(startReaderIndex);
++                            undecodedChunk.writerIndex(startReaderIndex + leftBytes);
++                        } else {
++                            // Mandatory to increase buffer since Data is fully in memory
++                            undecodedChunk.readerIndex(startReaderIndex + lastDataPosition);
++                        }
++                        lastDataPosition = 0;
++                    } catch (IOException e) {
++                        throw new ErrorDataDecoderException(e);
++                    }
++                }
+                 return false;
+             }
+         } catch (NotEnoughDataDecoderException e) {
+@@ -1193,7 +1226,22 @@ private boolean loadDataMultipart(ByteBuf undecodedChunk, String delimiter,
+             throw new ErrorDataDecoderException(e);
+         }
+         lastDataPosition = 0;
+-        undecodedChunk.readerIndex(startReaderIndex + startDelimiter);
++        if (content.refCnt() == 1) {
++            // Can remove partial buffer virtually since content was consumed
++            // But need to move existing finaly bytes from lastDataPosition to end
++            int leftBytes = undecodedChunk.writerIndex() - startReaderIndex - lastDataPosition;
++            if (leftBytes > 0) {
++                undecodedChunk.getBytes(startReaderIndex + lastDataPosition, undecodedChunk,
++                                        startReaderIndex, leftBytes);
++            } else {
++                leftBytes = 0;
++            }
++            undecodedChunk.readerIndex(startReaderIndex);
++            undecodedChunk.writerIndex(startReaderIndex + leftBytes);
++        } else {
++            // Mandatory to increase buffer since Data is fully in memory
++            undecodedChunk.readerIndex(startReaderIndex + startDelimiter);
++        }
+         return true;
+     }
+ 
+@@ -1255,6 +1303,17 @@ private boolean skipOneLine() {
+         return false;
+     }
+ 
++    /**
++     * This method is package private intentionnaly in order to allow during tests
++     * to access to the amount of memory allocated (capacity) within the private
++     * ByteBuf undecodedChunk
++     *
++     * @return the number of bytes the internal buffer can contain
++     */
++    int getCurrentAllocatedCapacity() {
++        return undecodedChunk.capacity();
++    }
++
+     /**
+      * Split one header in Multipart
+      *
+diff --git a/codec-http/src/test/java/io/netty/handler/codec/http/multipart/HttpPostRequestDecoderTest.java b/codec-http/src/test/java/io/netty/handler/codec/http/multipart/HttpPostRequestDecoderTest.java
+index acbcf1219d3..b6547d49958 100644
+--- a/codec-http/src/test/java/io/netty/handler/codec/http/multipart/HttpPostRequestDecoderTest.java
++++ b/codec-http/src/test/java/io/netty/handler/codec/http/multipart/HttpPostRequestDecoderTest.java
+@@ -34,6 +34,7 @@
+ import io.netty.util.CharsetUtil;
+ import org.junit.Test;
+ 
++import java.io.IOException;
+ import java.net.URLEncoder;
+ import java.nio.charset.UnsupportedCharsetException;
+ import java.util.Arrays;
+@@ -976,4 +977,98 @@ public void testDecodeMultipartRequest() {
+             assertTrue(req.release());
+         }
+     }
++
++    @Test
++    public void testBIgFileUploadDecoder() throws IOException {
++        int nbChunks = 100;
++        int bytesPerChunk = 1000000;
++        int bytesLastChunk = 10000;
++        int fileSize = bytesPerChunk * nbChunks + bytesLastChunk; // set Xmx to a number lower than this and it crashes
++
++        String prefix = "--861fbeab-cd20-470c-9609-d40a0f704466\n" +
++                        "Content-Disposition: form-data; name=\"image\"; filename=\"guangzhou.jpeg\"\n" +
++                        "Content-Type: image/jpeg\n" +
++                        "Content-Length: " + fileSize + "\n" +
++                        "\n";
++
++        String suffix1 = "\n" +
++                        "--861fbeab-";
++        String suffix2 = "cd20-470c-9609-d40a0f704466--\n";
++        String suffix = suffix1 + suffix2;
++
++        HttpRequest request = new DefaultHttpRequest(HttpVersion.HTTP_1_1, HttpMethod.POST, "/upload");
++        request.headers().set("content-type", "multipart/form-data; boundary=861fbeab-cd20-470c-9609-d40a0f704466");
++        request.headers().set("content-length", prefix.length() + fileSize + suffix.length());
++
++        // First Test using Disk
++        HttpDataFactory factory = new DefaultHttpDataFactory(true);
++
++        HttpPostMultipartRequestDecoder decoder = new HttpPostMultipartRequestDecoder(factory, request);
++        decoder.offer(new DefaultHttpContent(Unpooled.wrappedBuffer(prefix.getBytes(CharsetUtil.UTF_8))));
++
++        byte[] body = new byte[bytesPerChunk];
++        Arrays.fill(body, (byte) 1);
++        for (int i = 0; i < nbChunks; i++) {
++            ByteBuf content = Unpooled.wrappedBuffer(body, 0, bytesPerChunk);
++            decoder.offer(new DefaultHttpContent(content)); // **OutOfMemory here**
++            content.release();
++        }
++
++        byte[] bsuffix1 = suffix1.getBytes(CharsetUtil.UTF_8);
++        byte[] lastbody = new byte[bytesLastChunk + bsuffix1.length];
++        Arrays.fill(body, (byte) 1);
++        for (int i = 0; i < bsuffix1.length; i++) {
++            lastbody[bytesLastChunk + i] = bsuffix1[i];
++        }
++
++        ByteBuf content2 = Unpooled.wrappedBuffer(lastbody, 0, lastbody.length);
++        decoder.offer(new DefaultHttpContent(content2));
++        content2.release();
++        content2 = Unpooled.wrappedBuffer(suffix2.getBytes(CharsetUtil.UTF_8));
++        decoder.offer(new DefaultHttpContent(content2));
++        content2.release();
++        decoder.offer(new DefaultLastHttpContent());
++        FileUpload data = (FileUpload) decoder.getBodyHttpDatas().get(0);
++        assertEquals(data.length(), fileSize);
++        assertTrue("Capacity should be less than 10M", decoder.getCurrentAllocatedCapacity()
++                                                       < 10 * 1024 * 1024);
++        // To not be done since will load full file on memory: assertEquals(data.get().length, fileSize);
++        // Not mandatory since implicitely called during destroy of decoder
++        for (InterfaceHttpData httpData: decoder.getBodyHttpDatas()) {
++            httpData.release();
++        }
++        factory.cleanAllHttpData();
++        decoder.destroy();
++
++        // Second Test using Memory
++        factory = new DefaultHttpDataFactory(false);
++
++        decoder = new HttpPostMultipartRequestDecoder(factory, request);
++        decoder.offer(new DefaultHttpContent(Unpooled.wrappedBuffer(prefix.getBytes(CharsetUtil.UTF_8))));
++
++        for (int i = 0; i < nbChunks; i++) {
++            ByteBuf content = Unpooled.wrappedBuffer(body, 0, bytesPerChunk);
++            decoder.offer(new DefaultHttpContent(content)); // **OutOfMemory here**
++            content.release();
++        }
++
++        content2 = Unpooled.wrappedBuffer(lastbody);
++        decoder.offer(new DefaultHttpContent(content2));
++        content2.release();
++        content2 = Unpooled.wrappedBuffer(suffix2.getBytes(CharsetUtil.UTF_8));
++        decoder.offer(new DefaultHttpContent(content2));
++        content2.release();
++        decoder.offer(new DefaultLastHttpContent());
++        data = (FileUpload) decoder.getBodyHttpDatas().get(0);
++        assertEquals(data.length(), fileSize);
++        assertFalse("Capacity should be higher than 10M", decoder.getCurrentAllocatedCapacity()
++                                                          < 10 * 1024 * 1024);
++        // To not be done since will load full file on memory: assertEquals(data.get().length, fileSize);
++        // Mandatory with In Memory Factory
++        for (InterfaceHttpData httpData: decoder.getBodyHttpDatas()) {
++            httpData.release();
++        }
++        factory.cleanAllHttpData();
++        decoder.destroy();
++    }
+ }

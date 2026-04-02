@@ -1,0 +1,14 @@
+diff --git a/src/Files.App/Filesystem/FilesystemOperations/Helpers/FilesystemHelpers.cs b/src/Files.App/Filesystem/FilesystemOperations/Helpers/FilesystemHelpers.cs
+index 96f61440ab7a..6d07eb1fb8b3 100644
+--- a/src/Files.App/Filesystem/FilesystemOperations/Helpers/FilesystemHelpers.cs
++++ b/src/Files.App/Filesystem/FilesystemOperations/Helpers/FilesystemHelpers.cs
+@@ -125,7 +125,8 @@ public async Task<ReturnResult> DeleteItemsAsync(IEnumerable<IStorageItemWithPat
+ 			var deleteFromRecycleBin = source.Select(item => item.Path).Any(path => RecycleBinHelpers.IsPathUnderRecycleBin(path));
+ 			var canBeSentToBin = !deleteFromRecycleBin && await RecycleBinHelpers.HasRecycleBin(source.FirstOrDefault()?.Path);
+ 
+-			if (showDialog is DeleteConfirmationPolicies.Always || showDialog is DeleteConfirmationPolicies.PermanentOnly && (permanently || !canBeSentToBin))
++			if (showDialog is DeleteConfirmationPolicies.Always
++				|| showDialog is DeleteConfirmationPolicies.PermanentOnly && (permanently || !canBeSentToBin))
+ 			{
+ 				var incomingItems = new List<BaseFileSystemDialogItemViewModel>();
+ 				List<ShellFileItem>? binItems = null;

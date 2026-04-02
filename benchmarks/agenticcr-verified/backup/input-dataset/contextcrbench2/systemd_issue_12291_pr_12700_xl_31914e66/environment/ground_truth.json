@@ -1,0 +1,11 @@
+[
+  {
+    "path": "src/basic/fs-util.h",
+    "line": 22,
+    "original_line": 22,
+    "review_comment": [
+      "Shouldn't MODE_INVALID be handled specially, i.e. not have +1 added?",
+      "No, here +1 or -1 intends NULL <-> MODE_INVALID, that is, non-NULL means valid mode.\r\nWe already do the same thing in `UID_TO_PTR()`/`PTR_TO_UID()`."
+    ]
+  }
+]

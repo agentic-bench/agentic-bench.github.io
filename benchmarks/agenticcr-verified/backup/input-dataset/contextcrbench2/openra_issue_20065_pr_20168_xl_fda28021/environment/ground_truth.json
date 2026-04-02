@@ -1,0 +1,12 @@
+[
+  {
+    "path": "OpenRA.Mods.Common/Activities/DockActivity.cs",
+    "line": 131,
+    "original_line": 131,
+    "review_comment": [
+      "Sprite vs. Voxel distinction should be abstracted away from the docking code. Not sure how this should look precisely but calling a `CreateDockSequence()` method from within a DockSequence class that handles this distinction makes sense to me.",
+      "This PR is very out of date. I'll update it once some of the extracted PR's are merged (particularly the removal of TSRefinery)",
+      "I've already adressed by #20178"
+    ]
+  }
+]

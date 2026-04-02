@@ -1,0 +1,20 @@
+[
+  {
+    "path": "app/lib/entity_cache.rb",
+    "line": 11,
+    "original_line": 11,
+    "review_comment": [
+      "Why this change?\r\nActually, I'm not sure what this line does at all, since `AccountFinderConcern#find_remote` seems to perform a search with its own scope?",
+      "Without this the retrieved model doesn't have an `id` attribute. Scopes are composable."
+    ]
+  },
+  {
+    "path": "app/serializers/rest/announcement_serializer.rb",
+    "line": 23,
+    "original_line": 18,
+    "review_comment": [
+      "Is this serializer used for `mentions`? If so, I'm not sure I understand why/how. `REST::StatusSerializer`'s is called `MentionSerializer` so I'm not sure what's different here\u2026?",
+      "Status model has a Mention association. Here, we use Account models directly."
+    ]
+  }
+]

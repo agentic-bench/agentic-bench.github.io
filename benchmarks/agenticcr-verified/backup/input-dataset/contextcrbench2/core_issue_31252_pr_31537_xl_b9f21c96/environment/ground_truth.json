@@ -1,0 +1,11 @@
+[
+  {
+    "path": "homeassistant/components/samsungtv/media_player.py",
+    "line": 107,
+    "original_line": 117,
+    "review_comment": [
+      "Should we use `info` at least?",
+      "No idea honestly. Now it's just a way to trigger the reauth."
+    ]
+  }
+]

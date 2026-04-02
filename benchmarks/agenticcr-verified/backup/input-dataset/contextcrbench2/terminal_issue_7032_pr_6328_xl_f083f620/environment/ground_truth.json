@@ -1,0 +1,47 @@
+[
+  {
+    "path": "src/terminal/parser/stateMachine.cpp",
+    "line": 1559,
+    "original_line": 1567,
+    "review_comment": [
+      "I think we might be missing a condition here. The vt100.net state diagram implies that 30-3F should enter the ignore state rather than just being ignored. "
+    ]
+  },
+  {
+    "path": "src/terminal/parser/stateMachine.cpp",
+    "line": 1635,
+    "original_line": 1642,
+    "review_comment": [
+      "Once we're in the pass through state I think we should be passing through more than just 40-7E. At the very least we should include 20-7E. Technically I think some of the control characters are meant to be passed through too, but I wouldn't worry about that unless we know of a sequence that actually needs them."
+    ]
+  },
+  {
+    "path": "src/terminal/parser/stateMachine.cpp",
+    "line": 1660,
+    "original_line": 1649,
+    "review_comment": [
+      "I just realised that we probably also need a call to `_EnterEscape` here, before the call to `_EventEscape`. If the escape wasn't followed by `\\`, then we're essentially cancelling the current sequence and started a new one, and we need to reset any parameters and intermediates that we may already have accumulated.\r\n",
+      "It occurred to me that the `OSC` sequences should be doing the same thing as this, but I see that the `_EventOscTermination` handler doesn't care what follows the escape - it just dispatches the sequence anyway. That's definitely a bug. Not that that's your problem - just noting that we need to raise an issue for that.",
+      "Yeah I observed a lot of similarity between OSC and DCS. Perhaps the logic of those two should be more unified in some way. I created `_isIntermediateInvalid` and `_isParameterInvalid` to make things a little bit generic than before.",
+      "I think that'll become more important if/when we do APC and PM, but DCS has a few differences from the others, so it may not be as easy to share things. What you've done so far with the generic methods is at least a step in the right direction, and we can always do more refactoring later if necessary.",
+      "By the way why don't we support C1Osc? Is there a reason or it should not be allowed to enter from ground? From the state graph, OSC, APC & PM can all be entered from ground.",
+      "I haven't looked at this side of things in much detail, and I think there is some debate about the use of C1 controls with UTF-8, but if we're supporting some of them, then I would have thought we should be supporting all of them (and that includes the likes of `IND`, `NEL`, `HTS`, etc.).\r\n\r\nI was actually wondering whether this was something we could handle as a sort of preprocessing step that converts all of the C1 controls into their two character 7-bit equivalent. That way we can drop all the extra code that's checking for 90 and 9B introducers, and 9C terminators, because those conditions would now be handled as regular 7-bit escapes.",
+      "Yeah that's a good idea, to convert C1 controls to their 7 bit equivalent. I currently do not have enough experience with VT to file a PR but I'm getting there. Have learned a lot throughout the review period of this PR. ",
+      "Chester, would you mind turning this thread into a followup issue? It seems like we should fix OSC Termination to handle ESC more correctly.",
+      "Yeah we should. I plan to do that next. Filed #7317 for this.\r\n",
+      "Yeah we should. I plan to do that next. Filed #7317 for this.\r\n"
+    ]
+  },
+  {
+    "path": "src/terminal/parser/stateMachine.cpp",
+    "line": 1513,
+    "original_line": 1511,
+    "review_comment": [
+      "do we also need to handle a non-ST exit from DCS? If you get into a DCSIgnore state should you be able to recover with `ESC \\`? (EDIT: no. see below.)",
+      "That may have to be another state (DcsIgnoreTerminator) because we'd need to return to DcsIgnore if we got `ESC <anything>` where `anything` was not `\\`.\r\n\r\nFeel free to correct me if I'm wrong :)",
+      "Just so I understand, DcsIgnore is \"ignore all contents until ST\", right?\r\nI know that CsiIgnore is the opposite of this (ignore only specific characters, then drop to ground)",
+      "**OKAY**, I understand now. When we're in DcsIgnore _esc is handled normally_. We get an `ESC \\` and it's handled at ProcessCharacter:1684 because we're not in Osc/DcsPass",
+      "Yeah James and I had the same dicussion somewhere else. I guess this is OK."
+    ]
+  }
+]

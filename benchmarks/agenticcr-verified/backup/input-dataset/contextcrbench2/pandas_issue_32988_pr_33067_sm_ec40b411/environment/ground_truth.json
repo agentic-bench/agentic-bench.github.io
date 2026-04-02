@@ -1,0 +1,12 @@
+[
+  {
+    "path": "pandas/core/internals/blocks.py",
+    "line": 722,
+    "original_line": 746,
+    "review_comment": [
+      "why is this logic not just in Block.replace itself? seems too complicated here",
+      "I wanted to ensure, that the conversion would only take place, after the block was forcefully cast to an ObjectBlock before.\r\n\r\nI can add it to the replace function, if that would be better.",
+      "> I wanted to ensure, that the conversion would only take place, after the block was forcefully cast to an ObjectBlock before.\r\n> \r\n> I can add it to the replace function, if that would be better.\r\n\r\nthe regression was caused by a clean-up to Block.replace (#27768), see https://github.com/pandas-dev/pandas/issues/32988#issuecomment-605519281\r\n\r\nso fixing Block.replace as @jreback suggests seems more appropriate\r\n\r\n\r\n\r\n"
+    ]
+  }
+]

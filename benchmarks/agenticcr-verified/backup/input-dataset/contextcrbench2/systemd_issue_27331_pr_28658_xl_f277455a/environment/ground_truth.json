@@ -1,0 +1,22 @@
+[
+  {
+    "path": "src/shared/pkcs11-util.c",
+    "line": 927,
+    "original_line": 927,
+    "review_comment": [
+      "this can be static const, no?\r\n\r\n(and some of the other structs below, too, no?)",
+      "This structure must be writable, because .pPublicData and .ulPublicDataLen are filled with non-const data."
+    ]
+  },
+  {
+    "path": "src/shared/pkcs11-util.h",
+    "line": 6,
+    "original_line": 6,
+    "review_comment": [
+      "This looks iffy. The include here is conditionalized on HAVE_OPENSSL, and the function signature below on HAVE_P11KIT. Either the include is not necessary, or this will fail to build in some combinations.",
+      "Don't understand what's wrong here. Could you provide an example when it fails to build?",
+      "I don't have an example. I'm just following simple logic: an include should be added to a header iff this include is required by something later in that header. If that later something is conditionalized differently than the include of the header, then normally we would expect things to break when the later something is defined, but the header is not included.\r\n\r\nBut OK, let's leave this as is. We will know soon enough if it causes any compilation issues and is should be trivial to fix.",
+      "I think you are missing that functions that use `openssl/x509.h` are also guarded by `#if HAVE_OPENSSL`:\r\n\r\n```\r\n#if HAVE_OPENSSL\r\n#  include <openssl/x509.h>\r\n#endif\r\n<...>\r\n\r\n#if HAVE_P11KIT\r\n<...>\r\n#if HAVE_OPENSSL\r\nint pkcs11_token_read_x509_certificate(CK_FUNCTION_LIST *m, CK_SESSION_HANDLE session, CK_OBJECT_HANDLE object, X509 **ret_cert);\r\n#endif\r\n<...>\r\n#if HAVE_OPENSSL\r\nint pkcs11_acquire_certificate(const char *uri, const char *askpw_friendly_name, const char *askpw_icon_name, X509 **ret_cert, char **ret_pin_used);\r\n#endif\r\n<...>\r\n#else\r\nstatic inline int dlopen_p11kit(void) {\r\n        return log_error_errno(SYNTHETIC_ERRNO(EOPNOTSUPP), \"p11kit support is not compiled in.\");\r\n}\r\n#endif\r\n```\r\nSo the maximum issue I see here is including an extra header when `HAVE_OPENSSL == 1` and `HAVE_P11KIT == 0`."
+    ]
+  }
+]

@@ -1,0 +1,2785 @@
+diff --git a/.github/workflows/rubocop.yml b/.github/workflows/rubocop.yml
+index f21ae36e9a8c..899cc3285d2e 100644
+--- a/.github/workflows/rubocop.yml
++++ b/.github/workflows/rubocop.yml
+@@ -76,6 +76,22 @@ jobs:
+       - name: internal_investigation
+         run: bundle exec rake internal_investigation
+ 
++  prism:
++    runs-on: ubuntu-latest
++    name: Prism
++    steps:
++      - uses: actions/checkout@v4
++      - name: set up Ruby
++        uses: ruby/setup-ruby@v1
++        with:
++          # Specify the minimum Ruby version 2.7 required for Prism to run.
++          ruby-version: 2.7
++          bundler-cache: true
++      - name: spec
++        env:
++          PARSER_ENGINE: parser_prism
++        run: bundle exec rake prism_spec
++
+   rspec4:
+     runs-on: ubuntu-latest
+     name: RSpec 4
+diff --git a/.rubocop_todo.yml b/.rubocop_todo.yml
+index 71b925626db4..8c0c585df872 100644
+--- a/.rubocop_todo.yml
++++ b/.rubocop_todo.yml
+@@ -13,7 +13,7 @@ InternalAffairs/NodeDestructuring:
+ # Offense count: 55
+ # Configuration parameters: CountComments, CountAsOne.
+ Metrics/ClassLength:
+-  Max: 191
++  Max: 192
+ 
+ # Offense count: 235
+ # Configuration parameters: CountComments, CountAsOne, ExcludedMethods, IgnoredMethods.
+diff --git a/Gemfile b/Gemfile
+index 0458044019bb..647681377d31 100644
+--- a/Gemfile
++++ b/Gemfile
+@@ -8,6 +8,7 @@ gem 'asciidoctor'
+ gem 'bump', require: false
+ gem 'bundler', '>= 1.15.0', '< 3.0'
+ gem 'memory_profiler', platform: :mri
++gem 'prism', '>= 0.24.0'
+ gem 'rake', '~> 13.0'
+ gem 'rspec', '~> 3.7'
+ gem 'rubocop-performance', '~> 1.20.0'
+diff --git a/Rakefile b/Rakefile
+index 2b16ab783e10..ae92f1b7b407 100644
+--- a/Rakefile
++++ b/Rakefile
+@@ -24,7 +24,10 @@ Dir['tasks/**/*.rake'].each { |t| load t }
+ desc 'Run RuboCop over itself'
+ RuboCop::RakeTask.new(:internal_investigation)
+ 
+-task default: %i[documentation_syntax_check spec ascii_spec internal_investigation]
++# The `ascii_spec` task has not been failing for a while, so it will not be run by default.
++# However, `ascii_spec` task will continue to be checked in CI. If there are any failures
++# originating from `ascii_spec` in CI, please run `bundle exec ascii_spec` to investigate.
++task default: %i[documentation_syntax_check spec prism_spec internal_investigation]
+ 
+ require 'yard'
+ YARD::Rake::YardocTask.new
+diff --git a/changelog/new_support_prism.md b/changelog/new_support_prism.md
+new file mode 100644
+index 000000000000..a1bfd6d42ad3
+--- /dev/null
++++ b/changelog/new_support_prism.md
+@@ -0,0 +1 @@
++* [#12600](https://github.com/rubocop/rubocop/issues/12600): Support Prism as a Ruby parser (experimental). ([@koic][])
+diff --git a/config/default.yml b/config/default.yml
+index 26237364ac77..e0887f711617 100644
+--- a/config/default.yml
++++ b/config/default.yml
+@@ -144,6 +144,12 @@ AllCops:
+   # Ruby version is still unresolved, RuboCop will use the oldest officially
+   # supported Ruby version (currently Ruby 2.7).
+   TargetRubyVersion: ~
++  # You can specify the parser engine. There are two options available:
++  # - `parser_whitequark` ... https://github.com/whitequark/parser
++  # - `parser_prism` ... https://github.com/ruby/prism (`Prism::Translation::Parser`)
++  # By default, `parser` is used. For the `TargetRubyVersion` value, `parser` can be specified for versions `2.0` and above.
++  # `parser_prism` can be specified for versions `3.3` and above. `parser_prism` is faster but still considered experimental.
++  ParserEngine: parser_whitequark
+   # Determines if a notification for extension libraries should be shown when
+   # rubocop is run. Keys are the name of the extension, and values are an array
+   # of gems in the Gemfile that the extension is suggested for, if not already
+diff --git a/docs/modules/ROOT/pages/compatibility.adoc b/docs/modules/ROOT/pages/compatibility.adoc
+index b5a1fb8b3aa9..ce16120981cc 100644
+--- a/docs/modules/ROOT/pages/compatibility.adoc
++++ b/docs/modules/ROOT/pages/compatibility.adoc
+@@ -38,7 +38,9 @@ The following table is the runtime support matrix.
+ | 3.4 (experimental) | -
+ |===
+ 
+-RuboCop targets Ruby 2.0+ code analysis since RuboCop 1.30. It restored code analysis support that had been removed earlier by mistake, together with dropping runtime support for unsupported Ruby versions.
++RuboCop targets Ruby 2.0+ code analysis with Parser gem as a parser since RuboCop 1.30. It restored code analysis support that had been removed earlier by mistake, together with dropping runtime support for unsupported Ruby versions.
++
++Starting from RuboCop 1.62, support for Prism's `Prism::Translation::parser` will enable analysis of Ruby 3.3+. For more details, please refer to the xref:configuration.adoc#setting-the-parser-engine[setting `ParserEngine`].
+ 
+ NOTE: The compatibility xref:configuration.adoc#setting-the-target-ruby-version[setting `TargetRubyVersion`] is about code analysis (what RuboCop can analyze), not runtime (is RuboCop capable of running on some Ruby or not).
+ 
+diff --git a/docs/modules/ROOT/pages/configuration.adoc b/docs/modules/ROOT/pages/configuration.adoc
+index 9da64132fa14..4916f23a199d 100644
+--- a/docs/modules/ROOT/pages/configuration.adoc
++++ b/docs/modules/ROOT/pages/configuration.adoc
+@@ -645,12 +645,58 @@ AllCops:
+   TargetRubyVersion: 2.5
+ ----
+ 
++NOTE: When `ParserEngine: parser_prism` is specified, the values that can be assigned to `TargetRubyVersion` must be `3.3` or higher.
++
+ Otherwise, RuboCop will then check your project for a series of files where
+ the version may be specified already. The files that will be looked for are
+ `*.gemspec`, `.ruby-version`, `.tool-versions`, and `Gemfile.lock`.
+ If Gemspec file has an array for `required_ruby_version`, the lowest version will be used.
+ If none of the files are found a default version value will be used.
+ 
++== Setting the parser engine
++
++NOTE: The parser engine configuration was introduced in RuboCop 1.62. This experimental feature has been under consideration for a while.
++
++RuboCop allows switching the backend parser by specifying either `parser_whitequark` or `parser_prism` for the `ParserEngine`.
++
++Here are the parsers used as backends for each value:
++
++- `ParserEngine: parser_whitequark` ... https://github.com/whitequark/parser
++- `ParserEngine: parser_prism` ... https://github.com/ruby/prism (`Prism::Translation::Parser`)
++
++By default, `parser_whitequark` is implicitly used.
++
++`parser_whitequark` can analyze source code from Ruby 2.0 and above:
++
++[source,yaml]
++----
++AllCops:
++  ParserEngine: parser_whitequark
++----
++
++`parser_prism` can analyze source code from Ruby 3.3 and above:
++
++[source,yaml]
++----
++AllCops:
++  ParserEngine: parser_prism
++  TargetRubyVersion: 3.3
++----
++
++`parser_prism` tends to perform analysis faster than `parser_whitequark`.
++
++CAUTION: Since the use of Prism is experimental, it is not included in RuboCop's runtime dependencies.
++If running through Bundler, please first add `gem 'prism'` to your Gemfile:
++
++[source,ruby]
++----
++gem 'prism'
++----
++
++There are some incompatibilities with `parser_whitequark`, making it still considered experimental.
++For known issues, please refer to the Prism issues:
++https://github.com/ruby/prism/issues?q=is%3Aissue+is%3Aopen+label%3Arubocop
++
+ == Automatically Generated Configuration
+ 
+ If you have a code base with an overwhelming amount of offenses, it can
+diff --git a/docs/modules/ROOT/pages/development.adoc b/docs/modules/ROOT/pages/development.adoc
+index a9789204a9a6..2f15e6f75e21 100644
+--- a/docs/modules/ROOT/pages/development.adoc
++++ b/docs/modules/ROOT/pages/development.adoc
+@@ -372,6 +372,26 @@ This works because the correcting a file is implemented by repeating investigati
+ 
+ Note that `expect_correction` in `Cop` specs only asserts the result after one pass.
+ 
++=== Run tests
++
++RuboCop supports two parser engines: the Parser gem and Prism. By default, tests are executed with the Parser:
++
++```console
++$ bundle exec rake spec
++```
++
++To run all tests with the experimental support for Prism, use `bundle exec prism_spec`, and to execute tests for individual files,
++specify the environment variable `PARSER_ENGINE=parser_prism`.
++
++e.g., `PARSER_ENGINE=parser_prism spec/rubocop/cop/style/hash_syntax_spec.rb`
++
++`bundle exec rake` runs tests for both Parser gem and Prism parsers.
++
++But `ascii_spec` rake task does not run by default. Because `ascii_spec` task has not been failing for a while.
++However, `ascii_spec` task will continue to be checked in CI.
++
++In CI, all tests required for merging are executed. Please investigate if anything fails.
++
+ === Configuration
+ 
+ Each cop can hold a configuration and you can refer to `cop_config` in the
+diff --git a/lib/rubocop/config.rb b/lib/rubocop/config.rb
+index 76625303177d..a04afb0272c2 100644
+--- a/lib/rubocop/config.rb
++++ b/lib/rubocop/config.rb
+@@ -62,7 +62,7 @@ def validate_after_resolution
+ 
+     def_delegators :@hash, :[], :[]=, :delete, :dig, :each, :key?, :keys, :each_key,
+                    :fetch, :map, :merge, :replace, :to_h, :to_hash, :transform_values
+-    def_delegators :@validator, :validate, :target_ruby_version
++    def_delegators :@validator, :validate, :target_ruby_version, :parser_engine
+ 
+     def to_s
+       @to_s ||= @hash.to_s
+diff --git a/lib/rubocop/config_validator.rb b/lib/rubocop/config_validator.rb
+index a2d8e95cf9c6..08fb9397dd85 100644
+--- a/lib/rubocop/config_validator.rb
++++ b/lib/rubocop/config_validator.rb
+@@ -63,6 +63,10 @@ def target_ruby_version
+       target_ruby.version
+     end
+ 
++    def parser_engine
++      for_all_cops.fetch('ParserEngine', :parser_whitequark).to_sym
++    end
++
+     def validate_section_presence(name)
+       return unless @config.key?(name) && @config[name].nil?
+ 
+diff --git a/lib/rubocop/cop/base.rb b/lib/rubocop/cop/base.rb
+index 0b99eddd23b2..cf837b1fe255 100644
+--- a/lib/rubocop/cop/base.rb
++++ b/lib/rubocop/cop/base.rb
+@@ -232,6 +232,10 @@ def target_ruby_version
+         @config.target_ruby_version
+       end
+ 
++      def parser_engine
++        @config.parser_engine
++      end
++
+       def target_rails_version
+         @config.target_rails_version
+       end
+@@ -254,7 +258,7 @@ def excluded_file?(file)
+ 
+       # There should be very limited reasons for a Cop to do it's own parsing
+       def parse(source, path = nil)
+-        ProcessedSource.new(source, target_ruby_version, path)
++        ProcessedSource.new(source, target_ruby_version, path, parser_engine: parser_engine)
+       end
+ 
+       # @api private
+diff --git a/lib/rubocop/rspec/cop_helper.rb b/lib/rubocop/rspec/cop_helper.rb
+index a10015318d73..7811e4d0a34a 100644
+--- a/lib/rubocop/rspec/cop_helper.rb
++++ b/lib/rubocop/rspec/cop_helper.rb
+@@ -6,7 +6,11 @@
+ module CopHelper
+   extend RSpec::SharedContext
+ 
+-  let(:ruby_version) { RuboCop::TargetRuby::DEFAULT_VERSION }
++  let(:ruby_version) do
++    # The minimum version Prism can parse is 3.3.
++    ENV['PARSER_ENGINE'] == 'parser_prism' ? 3.3 : RuboCop::TargetRuby::DEFAULT_VERSION
++  end
++  let(:parser_engine) { ENV.fetch('PARSER_ENGINE', :parser_whitequark).to_sym }
+   let(:rails_version) { false }
+ 
+   def inspect_source(source, file = nil)
+@@ -28,7 +32,9 @@ def parse_source(source, file = nil)
+       file = file.path
+     end
+ 
+-    processed_source = RuboCop::ProcessedSource.new(source, ruby_version, file)
++    processed_source = RuboCop::ProcessedSource.new(
++      source, ruby_version, file, parser_engine: parser_engine
++    )
+     processed_source.config = configuration
+     processed_source.registry = registry
+     processed_source
+diff --git a/lib/rubocop/rspec/shared_contexts.rb b/lib/rubocop/rspec/shared_contexts.rb
+index ca3deb0fa6b4..2f5e58caa272 100644
+--- a/lib/rubocop/rspec/shared_contexts.rb
++++ b/lib/rubocop/rspec/shared_contexts.rb
+@@ -139,47 +139,58 @@ def source_range(range, buffer: source_buffer)
+ end
+ 
+ RSpec.shared_context 'ruby 2.0' do
+-  let(:ruby_version) { 2.0 }
++  # Prism supports parsing Ruby 3.3+.
++  let(:ruby_version) { ENV['PARSER_ENGINE'] == 'parser_prism' ? 3.3 : 2.0 }
+ end
+ 
+ RSpec.shared_context 'ruby 2.1' do
+-  let(:ruby_version) { 2.1 }
++  # Prism supports parsing Ruby 3.3+.
++  let(:ruby_version) { ENV['PARSER_ENGINE'] == 'parser_prism' ? 3.3 : 2.1 }
+ end
+ 
+ RSpec.shared_context 'ruby 2.2' do
+-  let(:ruby_version) { 2.2 }
++  # Prism supports parsing Ruby 3.3+.
++  let(:ruby_version) { ENV['PARSER_ENGINE'] == 'parser_prism' ? 3.3 : 2.2 }
+ end
+ 
+ RSpec.shared_context 'ruby 2.3' do
+-  let(:ruby_version) { 2.3 }
++  # Prism supports parsing Ruby 3.3+.
++  let(:ruby_version) { ENV['PARSER_ENGINE'] == 'parser_prism' ? 3.3 : 2.3 }
+ end
+ 
+ RSpec.shared_context 'ruby 2.4' do
+-  let(:ruby_version) { 2.4 }
++  # Prism supports parsing Ruby 3.3+.
++  let(:ruby_version) { ENV['PARSER_ENGINE'] == 'parser_prism' ? 3.3 : 2.4 }
+ end
+ 
+ RSpec.shared_context 'ruby 2.5' do
+-  let(:ruby_version) { 2.5 }
++  # Prism supports parsing Ruby 3.3+.
++  let(:ruby_version) { ENV['PARSER_ENGINE'] == 'parser_prism' ? 3.3 : 2.5 }
+ end
+ 
+ RSpec.shared_context 'ruby 2.6' do
+-  let(:ruby_version) { 2.6 }
++  # Prism supports parsing Ruby 3.3+.
++  let(:ruby_version) { ENV['PARSER_ENGINE'] == 'parser_prism' ? 3.3 : 2.6 }
+ end
+ 
+ RSpec.shared_context 'ruby 2.7' do
+-  let(:ruby_version) { 2.7 }
++  # Prism supports parsing Ruby 3.3+.
++  let(:ruby_version) { ENV['PARSER_ENGINE'] == 'parser_prism' ? 3.3 : 2.7 }
+ end
+ 
+ RSpec.shared_context 'ruby 3.0' do
+-  let(:ruby_version) { 3.0 }
++  # Prism supports parsing Ruby 3.3+.
++  let(:ruby_version) { ENV['PARSER_ENGINE'] == 'parser_prism' ? 3.3 : 3.0 }
+ end
+ 
+ RSpec.shared_context 'ruby 3.1' do
+-  let(:ruby_version) { 3.1 }
++  # Prism supports parsing Ruby 3.3+.
++  let(:ruby_version) { ENV['PARSER_ENGINE'] == 'parser_prism' ? 3.3 : 3.1 }
+ end
+ 
+ RSpec.shared_context 'ruby 3.2' do
+-  let(:ruby_version) { 3.2 }
++  # Prism supports parsing Ruby 3.3+.
++  let(:ruby_version) { ENV['PARSER_ENGINE'] == 'parser_prism' ? 3.3 : 3.2 }
+ end
+ 
+ RSpec.shared_context 'ruby 3.3' do
+diff --git a/lib/rubocop/rspec/support.rb b/lib/rubocop/rspec/support.rb
+index 530adbeb0d11..4c105f488f8f 100644
+--- a/lib/rubocop/rspec/support.rb
++++ b/lib/rubocop/rspec/support.rb
+@@ -27,4 +27,5 @@
+   config.include_context 'ruby 3.1', :ruby31
+   config.include_context 'ruby 3.2', :ruby32
+   config.include_context 'ruby 3.3', :ruby33
++  config.include_context 'ruby 3.4', :ruby34
+ end
+diff --git a/lib/rubocop/runner.rb b/lib/rubocop/runner.rb
+index e721b2186263..8e7928dab368 100644
+--- a/lib/rubocop/runner.rb
++++ b/lib/rubocop/runner.rb
+@@ -467,15 +467,21 @@ def minimum_severity_to_fail
+       end
+     end
+ 
++    # rubocop:disable Metrics/MethodLength
+     def get_processed_source(file)
+       config = @config_store.for_file(file)
+       ruby_version = config.target_ruby_version
++      parser_engine = config.parser_engine
+ 
+       processed_source = if @options[:stdin]
+-                           ProcessedSource.new(@options[:stdin], ruby_version, file)
++                           ProcessedSource.new(
++                             @options[:stdin], ruby_version, file, parser_engine: parser_engine
++                           )
+                          else
+                            begin
+-                             ProcessedSource.from_file(file, ruby_version)
++                             ProcessedSource.from_file(
++                               file, ruby_version, parser_engine: parser_engine
++                             )
+                            rescue Errno::ENOENT
+                              raise RuboCop::Error, "No such file or directory: #{file}"
+                            end
+@@ -484,6 +490,7 @@ def get_processed_source(file)
+       processed_source.registry = mobilized_cop_classes(config)
+       processed_source
+     end
++    # rubocop:enable Metrics/MethodLength
+ 
+     # A Cop::Team instance is stateful and may change when inspecting.
+     # The "standby" team for a given config is an initialized but
+diff --git a/lib/rubocop/version.rb b/lib/rubocop/version.rb
+index efd33fa74465..532a3ba9b4e4 100644
+--- a/lib/rubocop/version.rb
++++ b/lib/rubocop/version.rb
+@@ -5,7 +5,7 @@ module RuboCop
+   module Version
+     STRING = '1.61.0'
+ 
+-    MSG = '%<version>s (using Parser %<parser_version>s, ' \
++    MSG = '%<version>s (using %<parser_version>s, ' \
+           'rubocop-ast %<rubocop_ast_version>s, ' \
+           'running on %<ruby_engine>s %<ruby_version>s)%<server_mode>s [%<ruby_platform>s]'
+ 
+@@ -20,7 +20,7 @@ module Version
+     # @api private
+     def self.version(debug: false, env: nil)
+       if debug
+-        verbose_version = format(MSG, version: STRING, parser_version: Parser::VERSION,
++        verbose_version = format(MSG, version: STRING, parser_version: parser_version,
+                                       rubocop_ast_version: RuboCop::AST::Version::STRING,
+                                       ruby_engine: RUBY_ENGINE, ruby_version: RUBY_VERSION,
+                                       server_mode: server_mode,
+@@ -39,6 +39,21 @@ def self.version(debug: false, env: nil)
+       end
+     end
+ 
++    # @api private
++    def self.parser_version
++      config_path = ConfigFinder.find_config_path(Dir.pwd)
++      yaml = YAML.safe_load(
++        File.read(config_path), permitted_classes: [Regexp, Symbol], aliases: true
++      )
++
++      if yaml.dig('AllCops', 'ParserEngine') == 'parser_prism'
++        require 'prism'
++        "Prism #{Prism::VERSION}"
++      else
++        "Parser #{Parser::VERSION}"
++      end
++    end
++
+     # @api private
+     def self.extension_versions(env)
+       features = Util.silence_warnings do
+diff --git a/rubocop.gemspec b/rubocop.gemspec
+index 1f6ba7cb76ad..c602d4b38f26 100644
+--- a/rubocop.gemspec
++++ b/rubocop.gemspec
+@@ -38,7 +38,7 @@ Gem::Specification.new do |s|
+   s.add_runtime_dependency('rainbow', '>= 2.2.2', '< 4.0')
+   s.add_runtime_dependency('regexp_parser', '>= 1.8', '< 3.0')
+   s.add_runtime_dependency('rexml', '>= 3.2.5', '< 4.0')
+-  s.add_runtime_dependency('rubocop-ast', '>= 1.31.0', '< 2.0')
++  s.add_runtime_dependency('rubocop-ast', '>= 1.31.1', '< 2.0')
+   s.add_runtime_dependency('ruby-progressbar', '~> 1.7')
+   s.add_runtime_dependency('unicode-display_width', '>= 2.4.0', '< 3.0')
+ end
+diff --git a/spec/rubocop/cop/alignment_corrector_spec.rb b/spec/rubocop/cop/alignment_corrector_spec.rb
+index c752ea9116bc..23c3fef5722b 100644
+--- a/spec/rubocop/cop/alignment_corrector_spec.rb
++++ b/spec/rubocop/cop/alignment_corrector_spec.rb
+@@ -69,7 +69,8 @@
+         it_behaves_like 'heredoc indenter', '<<DOC', 20
+       end
+ 
+-      context 'with heredoc in backticks (<<``)' do
++      # FIXME: https://github.com/ruby/prism/issues/2498
++      context 'with heredoc in backticks (<<``)', broken_on: :prism do
+         it_behaves_like 'heredoc indenter', '<<`DOC`', 20
+       end
+     end
+diff --git a/spec/rubocop/cop/gemspec/required_ruby_version_spec.rb b/spec/rubocop/cop/gemspec/required_ruby_version_spec.rb
+index 8dc2892063f2..f75803efbca8 100644
+--- a/spec/rubocop/cop/gemspec/required_ruby_version_spec.rb
++++ b/spec/rubocop/cop/gemspec/required_ruby_version_spec.rb
+@@ -2,13 +2,13 @@
+ 
+ RSpec.describe RuboCop::Cop::Gemspec::RequiredRubyVersion, :config do
+   # rubocop:disable RSpec/RepeatedExampleGroupDescription
+-  context 'target ruby version > 2.7', :ruby27 do
++  context 'target ruby version > 3.4', :ruby34 do
+     # rubocop:enable RSpec/RepeatedExampleGroupDescription
+     it 'registers an offense when `required_ruby_version` is specified with >= and is lower than `TargetRubyVersion`' do
+       expect_offense(<<~RUBY, '/path/to/foo.gemspec')
+         Gem::Specification.new do |spec|
+-          spec.required_ruby_version = '>= 2.6.0'
+-                                       ^^^^^^^^^^ `required_ruby_version` and `TargetRubyVersion` (2.7, which may be specified in .rubocop.yml) should be equal.
++          spec.required_ruby_version = '>= 3.3.0'
++                                       ^^^^^^^^^^ `required_ruby_version` and `TargetRubyVersion` (3.4, which may be specified in .rubocop.yml) should be equal.
+         end
+       RUBY
+     end
+@@ -16,8 +16,8 @@
+     it 'registers an offense when `required_ruby_version` is specified with ~> and is lower than `TargetRubyVersion`' do
+       expect_offense(<<~RUBY, '/path/to/foo.gemspec')
+         Gem::Specification.new do |spec|
+-          spec.required_ruby_version = '~> 2.6.0'
+-                                       ^^^^^^^^^^ `required_ruby_version` and `TargetRubyVersion` (2.7, which may be specified in .rubocop.yml) should be equal.
++          spec.required_ruby_version = '~> 3.3.0'
++                                       ^^^^^^^^^^ `required_ruby_version` and `TargetRubyVersion` (3.4, which may be specified in .rubocop.yml) should be equal.
+         end
+       RUBY
+     end
+@@ -25,8 +25,8 @@
+     it 'registers an offense when `required_ruby_version` is specified in array and is lower than `TargetRubyVersion`' do
+       expect_offense(<<~RUBY, '/path/to/foo.gemspec')
+         Gem::Specification.new do |spec|
+-          spec.required_ruby_version = ['>= 2.6.0', '< 3.0.0']
+-                                       ^^^^^^^^^^^^^^^^^^^^^^^ `required_ruby_version` and `TargetRubyVersion` (2.7, which may be specified in .rubocop.yml) should be equal.
++          spec.required_ruby_version = ['>= 3.3.0', '< 4.0.0']
++                                       ^^^^^^^^^^^^^^^^^^^^^^^ `required_ruby_version` and `TargetRubyVersion` (3.4, which may be specified in .rubocop.yml) should be equal.
+         end
+       RUBY
+     end
+@@ -34,8 +34,8 @@
+     it 'recognizes Gem::Requirement and registers offense' do
+       expect_offense(<<~RUBY, '/path/to/foo.gemspec')
+         Gem::Specification.new do |spec|
+-          spec.required_ruby_version = Gem::Requirement.new(">= 2.6.0")
+-                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `required_ruby_version` and `TargetRubyVersion` (2.7, which may be specified in .rubocop.yml) should be equal.
++          spec.required_ruby_version = Gem::Requirement.new(">= 3.3.0")
++                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `required_ruby_version` and `TargetRubyVersion` (3.4, which may be specified in .rubocop.yml) should be equal.
+         end
+       RUBY
+     end
+@@ -44,7 +44,7 @@
+       expect_offense(<<~RUBY)
+         Gem::Specification.new do |spec|
+           spec.required_ruby_version = Gem::Requirement.new('< 3.4')
+-                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `required_ruby_version` and `TargetRubyVersion` (2.7, which may be specified in .rubocop.yml) should be equal.
++                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `required_ruby_version` and `TargetRubyVersion` (3.4, which may be specified in .rubocop.yml) should be equal.
+         end
+       RUBY
+     end
+@@ -52,7 +52,7 @@
+     it 'recognizes a Gem::Requirement with multiple requirements and does not register an offense' do
+       expect_no_offenses(<<~RUBY)
+         Gem::Specification.new do |spec|
+-          spec.required_ruby_version = Gem::Requirement.new(">= 2.7.0", "<= 2.8")
++          spec.required_ruby_version = Gem::Requirement.new(">= 3.4.0", "<= 3.8")
+         end
+       RUBY
+     end
+@@ -62,7 +62,7 @@
+          'is assigned as a variable (string literal)' do
+         expect_no_offenses(<<~RUBY)
+           Gem::Specification.new do |spec|
+-            version = '>= 2.6.0'
++            version = '>= 3.3.0'
+             spec.required_ruby_version = version
+           end
+         RUBY
+@@ -72,8 +72,8 @@
+          'is assigned as a variable (an array of string literal)' do
+         expect_no_offenses(<<~RUBY)
+           Gem::Specification.new do |spec|
+-            lowest_version = '>= 2.6.0'
+-            highest_version = '< 2.8.0'
++            lowest_version = '>= 3.3.0'
++            highest_version = '< 3.8.0'
+             spec.required_ruby_version = [lowest_version, highest_version]
+           end
+         RUBY
+@@ -81,12 +81,12 @@
+     end
+   end
+ 
+-  context 'target ruby version > 2.6', :ruby26 do
++  context 'target ruby version > 3.3', :ruby33 do
+     it 'registers an offense when `required_ruby_version` is specified with >= and is higher than `TargetRubyVersion`' do
+       expect_offense(<<~RUBY, '/path/to/bar.gemspec')
+         Gem::Specification.new do |spec|
+-          spec.required_ruby_version = '>= 2.7.0'
+-                                       ^^^^^^^^^^ `required_ruby_version` and `TargetRubyVersion` (2.6, which may be specified in .rubocop.yml) should be equal.
++          spec.required_ruby_version = '>= 3.4.0'
++                                       ^^^^^^^^^^ `required_ruby_version` and `TargetRubyVersion` (3.3, which may be specified in .rubocop.yml) should be equal.
+         end
+       RUBY
+     end
+@@ -94,20 +94,20 @@
+     it 'registers an offense when `required_ruby_version` is specified with ~> and is higher than `TargetRubyVersion`' do
+       expect_offense(<<~RUBY, '/path/to/bar.gemspec')
+         Gem::Specification.new do |spec|
+-          spec.required_ruby_version = '~> 2.7.0'
+-                                       ^^^^^^^^^^ `required_ruby_version` and `TargetRubyVersion` (2.6, which may be specified in .rubocop.yml) should be equal.
++          spec.required_ruby_version = '~> 3.4.0'
++                                       ^^^^^^^^^^ `required_ruby_version` and `TargetRubyVersion` (3.3, which may be specified in .rubocop.yml) should be equal.
+         end
+       RUBY
+     end
+   end
+ 
+   # rubocop:disable RSpec/RepeatedExampleGroupDescription
+-  context 'target ruby version > 2.7', :ruby27 do
++  context 'target ruby version > 3.4', :ruby34 do
+     # rubocop:enable RSpec/RepeatedExampleGroupDescription
+     it 'does not register an offense when `required_ruby_version` is specified with >= and equals `TargetRubyVersion`' do
+       expect_no_offenses(<<~RUBY)
+         Gem::Specification.new do |spec|
+-          spec.required_ruby_version = '>= 2.7.0'
++          spec.required_ruby_version = '>= 3.4.0'
+         end
+       RUBY
+     end
+@@ -115,7 +115,7 @@
+     it 'does not register an offense when `required_ruby_version` is specified with ~> and equals `TargetRubyVersion`' do
+       expect_no_offenses(<<~RUBY)
+         Gem::Specification.new do |spec|
+-          spec.required_ruby_version = '~> 2.7.0'
++          spec.required_ruby_version = '~> 3.4.0'
+         end
+       RUBY
+     end
+@@ -124,7 +124,7 @@
+        'equals `TargetRubyVersion`' do
+       expect_no_offenses(<<~RUBY)
+         Gem::Specification.new do |spec|
+-          spec.required_ruby_version = '>= 2.7'
++          spec.required_ruby_version = '>= 3.4'
+         end
+       RUBY
+     end
+@@ -133,7 +133,7 @@
+        'equals `TargetRubyVersion`' do
+       expect_no_offenses(<<~RUBY)
+         Gem::Specification.new do |spec|
+-          spec.required_ruby_version = '~> 2.7'
++          spec.required_ruby_version = '~> 3.4'
+         end
+       RUBY
+     end
+@@ -142,7 +142,7 @@
+        '`required_ruby_version` equals `TargetRubyVersion`' do
+       expect_no_offenses(<<~RUBY)
+         Gem::Specification.new do |spec|
+-          spec.required_ruby_version = ['>= 2.7.0', '< 3.1.0']
++          spec.required_ruby_version = ['>= 3.4.0', '< 4.1.0']
+         end
+       RUBY
+     end
+@@ -151,8 +151,8 @@
+        'than `TargetRubyVersion`' do
+       expect_offense(<<~RUBY, 'bar.gemspec')
+         Gem::Specification.new do |spec|
+-          spec.required_ruby_version = '>= 2'
+-                                       ^^^^^^ `required_ruby_version` and `TargetRubyVersion` (2.7, which may be specified in .rubocop.yml) should be equal.
++          spec.required_ruby_version = '>= 3'
++                                       ^^^^^^ `required_ruby_version` and `TargetRubyVersion` (3.4, which may be specified in .rubocop.yml) should be equal.
+         end
+       RUBY
+     end
+@@ -161,36 +161,36 @@
+        'than `TargetRubyVersion`' do
+       expect_offense(<<~RUBY, 'bar.gemspec')
+         Gem::Specification.new do |spec|
+-          spec.required_ruby_version = '~> 2'
+-                                       ^^^^^^ `required_ruby_version` and `TargetRubyVersion` (2.7, which may be specified in .rubocop.yml) should be equal.
++          spec.required_ruby_version = '~> 3'
++                                       ^^^^^^ `required_ruby_version` and `TargetRubyVersion` (3.4, which may be specified in .rubocop.yml) should be equal.
+         end
+       RUBY
+     end
+-  end
+ 
+-  it 'registers an offense when `required_ruby_version` is not specified' do
+-    expect_offense(<<~RUBY, '/path/to/foo.gemspec')
+-      Gem::Specification.new do |spec|
+-      ^{} `required_ruby_version` should be specified.
+-      end
+-    RUBY
+-  end
++    it 'registers an offense when `required_ruby_version` is not specified' do
++      expect_offense(<<~RUBY, '/path/to/foo.gemspec')
++        Gem::Specification.new do |spec|
++        ^{} `required_ruby_version` should be specified.
++        end
++      RUBY
++    end
+ 
+-  it 'registers an offense when `required_ruby_version` is blank' do
+-    expect_offense(<<~RUBY, 'bar.gemspec')
+-      Gem::Specification.new do |spec|
+-        spec.required_ruby_version = ''
+-                                     ^^ `required_ruby_version` and `TargetRubyVersion` (2.7, which may be specified in .rubocop.yml) should be equal.
+-      end
+-    RUBY
+-  end
++    it 'registers an offense when `required_ruby_version` is blank' do
++      expect_offense(<<~RUBY, 'bar.gemspec')
++        Gem::Specification.new do |spec|
++          spec.required_ruby_version = ''
++                                       ^^ `required_ruby_version` and `TargetRubyVersion` (3.4, which may be specified in .rubocop.yml) should be equal.
++        end
++      RUBY
++    end
+ 
+-  it 'registers an offense when `required_ruby_version` is an empty array' do
+-    expect_offense(<<~RUBY, 'bar.gemspec')
+-      Gem::Specification.new do |spec|
+-        spec.required_ruby_version = []
+-                                     ^^ `required_ruby_version` and `TargetRubyVersion` (2.7, which may be specified in .rubocop.yml) should be equal.
+-      end
+-    RUBY
++    it 'registers an offense when `required_ruby_version` is an empty array' do
++      expect_offense(<<~RUBY, 'bar.gemspec')
++        Gem::Specification.new do |spec|
++          spec.required_ruby_version = []
++                                       ^^ `required_ruby_version` and `TargetRubyVersion` (3.4, which may be specified in .rubocop.yml) should be equal.
++        end
++      RUBY
++    end
+   end
+ end
+diff --git a/spec/rubocop/cop/internal_affairs/location_line_equality_comparison_spec.rb b/spec/rubocop/cop/internal_affairs/location_line_equality_comparison_spec.rb
+index 86bc807e6477..2383bda31efd 100644
+--- a/spec/rubocop/cop/internal_affairs/location_line_equality_comparison_spec.rb
++++ b/spec/rubocop/cop/internal_affairs/location_line_equality_comparison_spec.rb
+@@ -1,6 +1,10 @@
+ # frozen_string_literal: true
+ 
+-RSpec.describe RuboCop::Cop::InternalAffairs::LocationLineEqualityComparison, :config do
++# FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++# the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++# rubocop:disable Layout/LineLength
++RSpec.describe RuboCop::Cop::InternalAffairs::LocationLineEqualityComparison, :config, broken_on: :prism do
++  # rubocop:enable Layout/LineLength
+   it 'registers and corrects an offense when comparing `#loc.line` with LHS and RHS' do
+     expect_offense(<<~RUBY)
+       node.loc.line == node.parent.loc.line
+diff --git a/spec/rubocop/cop/layout/class_structure_spec.rb b/spec/rubocop/cop/layout/class_structure_spec.rb
+index 80f0212daeb3..75a9af8483fa 100644
+--- a/spec/rubocop/cop/layout/class_structure_spec.rb
++++ b/spec/rubocop/cop/layout/class_structure_spec.rb
+@@ -362,7 +362,8 @@ def do_something
+     RUBY
+   end
+ 
+-  it 'registers an offense and corrects when xstr heredoc constant is defined after public method' do
++  # FIXME: https://github.com/ruby/prism/issues/2498
++  it 'registers an offense and corrects when xstr heredoc constant is defined after public method', broken_on: :prism do
+     expect_offense(<<~RUBY)
+       class Foo
+         def do_something
+diff --git a/spec/rubocop/cop/layout/empty_lines_spec.rb b/spec/rubocop/cop/layout/empty_lines_spec.rb
+index 60e78c09dbf0..cf3c89386fc9 100644
+--- a/spec/rubocop/cop/layout/empty_lines_spec.rb
++++ b/spec/rubocop/cop/layout/empty_lines_spec.rb
+@@ -30,7 +30,8 @@
+     RUBY
+   end
+ 
+-  it 'does not register an offense for empty lines in a string' do
++  # FIXME: https://github.com/ruby/prism/issues/2512
++  it 'does not register an offense for empty lines in a string', broken_on: :prism do
+     expect_no_offenses(<<~RUBY)
+       result = "test
+ 
+@@ -40,7 +41,8 @@
+     RUBY
+   end
+ 
+-  it 'does not register an offense for heredocs with empty lines inside' do
++  # FIXME: https://github.com/ruby/prism/issues/2512
++  it 'does not register an offense for heredocs with empty lines inside', broken_on: :prism do
+     expect_no_offenses(<<~RUBY)
+       str = <<-TEXT
+       line 1
+diff --git a/spec/rubocop/cop/layout/end_of_line_spec.rb b/spec/rubocop/cop/layout/end_of_line_spec.rb
+index 48e59a368118..390dde54cf77 100644
+--- a/spec/rubocop/cop/layout/end_of_line_spec.rb
++++ b/spec/rubocop/cop/layout/end_of_line_spec.rb
+@@ -70,7 +70,7 @@
+       expect_no_offenses('x=0')
+     end
+ 
+-    it 'does not register offenses after __END__' do
++    it 'does not register offenses after __END__', broken_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         x=0\r
+         __END__
+diff --git a/spec/rubocop/cop/layout/heredoc_indentation_spec.rb b/spec/rubocop/cop/layout/heredoc_indentation_spec.rb
+index b3ed96df4bcc..c19ccf1d555a 100644
+--- a/spec/rubocop/cop/layout/heredoc_indentation_spec.rb
++++ b/spec/rubocop/cop/layout/heredoc_indentation_spec.rb
+@@ -5,7 +5,10 @@
+   let(:other_cops) { { 'Layout/LineLength' => { 'Max' => 5, 'AllowHeredoc' => allow_heredoc } } }
+ 
+   shared_examples 'all heredoc type' do |quote|
+-    context "quoted by #{quote}" do
++    # FIXME: https://github.com/ruby/prism/issues/2498
++    # Once the above will be resolved, the `options` can be removed.
++    options = quote == '`' ? { broken_on: :prism } : {}
++    context "quoted by #{quote}", options do
+       it 'does not register an offense when not indented but with whitespace, with `-`' do
+         expect_no_offenses(<<-RUBY)
+           def foo
+@@ -255,7 +258,7 @@ def baz
+     [nil, "'", '"', '`'].each { |quote| include_examples 'all heredoc type', quote }
+   end
+ 
+-  context 'when Ruby <= 2.2', :ruby22 do
++  context 'when Ruby <= 2.2', :ruby22, unsupported_on: :prism do
+     it 'does not register an offense' do
+       expect_no_offenses(<<~RUBY)
+         <<-RUBY2
+diff --git a/spec/rubocop/cop/layout/indentation_style_spec.rb b/spec/rubocop/cop/layout/indentation_style_spec.rb
+index a09758c09be0..271644f133ac 100644
+--- a/spec/rubocop/cop/layout/indentation_style_spec.rb
++++ b/spec/rubocop/cop/layout/indentation_style_spec.rb
+@@ -45,7 +45,8 @@
+       RUBY
+     end
+ 
+-    it 'registers offenses before __END__ but not after' do
++    # FIXME: https://github.com/ruby/prism/issues/2510
++    it 'registers offenses before __END__ but not after', broken_on: :prism do
+       expect_offense(<<~RUBY)
+         \tx = 0
+         ^ Tab detected in indentation.
+@@ -137,7 +138,8 @@
+       RUBY
+     end
+ 
+-    it 'registers offenses before __END__ but not after' do
++    # FIXME: https://github.com/ruby/prism/issues/2510
++    it 'registers offenses before __END__ but not after', broken_on: :prism do
+       expect_offense(<<~RUBY)
+           x = 0
+         ^^ Space detected in indentation.
+diff --git a/spec/rubocop/cop/layout/line_length_spec.rb b/spec/rubocop/cop/layout/line_length_spec.rb
+index e622ea2bb6bf..0e9fa750046d 100644
+--- a/spec/rubocop/cop/layout/line_length_spec.rb
++++ b/spec/rubocop/cop/layout/line_length_spec.rb
+@@ -39,7 +39,8 @@
+     RUBY
+   end
+ 
+-  it 'registers an offense for long line before __END__ but not after' do
++  # FIXME: https://github.com/ruby/prism/issues/2510
++  it 'registers an offense for long line before __END__ but not after', broken_on: :prism do
+     maximum_string = '#' * 80
+     expect_offense(<<~RUBY, maximum_string: maximum_string)
+       #{maximum_string}#{'#' * 70}
+diff --git a/spec/rubocop/cop/layout/space_around_keyword_spec.rb b/spec/rubocop/cop/layout/space_around_keyword_spec.rb
+index fbb1d236da78..c7a3a7f69fac 100644
+--- a/spec/rubocop/cop/layout/space_around_keyword_spec.rb
++++ b/spec/rubocop/cop/layout/space_around_keyword_spec.rb
+@@ -127,7 +127,8 @@
+   it_behaves_like 'missing after', 'until', '1 until""', '1 until ""'
+   it_behaves_like 'missing before', 'when', 'case ""when a; end', 'case "" when a; end'
+   it_behaves_like 'missing after', 'when', 'case a when""; end', 'case a when ""; end'
+-  context '>= Ruby 2.7', :ruby27 do # rubocop:disable RSpec/RepeatedExampleGroupDescription
++  # FIXME: https://github.com/ruby/prism/pull/2525
++  context '>= Ruby 2.7', :ruby27, broken_on: :prism do
+     # TODO: `case ""in a; end` is syntax error in Ruby 3.0.1.
+     #       This syntax is confirmed: https://bugs.ruby-lang.org/issues/17925
+     #       The answer will determine whether to enable or discard the test in the future.
+diff --git a/spec/rubocop/cop/layout/space_around_operators_spec.rb b/spec/rubocop/cop/layout/space_around_operators_spec.rb
+index cbbeec9c707a..24d91403ed89 100644
+--- a/spec/rubocop/cop/layout/space_around_operators_spec.rb
++++ b/spec/rubocop/cop/layout/space_around_operators_spec.rb
+@@ -162,7 +162,9 @@ def self.===(other); end
+     RUBY
+   end
+ 
+-  it 'accepts vertical alignment with operator' do
++  # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++  # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++  it 'accepts vertical alignment with operator', broken_on: :prism do
+     expect_no_offenses(<<~RUBY)
+       down? && !migrated.include?(migration.version.to_i)
+       up?   &&  migrated.include?(migration.version.to_i)
+diff --git a/spec/rubocop/cop/layout/space_inside_hash_literal_braces_spec.rb b/spec/rubocop/cop/layout/space_inside_hash_literal_braces_spec.rb
+index 10ad286ef25f..835c49ed0ee5 100644
+--- a/spec/rubocop/cop/layout/space_inside_hash_literal_braces_spec.rb
++++ b/spec/rubocop/cop/layout/space_inside_hash_literal_braces_spec.rb
+@@ -1,6 +1,7 @@
+ # frozen_string_literal: true
+ 
+-RSpec.describe RuboCop::Cop::Layout::SpaceInsideHashLiteralBraces, :config do
++# FIXME: https://github.com/ruby/prism/issues/2467
++RSpec.describe RuboCop::Cop::Layout::SpaceInsideHashLiteralBraces, :config, broken_on: :prism do
+   let(:cop_config) { { 'EnforcedStyle' => 'space' } }
+ 
+   context 'with space inside empty braces not allowed' do
+diff --git a/spec/rubocop/cop/layout/trailing_whitespace_spec.rb b/spec/rubocop/cop/layout/trailing_whitespace_spec.rb
+index 1c3f602737af..e78a7802b06f 100644
+--- a/spec/rubocop/cop/layout/trailing_whitespace_spec.rb
++++ b/spec/rubocop/cop/layout/trailing_whitespace_spec.rb
+@@ -42,7 +42,8 @@
+     RUBY
+   end
+ 
+-  it 'registers offenses before __END__ but not after' do
++  # FIXME: https://github.com/ruby/prism/issues/2510
++  it 'registers offenses before __END__ but not after', broken_on: :prism do
+     expect_offense(<<~RUBY)
+       x = 0\t
+            ^ Trailing whitespace detected.
+diff --git a/spec/rubocop/cop/lint/ambiguous_operator_spec.rb b/spec/rubocop/cop/lint/ambiguous_operator_spec.rb
+index 41a896b41d5b..f278d0f01a68 100644
+--- a/spec/rubocop/cop/lint/ambiguous_operator_spec.rb
++++ b/spec/rubocop/cop/lint/ambiguous_operator_spec.rb
+@@ -1,6 +1,7 @@
+ # frozen_string_literal: true
+ 
+-RSpec.describe RuboCop::Cop::Lint::AmbiguousOperator, :config do
++# FIXME: https://github.com/ruby/prism/issues/2513 and https://github.com/ruby/prism/issues/2514
++RSpec.describe RuboCop::Cop::Lint::AmbiguousOperator, :config, broken_on: :prism do
+   context 'with `+` unary operator in the first argument' do
+     context 'without parentheses' do
+       context 'without whitespaces on the right of the operator' do
+diff --git a/spec/rubocop/cop/lint/ambiguous_regexp_literal_spec.rb b/spec/rubocop/cop/lint/ambiguous_regexp_literal_spec.rb
+index 0aa1c29300b5..0967d7316492 100644
+--- a/spec/rubocop/cop/lint/ambiguous_regexp_literal_spec.rb
++++ b/spec/rubocop/cop/lint/ambiguous_regexp_literal_spec.rb
+@@ -1,6 +1,7 @@
+ # frozen_string_literal: true
+ 
+-RSpec.describe RuboCop::Cop::Lint::AmbiguousRegexpLiteral, :config do
++# FIXME: https://github.com/ruby/prism/issues/2513
++RSpec.describe RuboCop::Cop::Lint::AmbiguousRegexpLiteral, :config, broken_on: :prism do
+   shared_examples 'with a regexp literal in the first argument' do
+     context 'without parentheses' do
+       it 'registers an offense and corrects when single argument' do
+@@ -179,7 +180,7 @@ class MyTest
+     end
+   end
+ 
+-  context 'Ruby <= 2.7', :ruby27 do
++  context 'Ruby <= 2.7', :ruby27, unsupported_on: :prism do
+     include_examples 'with a regexp literal in the first argument'
+   end
+ 
+diff --git a/spec/rubocop/cop/lint/circular_argument_reference_spec.rb b/spec/rubocop/cop/lint/circular_argument_reference_spec.rb
+index a74490b2ad43..5cc07c6829ea 100644
+--- a/spec/rubocop/cop/lint/circular_argument_reference_spec.rb
++++ b/spec/rubocop/cop/lint/circular_argument_reference_spec.rb
+@@ -1,7 +1,7 @@
+ # frozen_string_literal: true
+ 
+ # Run test with Ruby 2.6 because this cop cannot handle invalid syntax in Ruby 2.7+.
+-RSpec.describe RuboCop::Cop::Lint::CircularArgumentReference, :config, :ruby26 do
++RSpec.describe RuboCop::Cop::Lint::CircularArgumentReference, :config, :ruby26, unsupported_on: :prism do # rubocop:disable Layout/LineLength
+   describe 'circular argument references in ordinal arguments' do
+     context 'when the method contains a circular argument reference' do
+       it 'registers an offense' do
+diff --git a/spec/rubocop/cop/lint/deprecated_class_methods_spec.rb b/spec/rubocop/cop/lint/deprecated_class_methods_spec.rb
+index 5d0d766c79d5..1f231e57599d 100644
+--- a/spec/rubocop/cop/lint/deprecated_class_methods_spec.rb
++++ b/spec/rubocop/cop/lint/deprecated_class_methods_spec.rb
+@@ -62,7 +62,9 @@
+   end
+ 
+   context 'prefer `block_given?` over `iterator?`' do
+-    it 'registers an offense and corrects iterator?' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'registers an offense and corrects iterator?', broken_on: :prism do
+       expect_offense(<<~RUBY)
+         iterator?
+         ^^^^^^^^^ `iterator?` is deprecated in favor of `block_given?`.
+@@ -73,7 +75,9 @@
+       RUBY
+     end
+ 
+-    it 'does not register an offense for block_given?' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'does not register an offense for block_given?', broken_on: :prism do
+       expect_no_offenses('block_given?')
+     end
+ 
+diff --git a/spec/rubocop/cop/lint/deprecated_constants_spec.rb b/spec/rubocop/cop/lint/deprecated_constants_spec.rb
+index 895d1f1fe38a..578463db7c9d 100644
+--- a/spec/rubocop/cop/lint/deprecated_constants_spec.rb
++++ b/spec/rubocop/cop/lint/deprecated_constants_spec.rb
+@@ -53,7 +53,7 @@
+     RUBY
+   end
+ 
+-  context 'Ruby <= 2.5', :ruby25 do
++  context 'Ruby <= 2.5', :ruby25, unsupported_on: :prism do
+     it 'does not register an offense when using `Net::HTTPServerException`' do
+       expect_no_offenses(<<~RUBY)
+         Net::HTTPServerException
+@@ -74,7 +74,7 @@
+     end
+   end
+ 
+-  context 'Ruby <= 2.7', :ruby27 do
++  context 'Ruby <= 2.7', :ruby27, unsupported_on: :prism do
+     it 'does not register an offense when using `Random::DEFAULT`' do
+       expect_no_offenses(<<~RUBY)
+         Random::DEFAULT
+diff --git a/spec/rubocop/cop/lint/erb_new_arguments_spec.rb b/spec/rubocop/cop/lint/erb_new_arguments_spec.rb
+index 60ee21016989..8a9d5e15ff1a 100644
+--- a/spec/rubocop/cop/lint/erb_new_arguments_spec.rb
++++ b/spec/rubocop/cop/lint/erb_new_arguments_spec.rb
+@@ -1,7 +1,7 @@
+ # frozen_string_literal: true
+ 
+ RSpec.describe RuboCop::Cop::Lint::ErbNewArguments, :config do
+-  context '<= Ruby 2.5', :ruby25 do
++  context '<= Ruby 2.5', :ruby25, unsupported_on: :prism do
+     it 'does not register an offense when using `ERB.new` with non-keyword arguments' do
+       expect_no_offenses(<<~RUBY)
+         ERB.new(str, nil, '-', '@output_buffer')
+diff --git a/spec/rubocop/cop/lint/non_deterministic_require_order_spec.rb b/spec/rubocop/cop/lint/non_deterministic_require_order_spec.rb
+index 9e814ddf9146..a47f631ea60a 100644
+--- a/spec/rubocop/cop/lint/non_deterministic_require_order_spec.rb
++++ b/spec/rubocop/cop/lint/non_deterministic_require_order_spec.rb
+@@ -114,7 +114,7 @@
+       end
+     end
+ 
+-    context 'when Ruby 2.7 or lower', :ruby27 do
++    context 'when Ruby 2.7 or lower', :ruby27, unsupported_on: :prism do
+       context 'with unsorted index' do
+         it 'registers an offense and autocorrects to add .sort when the block has `require`' do
+           expect_offense(<<~RUBY)
+diff --git a/spec/rubocop/cop/lint/numbered_parameter_assignment_spec.rb b/spec/rubocop/cop/lint/numbered_parameter_assignment_spec.rb
+index 1e8f0a94ccac..0502363ca421 100644
+--- a/spec/rubocop/cop/lint/numbered_parameter_assignment_spec.rb
++++ b/spec/rubocop/cop/lint/numbered_parameter_assignment_spec.rb
+@@ -2,7 +2,7 @@
+ 
+ RSpec.describe RuboCop::Cop::Lint::NumberedParameterAssignment, :config do
+   # NOTE: Assigning to numbered parameter (from `_1` to `_9`) cause an error in Ruby 3.0.
+-  context 'when Ruby 2.7 or lower', :ruby27 do
++  context 'when Ruby 2.7 or lower', :ruby27, unsupported_on: :prism do
+     (1..9).to_a.each do |number|
+       it "registers an offense when using `_#{number}` numbered parameter" do
+         expect_offense(<<~RUBY)
+diff --git a/spec/rubocop/cop/lint/parentheses_as_grouped_expression_spec.rb b/spec/rubocop/cop/lint/parentheses_as_grouped_expression_spec.rb
+index ab1c63b6676b..24f6391d3fc9 100644
+--- a/spec/rubocop/cop/lint/parentheses_as_grouped_expression_spec.rb
++++ b/spec/rubocop/cop/lint/parentheses_as_grouped_expression_spec.rb
+@@ -12,8 +12,9 @@
+     RUBY
+   end
+ 
+-  it 'registers an offense and corrects for predicate method call with space ' \
+-     'before the parenthesis' do
++  # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++  # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++  it 'registers an offense and corrects for predicate method call with space before the parenthesis', broken_on: :prism do
+     expect_offense(<<~RUBY)
+       is? (x)
+          ^ `(x)` interpreted as grouped expression.
+diff --git a/spec/rubocop/cop/lint/redundant_dir_glob_sort_spec.rb b/spec/rubocop/cop/lint/redundant_dir_glob_sort_spec.rb
+index 2e6fecedd304..c8514db7111a 100644
+--- a/spec/rubocop/cop/lint/redundant_dir_glob_sort_spec.rb
++++ b/spec/rubocop/cop/lint/redundant_dir_glob_sort_spec.rb
+@@ -86,7 +86,7 @@
+     end
+   end
+ 
+-  context 'when Ruby 2.7 or lower', :ruby27 do
++  context 'when Ruby 2.7 or lower', :ruby27, unsupported_on: :prism do
+     it 'does not register an offense and correction when using `Dir.glob.sort`' do
+       expect_no_offenses(<<~RUBY)
+         Dir.glob(Rails.root.join('test', '*.rb')).sort.each(&method(:require))
+diff --git a/spec/rubocop/cop/lint/redundant_require_statement_spec.rb b/spec/rubocop/cop/lint/redundant_require_statement_spec.rb
+index 98884dc67ca2..c7765bbc35b1 100644
+--- a/spec/rubocop/cop/lint/redundant_require_statement_spec.rb
++++ b/spec/rubocop/cop/lint/redundant_require_statement_spec.rb
+@@ -43,7 +43,7 @@
+     RUBY
+   end
+ 
+-  context 'target ruby version <= 2.0', :ruby20 do
++  context 'target ruby version <= 2.0', :ruby20, unsupported_on: :prism do
+     it 'does not register an offense when using requiring `thread`' do
+       expect_no_offenses(<<~RUBY)
+         require 'thread'
+@@ -67,7 +67,7 @@
+     end
+   end
+ 
+-  context 'target ruby version <= 2.1', :ruby21 do
++  context 'target ruby version <= 2.1', :ruby21, unsupported_on: :prism do
+     it 'does not register an offense when using requiring `rational`, `complex`' do
+       expect_no_offenses(<<~RUBY)
+         require 'rational'
+@@ -96,7 +96,7 @@
+     end
+   end
+ 
+-  context 'target ruby version <= 2.4', :ruby24 do
++  context 'target ruby version <= 2.4', :ruby24, unsupported_on: :prism do
+     it 'does not register an offense when using requiring `pp`' do
+       expect_no_offenses(<<~RUBY)
+         require 'pp'
+@@ -186,7 +186,7 @@
+     end
+   end
+ 
+-  context 'target ruby version <= 2.6', :ruby26 do
++  context 'target ruby version <= 2.6', :ruby26, unsupported_on: :prism do
+     it 'does not register an offense when using requiring `ruby2_keywords`' do
+       expect_no_offenses(<<~RUBY)
+         require 'ruby2_keywords'
+@@ -218,7 +218,7 @@
+     end
+   end
+ 
+-  context 'target ruby version < 3.1', :ruby30 do
++  context 'target ruby version < 3.1', :ruby30, unsupported_on: :prism do
+     it 'does not register an offense and corrects when using requiring `fiber`' do
+       expect_no_offenses(<<~RUBY)
+         require 'fiber'
+diff --git a/spec/rubocop/cop/lint/refinement_import_methods_spec.rb b/spec/rubocop/cop/lint/refinement_import_methods_spec.rb
+index 8bdf60ad50f2..0d045ecf2931 100644
+--- a/spec/rubocop/cop/lint/refinement_import_methods_spec.rb
++++ b/spec/rubocop/cop/lint/refinement_import_methods_spec.rb
+@@ -43,7 +43,7 @@
+     end
+   end
+ 
+-  context 'Ruby <= 3.0', :ruby30 do
++  context 'Ruby <= 3.0', :ruby30, unsupported_on: :prism do
+     it 'does not register an offense when using `include` in `refine` block' do
+       expect_no_offenses(<<~RUBY)
+         refine Foo do
+diff --git a/spec/rubocop/cop/lint/require_parentheses_spec.rb b/spec/rubocop/cop/lint/require_parentheses_spec.rb
+index d84423614778..27a55d4129c9 100644
+--- a/spec/rubocop/cop/lint/require_parentheses_spec.rb
++++ b/spec/rubocop/cop/lint/require_parentheses_spec.rb
+@@ -10,7 +10,9 @@
+     RUBY
+   end
+ 
+-  it 'registers an offense for missing parentheses around expression with || operator' do
++  # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++  # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++  it 'registers an offense for missing parentheses around expression with || operator', broken_on: :prism do
+     expect_offense(<<~RUBY)
+       day_is? 'tuesday' || true
+       ^^^^^^^^^^^^^^^^^^^^^^^^^ Use parentheses in the method call to avoid confusion about precedence.
+diff --git a/spec/rubocop/cop/lint/syntax_spec.rb b/spec/rubocop/cop/lint/syntax_spec.rb
+index 9acdc8b8fd46..1872367a03ca 100644
+--- a/spec/rubocop/cop/lint/syntax_spec.rb
++++ b/spec/rubocop/cop/lint/syntax_spec.rb
+@@ -4,6 +4,10 @@
+   describe '.offenses_from_processed_source' do
+     let(:commissioner) { RuboCop::Cop::Commissioner.new([cop]) }
+     let(:offenses) { commissioner.investigate(processed_source).offenses }
++    let(:ruby_version) { 3.3 } # The minimum version Prism can parse is 3.3.
++    let(:syntax_error_message) do
++      parser_engine == :parser_whitequark ? 'unexpected token $end' : 'expected a matching `)`'
++    end
+ 
+     context 'with a diagnostic error' do
+       let(:source) { '(' }
+@@ -11,8 +15,8 @@
+       it 'returns an offense' do
+         expect(offenses.size).to eq(1)
+         message = <<~MESSAGE.chomp
+-          unexpected token $end
+-          (Using Ruby 2.7 parser; configure using `TargetRubyVersion` parameter, under `AllCops`)
++          #{syntax_error_message}
++          (Using Ruby 3.3 parser; configure using `TargetRubyVersion` parameter, under `AllCops`)
+         MESSAGE
+         offense = offenses.first
+         expect(offense.message).to eq(message)
+@@ -25,8 +29,8 @@
+         it 'returns an offense with cop name' do
+           expect(offenses.size).to eq(1)
+           message = <<~MESSAGE.chomp
+-            Lint/Syntax: unexpected token $end
+-            (Using Ruby 2.7 parser; configure using `TargetRubyVersion` parameter, under `AllCops`)
++            Lint/Syntax: #{syntax_error_message}
++            (Using Ruby 3.3 parser; configure using `TargetRubyVersion` parameter, under `AllCops`)
+           MESSAGE
+           offense = offenses.first
+           expect(offense.message).to eq(message)
+@@ -42,8 +46,8 @@
+         it 'returns an offense' do
+           expect(offenses.size).to eq(1)
+           message = <<~MESSAGE.chomp
+-            unexpected token $end
+-            (Using Ruby 2.7 parser; configure using `TargetRubyVersion` parameter, under `AllCops`)
++            #{syntax_error_message}
++            (Using Ruby 3.3 parser; configure using `TargetRubyVersion` parameter, under `AllCops`)
+           MESSAGE
+           offense = offenses.first
+           expect(offense.message).to eq(message)
+@@ -53,7 +57,7 @@
+ 
+       context 'with `--lsp` option', :lsp do
+         it 'does not include a configuration information in the offense message' do
+-          expect(offenses.first.message).to eq('unexpected token $end')
++          expect(offenses.first.message).to eq(syntax_error_message)
+         end
+       end
+     end
+diff --git a/spec/rubocop/cop/lint/unified_integer_spec.rb b/spec/rubocop/cop/lint/unified_integer_spec.rb
+index 5847579bfa02..b126a0eb940e 100644
+--- a/spec/rubocop/cop/lint/unified_integer_spec.rb
++++ b/spec/rubocop/cop/lint/unified_integer_spec.rb
+@@ -2,7 +2,7 @@
+ 
+ RSpec.describe RuboCop::Cop::Lint::UnifiedInteger, :config do
+   shared_examples 'registers an offense' do |klass|
+-    context 'target ruby version < 2.4', :ruby23 do
++    context 'target ruby version < 2.4', :ruby23, unsupported_on: :prism do
+       context "when #{klass}" do
+         context 'without any decorations' do
+           it 'registers an offense and autocorrects' do
+diff --git a/spec/rubocop/cop/lint/useless_else_without_rescue_spec.rb b/spec/rubocop/cop/lint/useless_else_without_rescue_spec.rb
+index eecb419c92a5..cd65e4472f4b 100644
+--- a/spec/rubocop/cop/lint/useless_else_without_rescue_spec.rb
++++ b/spec/rubocop/cop/lint/useless_else_without_rescue_spec.rb
+@@ -1,7 +1,7 @@
+ # frozen_string_literal: true
+ 
+ RSpec.describe RuboCop::Cop::Lint::UselessElseWithoutRescue, :config do
+-  context 'with `else` without `rescue`', :ruby25 do
++  context 'with `else` without `rescue`', :ruby25, unsupported_on: :prism do
+     it 'registers an offense' do
+       expect_offense(<<~RUBY)
+         begin
+diff --git a/spec/rubocop/cop/naming/block_forwarding_spec.rb b/spec/rubocop/cop/naming/block_forwarding_spec.rb
+index a7a83c82784d..f4e30b91e4ca 100644
+--- a/spec/rubocop/cop/naming/block_forwarding_spec.rb
++++ b/spec/rubocop/cop/naming/block_forwarding_spec.rb
+@@ -252,7 +252,7 @@ def example(&block)
+       end
+     end
+ 
+-    context 'Ruby < 3.0', :ruby30 do
++    context 'Ruby < 3.0', :ruby30, unsupported_on: :prism do
+       it 'does not register an offense when not using anonymous block forwarding' do
+         expect_no_offenses(<<~RUBY)
+           def foo(&block)
+diff --git a/spec/rubocop/cop/naming/heredoc_delimiter_case_spec.rb b/spec/rubocop/cop/naming/heredoc_delimiter_case_spec.rb
+index bb50c2267c8d..cd6248ce8d30 100644
+--- a/spec/rubocop/cop/naming/heredoc_delimiter_case_spec.rb
++++ b/spec/rubocop/cop/naming/heredoc_delimiter_case_spec.rb
+@@ -124,7 +124,8 @@
+         end
+       end
+ 
+-      context 'when using back tick delimiters' do
++      # FIXME: https://github.com/ruby/prism/issues/2498
++      context 'when using back tick delimiters', broken_on: :prism do
+         it 'registers an offense and corrects with a lowercase delimiter' do
+           expect_offense(<<~RUBY)
+             <<-`sql`
+@@ -174,7 +175,9 @@
+         end
+       end
+ 
+-      context 'when using blank heredoc delimiters' do
++      # FIXME: `<<''` is a syntax error. This test was added because Parser gem can parse it,
++      # but this will be removed after https://github.com/whitequark/parser/issues/996 is resolved.
++      context 'when using blank heredoc delimiters', unsupported_on: :prism do
+         it 'does not register an offense' do
+           expect_no_offenses(<<~RUBY)
+             <<''
+diff --git a/spec/rubocop/cop/naming/heredoc_delimiter_naming_spec.rb b/spec/rubocop/cop/naming/heredoc_delimiter_naming_spec.rb
+index 971977cd1b13..9dfc473706d8 100644
+--- a/spec/rubocop/cop/naming/heredoc_delimiter_naming_spec.rb
++++ b/spec/rubocop/cop/naming/heredoc_delimiter_naming_spec.rb
+@@ -61,7 +61,8 @@
+       end
+     end
+ 
+-    context 'when using back tick delimiters' do
++    # FIXME: https://github.com/ruby/prism/issues/2498
++    context 'when using back tick delimiters', broken_on: :prism do
+       it 'registers an offense with a non-meaningful delimiter' do
+         expect_offense(<<~RUBY)
+           <<-`END`
+@@ -91,7 +92,9 @@
+       end
+     end
+ 
+-    context 'when using blank heredoc delimiters' do
++    # FIXME: `<<~''` is a syntax error in Ruby. This test was added because Parser gem can parse it,
++    # but this will be removed after https://github.com/whitequark/parser/issues/996 is resolved.
++    context 'when using blank heredoc delimiters', unsupported_on: :prism do
+       it 'registers an offense with a non-meaningful delimiter' do
+         expect_offense(<<~RUBY)
+           <<~''
+diff --git a/spec/rubocop/cop/naming/variable_number_spec.rb b/spec/rubocop/cop/naming/variable_number_spec.rb
+index ff4b6df2f9b0..5344a8dff58c 100644
+--- a/spec/rubocop/cop/naming/variable_number_spec.rb
++++ b/spec/rubocop/cop/naming/variable_number_spec.rb
+@@ -27,7 +27,7 @@
+ 
+   shared_examples 'accepts' do |style, variable|
+     # `_1 = 1` is a deprecated valid syntax in Ruby 2.7, but an invalid syntax in Ruby 3.0+.
+-    it "accepts #{variable} in #{style}", :ruby27 do
++    it "accepts #{variable} in #{style}", :ruby27, unsupported_on: :prism do
+       expect_no_offenses("#{variable} = 1")
+     end
+   end
+diff --git a/spec/rubocop/cop/security/yaml_load_spec.rb b/spec/rubocop/cop/security/yaml_load_spec.rb
+index da13f3cc4137..c96af932de59 100644
+--- a/spec/rubocop/cop/security/yaml_load_spec.rb
++++ b/spec/rubocop/cop/security/yaml_load_spec.rb
+@@ -13,7 +13,7 @@
+     expect_no_offenses('Module::YAML.load("foo")')
+   end
+ 
+-  context 'Ruby <= 3.0', :ruby30 do
++  context 'Ruby <= 3.0', :ruby30, unsupported_on: :prism do
+     it 'registers an offense and corrects load with a literal string' do
+       expect_offense(<<~RUBY)
+         YAML.load("--- !ruby/object:Foo {}")
+diff --git a/spec/rubocop/cop/style/arguments_forwarding_spec.rb b/spec/rubocop/cop/style/arguments_forwarding_spec.rb
+index 9029c72e2a09..8b9e748f433c 100644
+--- a/spec/rubocop/cop/style/arguments_forwarding_spec.rb
++++ b/spec/rubocop/cop/style/arguments_forwarding_spec.rb
+@@ -12,7 +12,7 @@
+   let(:redundant_keyword_rest_argument_names) { %w[kwargs options opts] }
+   let(:redundant_block_argument_names) { %w[blk block proc] }
+ 
+-  context 'TargetRubyVersion <= 2.6', :ruby26 do
++  context 'TargetRubyVersion <= 2.6', :ruby26, unsupported_on: :prism do
+     it 'does not register an offense when using restarg with block arg' do
+       expect_no_offenses(<<~RUBY)
+         def foo(*args, &block)
+@@ -23,7 +23,7 @@ def foo(*args, &block)
+   end
+ 
+   context 'TargetRubyVersion >= 2.7', :ruby27 do
+-    it 'registers an offense when using restarg and block arg' do
++    it 'registers an offense when using restarg and block arg', unsupported_on: :prism do
+       expect_offense(<<~RUBY)
+         def foo(*args, &block)
+                 ^^^^^^^^^^^^^ Use shorthand syntax `...` for arguments forwarding.
+@@ -92,7 +92,7 @@ def foo(...)
+       RUBY
+     end
+ 
+-    it 'registers an offense when passing restarg and block arg in defs' do
++    it 'registers an offense when passing restarg and block arg in defs', unsupported_on: :prism do
+       expect_offense(<<~RUBY)
+         def self.foo(*args, &block)
+                      ^^^^^^^^^^^^^ Use shorthand syntax `...` for arguments forwarding.
+@@ -108,7 +108,7 @@ def self.foo(...)
+       RUBY
+     end
+ 
+-    it 'registers an offense when the parentheses of arguments are omitted' do
++    it 'registers an offense when the parentheses of arguments are omitted', unsupported_on: :prism do
+       expect_offense(<<~RUBY)
+         def foo *args, &block
+                 ^^^^^^^^^^^^^ Use shorthand syntax `...` for arguments forwarding.
+@@ -127,7 +127,7 @@ def foo(...)
+       RUBY
+     end
+ 
+-    it 'registers an offense when forwarding to a method in block' do
++    it 'registers an offense when forwarding to a method in block', unsupported_on: :prism do
+       expect_offense(<<~RUBY)
+         def foo(*args, &block)
+                 ^^^^^^^^^^^^^ Use shorthand syntax `...` for arguments forwarding.
+@@ -147,7 +147,7 @@ def foo(...)
+       RUBY
+     end
+ 
+-    it 'registers an offense when delegating' do
++    it 'registers an offense when delegating', unsupported_on: :prism do
+       expect_offense(<<~RUBY)
+         def foo(*args, &block)
+                 ^^^^^^^^^^^^^ Use shorthand syntax `...` for arguments forwarding.
+@@ -157,7 +157,7 @@ def foo(*args, &block)
+       RUBY
+     end
+ 
+-    it 'registers an offense when using restarg and block arg for `.()` call' do
++    it 'registers an offense when using restarg and block arg for `.()` call', unsupported_on: :prism do
+       expect_offense(<<~RUBY)
+         def foo(*args, &block)
+                 ^^^^^^^^^^^^^ Use shorthand syntax `...` for arguments forwarding.
+@@ -173,7 +173,7 @@ def foo(...)
+       RUBY
+     end
+ 
+-    it 'does not register an offense when using block arg', :ruby30 do
++    it 'does not register an offense when using block arg', :ruby30, unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(&block)
+           bar(&block)
+@@ -208,7 +208,7 @@ def foo(&)
+     context 'when `RedundantBlockArgumentNames: [meaningless_block_name]`' do
+       let(:redundant_block_argument_names) { ['meaningless_block_name'] }
+ 
+-      it 'registers an offense when using restarg and block arg' do
++      it 'registers an offense when using restarg and block arg', unsupported_on: :prism do
+         expect_offense(<<~RUBY)
+           def foo(*args, &meaningless_block_name)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Use shorthand syntax `...` for arguments forwarding.
+@@ -224,7 +224,7 @@ def foo(...)
+         RUBY
+       end
+ 
+-      it 'does not register an offense when using restarg and unconfigured block arg' do
++      it 'does not register an offense when using restarg and unconfigured block arg', unsupported_on: :prism do
+         expect_no_offenses(<<~RUBY)
+           def foo(*args, &block)
+             bar(*args, &block)
+@@ -275,7 +275,7 @@ def foo(...)
+       RUBY
+     end
+ 
+-    it 'does not register an offense when different arguments are used' do
++    it 'does not register an offense when different arguments are used', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(*args, &block)
+           bar(*args)
+@@ -291,7 +291,7 @@ def foo(arg)
+       RUBY
+     end
+ 
+-    it 'does not register an offense when different splat argument names are used' do
++    it 'does not register an offense when different splat argument names are used', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(*args, &block)
+           bar(*arguments, &block)
+@@ -299,7 +299,7 @@ def foo(*args, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense when different kwrest argument names are used' do
++    it 'does not register an offense when different kwrest argument names are used', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(**kwargs, &block)
+           bar(**kwarguments, &block)
+@@ -307,7 +307,7 @@ def foo(**kwargs, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense when the restarg is overwritten' do
++    it 'does not register an offense when the restarg is overwritten', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(*args, **kwargs, &block)
+           args = new_args
+@@ -316,7 +316,7 @@ def foo(*args, **kwargs, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense when the kwarg is overwritten' do
++    it 'does not register an offense when the kwarg is overwritten', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(*args, **kwargs, &block)
+           kwargs = new_kwargs
+@@ -325,7 +325,7 @@ def foo(*args, **kwargs, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense when the block arg is overwritten' do
++    it 'does not register an offense when the block arg is overwritten', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(*args, **kwargs, &block)
+           block = new_block
+@@ -334,7 +334,7 @@ def foo(*args, **kwargs, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense when using the restarg outside forwarding method arguments' do
++    it 'does not register an offense when using the restarg outside forwarding method arguments', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(*args, **kwargs, &block)
+           args.do_something
+@@ -343,7 +343,7 @@ def foo(*args, **kwargs, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense when assigning the restarg outside forwarding method arguments' do
++    it 'does not register an offense when assigning the restarg outside forwarding method arguments', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(*args, &block)
+           var = args
+@@ -352,7 +352,7 @@ def foo(*args, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense when referencing the restarg outside forwarding method arguments' do
++    it 'does not register an offense when referencing the restarg outside forwarding method arguments', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(*args, &block)
+           args
+@@ -361,7 +361,7 @@ def foo(*args, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense when not always passing the block as well as restarg' do
++    it 'does not register an offense when not always passing the block as well as restarg', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(*args, &block)
+           bar(*args, &block)
+@@ -370,7 +370,7 @@ def foo(*args, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense when not always passing the block as well as kwrestarg' do
++    it 'does not register an offense when not always passing the block as well as kwrestarg', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(**kwargs, &block)
+           bar(**kwargs, &block)
+@@ -379,7 +379,7 @@ def foo(**kwargs, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense when not always forwarding all' do
++    it 'does not register an offense when not always forwarding all', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(*args, **kwargs, &block)
+           bar(*args, **kwargs, &block)
+@@ -389,7 +389,7 @@ def foo(*args, **kwargs, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense when always forwarding the block but not other args' do
++    it 'does not register an offense when always forwarding the block but not other args', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(*args, &block)
+           bar(*args, &block)
+@@ -405,7 +405,7 @@ def foo(*args, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense with arg destructuring' do
++    it 'does not register an offense with arg destructuring', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo((bar, baz), **kwargs)
+           forwarded(bar, baz, **kwargs)
+@@ -413,7 +413,7 @@ def foo((bar, baz), **kwargs)
+       RUBY
+     end
+ 
+-    it 'does not register an offense with an additional kwarg' do
++    it 'does not register an offense with an additional kwarg', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(first:, **kwargs, &block)
+           forwarded(**kwargs, &block)
+@@ -424,7 +424,7 @@ def foo(first:, **kwargs, &block)
+     context 'AllowOnlyRestArgument: true' do
+       let(:cop_config) { { 'AllowOnlyRestArgument' => true } }
+ 
+-      it 'does not register an offense when using only rest arg' do
++      it 'does not register an offense when using only rest arg', unsupported_on: :prism do
+         expect_no_offenses(<<~RUBY)
+           def foo(*args)
+             bar(*args)
+@@ -432,7 +432,7 @@ def foo(*args)
+         RUBY
+       end
+ 
+-      it 'does not register an offense when using only kwrest arg' do
++      it 'does not register an offense when using only kwrest arg', unsupported_on: :prism do
+         expect_no_offenses(<<~RUBY)
+           def foo(**kwargs)
+             bar(**kwargs)
+@@ -476,7 +476,7 @@ def foo(**)
+     context 'AllowOnlyRestArgument: false' do
+       let(:cop_config) { { 'AllowOnlyRestArgument' => false } }
+ 
+-      it 'registers an offense when using only rest arg' do
++      it 'registers an offense when using only rest arg', unsupported_on: :prism do
+         expect_offense(<<~RUBY)
+           def foo(*args)
+                   ^^^^^ Use shorthand syntax `...` for arguments forwarding.
+@@ -492,7 +492,7 @@ def foo(...)
+         RUBY
+       end
+ 
+-      it 'registers an offense when using only kwrest arg' do
++      it 'registers an offense when using only kwrest arg', unsupported_on: :prism do
+         expect_offense(<<~RUBY)
+           def foo(**kwargs)
+                   ^^^^^^^^ Use shorthand syntax `...` for arguments forwarding.
+@@ -508,7 +508,7 @@ def foo(...)
+         RUBY
+       end
+ 
+-      it 'does not register an offense with default positional arguments' do
++      it 'does not register an offense with default positional arguments', unsupported_on: :prism do
+         expect_no_offenses(<<~RUBY)
+           def foo(arg=1, *args)
+             bar(*args)
+@@ -516,7 +516,7 @@ def foo(arg=1, *args)
+         RUBY
+       end
+ 
+-      it 'does not register an offense with default keyword arguments' do
++      it 'does not register an offense with default keyword arguments', unsupported_on: :prism do
+         expect_no_offenses(<<~RUBY)
+           def foo(*args, arg: 1)
+             bar(*args)
+@@ -589,7 +589,7 @@ def foo(*, arg: 1)
+       end
+     end
+ 
+-    it 'does not register an offense for restarg when passing block to separate call' do
++    it 'does not register an offense for restarg when passing block to separate call', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(*args, &block)
+           bar(*args).baz(&block)
+@@ -597,7 +597,7 @@ def foo(*args, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense for restarg and kwrestarg when passing block to separate call' do
++    it 'does not register an offense for restarg and kwrestarg when passing block to separate call', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(*args, **kwargs, &block)
+           bar(*args, **kwargs).baz(&block)
+@@ -605,7 +605,7 @@ def foo(*args, **kwargs, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense for restarg/kwrestarg/block passed to separate methods' do
++    it 'does not register an offense for restarg/kwrestarg/block passed to separate methods', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(*args, **kwargs, &block)
+           bar(first(*args), second(**kwargs), third(&block))
+@@ -613,7 +613,7 @@ def foo(*args, **kwargs, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense if an additional positional parameter is present' do
++    it 'does not register an offense if an additional positional parameter is present', unsupported_on: :prism do
+       # Technically, forward-all supports leading additional arguments in Ruby >= 2.7.3, but for
+       # simplicity we do not correct for any Ruby < 3.0
+       # https://github.com/rubocop/rubocop/issues/12087#issuecomment-1662972732
+@@ -652,7 +652,7 @@ def method_missing(m, ...)
+       RUBY
+     end
+ 
+-    it 'does not register an offense if kwargs are forwarded with a positional parameter' do
++    it 'does not register an offense if kwargs are forwarded with a positional parameter', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(m, **kwargs, &block)
+           bar(m, **kwargs, &block)
+@@ -660,7 +660,7 @@ def foo(m, **kwargs, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense if args are forwarded with a positional parameter last' do
++    it 'does not register an offense if args are forwarded with a positional parameter last', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(m, *args, &block)
+           bar(*args, m, &block)
+@@ -668,7 +668,7 @@ def foo(m, *args, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense if args/kwargs are forwarded with a positional parameter' do
++    it 'does not register an offense if args/kwargs are forwarded with a positional parameter', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(m, *args, **kwargs, &block)
+           bar(m, *args, **kwargs, &block)
+@@ -692,7 +692,7 @@ def foo(m, ...)
+       RUBY
+     end
+ 
+-    it 'does not register an offense when forwarding args/kwargs with an additional arg' do
++    it 'does not register an offense when forwarding args/kwargs with an additional arg', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def self.get(*args, **kwargs, &block)
+           CanvasHttp.request(Net::HTTP::Get, *args, **kwargs, &block)
+@@ -716,7 +716,7 @@ def self.get(...)
+       RUBY
+     end
+ 
+-    it 'does not register an offense when forwarding args with an additional arg' do
++    it 'does not register an offense when forwarding args with an additional arg', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def post(*args, &block)
+           future_on(executor, *args, &block)
+@@ -751,7 +751,7 @@ def foo(...)
+   end
+ 
+   context 'TargetRubyVersion >= 3.0', :ruby30 do
+-    it 'does not register an offense if args are forwarded with a positional parameter last' do
++    it 'does not register an offense if args are forwarded with a positional parameter last', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(m, *args, &block)
+           bar(*args, m, &block)
+@@ -759,7 +759,7 @@ def foo(m, *args, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense with an additional required kwarg that is not forwarded' do
++    it 'does not register an offense with an additional required kwarg that is not forwarded', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(first:, **kwargs, &block)
+           forwarded(**kwargs, &block)
+@@ -767,7 +767,7 @@ def foo(first:, **kwargs, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense with an additional required kwarg that is forwarded' do
++    it 'does not register an offense with an additional required kwarg that is forwarded', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(first:, **kwargs, &block)
+           forwarded(first: first, **kwargs, &block)
+@@ -775,7 +775,7 @@ def foo(first:, **kwargs, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense with an additional optional kwarg that is not forwarded' do
++    it 'does not register an offense with an additional optional kwarg that is not forwarded', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(first: nil, **kwargs, &block)
+           forwarded(**kwargs, &block)
+@@ -783,7 +783,7 @@ def foo(first: nil, **kwargs, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense with an additional optional kwarg that is forwarded' do
++    it 'does not register an offense with an additional optional kwarg that is forwarded', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(first: nil, **kwargs, &block)
+           forwarded(first: first, **kwargs, &block)
+@@ -791,7 +791,7 @@ def foo(first: nil, **kwargs, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense if args/kwargs are forwarded with a positional parameter last' do
++    it 'does not register an offense if args/kwargs are forwarded with a positional parameter last', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(m, *args, **kwargs, &block)
+           bar(*args, m, **kwargs, &block)
+@@ -840,7 +840,7 @@ def foo(m, ...)
+       RUBY
+     end
+ 
+-    it 'does not register an offense if args/kwargs are forwarded with additional pre-kwarg' do
++    it 'does not register an offense if args/kwargs are forwarded with additional pre-kwarg', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(m, *args, **kwargs, &block)
+           bar(m, *args, extra: :kwarg, **kwargs, &block)
+@@ -848,7 +848,7 @@ def foo(m, *args, **kwargs, &block)
+       RUBY
+     end
+ 
+-    it 'does not register an offense if args/kwargs are forwarded with additional post-kwarg' do
++    it 'does not register an offense if args/kwargs are forwarded with additional post-kwarg', unsupported_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         def foo(m, *args, **kwargs, &block)
+           bar(m, *args, **kwargs, extra: :kwarg, &block)
+@@ -856,7 +856,7 @@ def foo(m, *args, **kwargs, &block)
+       RUBY
+     end
+ 
+-    it 'registers an offense when forwarding args after dropping an additional arg' do
++    it 'registers an offense when forwarding args after dropping an additional arg', unsupported_on: :prism do
+       expect_offense(<<~RUBY)
+         def foo(x, *args, &block)
+                    ^^^^^^^^^^^^^ Use shorthand syntax `...` for arguments forwarding.
+@@ -872,7 +872,7 @@ def foo(x, ...)
+       RUBY
+     end
+ 
+-    it 'registers an offense when forwarding args with a leading default arg' do
++    it 'registers an offense when forwarding args with a leading default arg', unsupported_on: :prism do
+       expect_offense(<<~RUBY)
+         def foo(x, y = 42, *args, &block)
+                            ^^^^^^^^^^^^^ Use shorthand syntax `...` for arguments forwarding.
+@@ -888,7 +888,7 @@ def foo(x, y = 42, ...)
+       RUBY
+     end
+ 
+-    it 'registers an offense when forwarding args with an additional arg' do
++    it 'registers an offense when forwarding args with an additional arg', unsupported_on: :prism do
+       expect_offense(<<~RUBY)
+         def post(*args, &block)
+                  ^^^^^^^^^^^^^ Use shorthand syntax `...` for arguments forwarding.
+@@ -920,7 +920,7 @@ def self.get(...)
+       RUBY
+     end
+ 
+-    it 'registers an offense when forwarding kwargs/block arg' do
++    it 'registers an offense when forwarding kwargs/block arg', unsupported_on: :prism do
+       expect_offense(<<~RUBY)
+         def foo(**kwargs, &block)
+                 ^^^^^^^^^^^^^^^^ Use shorthand syntax `...` for arguments forwarding.
+@@ -936,7 +936,7 @@ def foo(...)
+       RUBY
+     end
+ 
+-    it 'registers an offense when forwarding kwargs/block arg and an additional arg' do
++    it 'registers an offense when forwarding kwargs/block arg and an additional arg', unsupported_on: :prism do
+       expect_offense(<<~RUBY)
+         def foo(x, **kwargs, &block)
+                    ^^^^^^^^^^^^^^^^ Use shorthand syntax `...` for arguments forwarding.
+@@ -955,7 +955,7 @@ def foo(x, ...)
+     context 'AllowOnlyRestArgument: false' do
+       let(:cop_config) { { 'AllowOnlyRestArgument' => false } }
+ 
+-      it 'registers an offense when using only rest arg' do
++      it 'registers an offense when using only rest arg', unsupported_on: :prism do
+         expect_offense(<<~RUBY)
+           def foo(*args)
+                   ^^^^^ Use shorthand syntax `...` for arguments forwarding.
+@@ -989,7 +989,7 @@ def foo(*)
+     end
+   end
+ 
+-  context 'TargetRubyVersion 3.1', :ruby31 do
++  context 'TargetRubyVersion 3.1', :ruby31, unsupported_on: :prism do
+     it 'registers an offense when using restarg and anonymous block arg' do
+       expect_offense(<<~RUBY)
+         def foo(*args, &)
+diff --git a/spec/rubocop/cop/style/array_intersect_spec.rb b/spec/rubocop/cop/style/array_intersect_spec.rb
+index 90f593181fda..6fb0af126d21 100644
+--- a/spec/rubocop/cop/style/array_intersect_spec.rb
++++ b/spec/rubocop/cop/style/array_intersect_spec.rb
+@@ -1,7 +1,7 @@
+ # frozen_string_literal: true
+ 
+ RSpec.describe RuboCop::Cop::Style::ArrayIntersect, :config do
+-  context 'when TargetRubyVersion <= 3.0', :ruby30 do
++  context 'when TargetRubyVersion <= 3.0', :ruby30, unsupported_on: :prism do
+     it 'does not register an offense when using `(array1 & array2).any?`' do
+       expect_no_offenses(<<~RUBY)
+         (array1 & array2).any?
+diff --git a/spec/rubocop/cop/style/block_delimiters_spec.rb b/spec/rubocop/cop/style/block_delimiters_spec.rb
+index 15d84db3e9e7..f082687f65b1 100644
+--- a/spec/rubocop/cop/style/block_delimiters_spec.rb
++++ b/spec/rubocop/cop/style/block_delimiters_spec.rb
+@@ -163,11 +163,15 @@
+       expect_no_offenses('return if any? { |x| x }')
+     end
+ 
+-    it 'accepts a single line block with {} if used in a logical or' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'accepts a single line block with {} if used in a logical or', broken_on: :prism do
+       expect_no_offenses('any? { |c| c } || foo')
+     end
+ 
+-    it 'accepts a single line block with {} if used in a logical and' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'accepts a single line block with {} if used in a logical and', broken_on: :prism do
+       expect_no_offenses('any? { |c| c } && foo')
+     end
+ 
+diff --git a/spec/rubocop/cop/style/collection_compact_spec.rb b/spec/rubocop/cop/style/collection_compact_spec.rb
+index fe5b0d0468a2..77d6f0029b41 100644
+--- a/spec/rubocop/cop/style/collection_compact_spec.rb
++++ b/spec/rubocop/cop/style/collection_compact_spec.rb
+@@ -258,7 +258,7 @@ def foo(params)
+     end
+   end
+ 
+-  context 'Ruby <= 3.0', :ruby30 do
++  context 'Ruby <= 3.0', :ruby30, unsupported_on: :prism do
+     it 'does not register an offense and corrects when using `to_enum.reject` on array to reject nils' do
+       expect_no_offenses(<<~RUBY)
+         array.to_enum.reject { |e| e.nil? }
+@@ -276,7 +276,7 @@ def foo(params)
+     end
+   end
+ 
+-  context 'when Ruby <= 2.3', :ruby23 do
++  context 'when Ruby <= 2.3', :ruby23, unsupported_on: :prism do
+     it 'does not register an offense when using `reject` on hash to reject nils' do
+       expect_no_offenses(<<~RUBY)
+         hash.reject { |k, v| v.nil? }
+diff --git a/spec/rubocop/cop/style/command_literal_spec.rb b/spec/rubocop/cop/style/command_literal_spec.rb
+index 697a65c95436..c1874d518412 100644
+--- a/spec/rubocop/cop/style/command_literal_spec.rb
++++ b/spec/rubocop/cop/style/command_literal_spec.rb
+@@ -76,7 +76,8 @@
+   describe 'heredoc commands' do
+     let(:cop_config) { { 'EnforcedStyle' => 'backticks' } }
+ 
+-    it 'is ignored' do
++    # FIXME: https://github.com/ruby/prism/issues/2498
++    it 'is ignored', broken_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         <<`COMMAND`
+           ls
+diff --git a/spec/rubocop/cop/style/comparable_clamp_spec.rb b/spec/rubocop/cop/style/comparable_clamp_spec.rb
+index 0907ea908a88..7689d0a0ae53 100644
+--- a/spec/rubocop/cop/style/comparable_clamp_spec.rb
++++ b/spec/rubocop/cop/style/comparable_clamp_spec.rb
+@@ -246,7 +246,7 @@
+     end
+   end
+ 
+-  context 'target ruby version <= 2.3', :ruby23 do
++  context 'target ruby version <= 2.3', :ruby23, unsupported_on: :prism do
+     it 'does not register an offense when using `[[x, low].max, high].min`' do
+       expect_no_offenses(<<~RUBY)
+         [[x, low].max, high].min
+diff --git a/spec/rubocop/cop/style/conditional_assignment_assign_in_condition_spec.rb b/spec/rubocop/cop/style/conditional_assignment_assign_in_condition_spec.rb
+index 3903c012a7eb..737b883c9060 100644
+--- a/spec/rubocop/cop/style/conditional_assignment_assign_in_condition_spec.rb
++++ b/spec/rubocop/cop/style/conditional_assignment_assign_in_condition_spec.rb
+@@ -2,7 +2,9 @@
+ 
+ RSpec.describe RuboCop::Cop::Style::ConditionalAssignment, :config do
+   shared_examples 'all variable types' do |variable|
+-    it 'registers an offense assigning any variable type to ternary' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'registers an offense assigning any variable type to ternary', broken_on: :prism do
+       expect_offense(<<~RUBY, variable: variable)
+         %{variable} = foo? ? 1 : 2
+         ^{variable}^^^^^^^^^^^^^^^ Assign variables inside of conditionals
+@@ -165,7 +167,9 @@
+   end
+ 
+   shared_examples 'all assignment types' do |assignment|
+-    it 'registers an offense for any assignment to ternary' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'registers an offense for any assignment to ternary', broken_on: :prism do
+       expect_offense(<<~RUBY, assignment: assignment)
+         bar %{assignment} (foo? ? 1 : 2)
+         ^^^^^{assignment}^^^^^^^^^^^^^^^ Assign variables inside of conditionals
+@@ -698,7 +702,9 @@
+       RUBY
+     end
+ 
+-    it 'corrects assignment to a ternary operator' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'corrects assignment to a ternary operator', broken_on: :prism do
+       expect_offense(<<~RUBY)
+         bar = foo? ? 1 : 2
+         ^^^^^^^^^^^^^^^^^^ Assign variables inside of conditionals
+@@ -790,7 +796,9 @@
+       expect_no_offenses('bar << foo? ? 1 : 2')
+     end
+ 
+-    it 'registers an offense for assignment using a method that ends with an equal sign' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'registers an offense for assignment using a method that ends with an equal sign', broken_on: :prism do
+       expect_offense(<<~RUBY)
+         self.attributes = foo? ? 1 : 2
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Assign variables inside of conditionals
+diff --git a/spec/rubocop/cop/style/conditional_assignment_assign_to_condition_spec.rb b/spec/rubocop/cop/style/conditional_assignment_assign_to_condition_spec.rb
+index 5e2e24d28bbe..172d002ae222 100644
+--- a/spec/rubocop/cop/style/conditional_assignment_assign_to_condition_spec.rb
++++ b/spec/rubocop/cop/style/conditional_assignment_assign_to_condition_spec.rb
+@@ -132,7 +132,9 @@
+     expect_no_offenses('bar = foo? ? "a" : "b"')
+   end
+ 
+-  it 'registers an offense for assignment in ternary operation using strings' do
++  # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++  # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++  it 'registers an offense for assignment in ternary operation using strings', broken_on: :prism do
+     expect_offense(<<~RUBY)
+       foo? ? bar = "a" : bar = "b"
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Use the return of the conditional for variable assignment and comparison.
+@@ -189,7 +191,9 @@
+   end
+ 
+   shared_examples 'comparison methods' do |method|
+-    it 'registers an offense for comparison methods in ternary operations' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'registers an offense for comparison methods in ternary operations', broken_on: :prism do
+       source = "foo? ? bar #{method} 1 : bar #{method} 2"
+       expect_offense(<<~RUBY, source: source)
+         %{source}
+@@ -562,7 +566,9 @@
+   end
+ 
+   shared_examples 'all variable types' do |variable, add_parens: false|
+-    it 'registers an offense assigning any variable type in ternary' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'registers an offense assigning any variable type in ternary', broken_on: :prism do
+       source = "foo? ? #{variable} = 1 : #{variable} = 2"
+       expect_offense(<<~RUBY, source: source)
+         %{source}
+@@ -661,7 +667,9 @@
+ 
+     variable_types.each do |type, name|
+       context "for a #{type} lval" do
+-        it "registers an offense for assignment using #{assignment} in ternary" do
++        # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++        # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++        it "registers an offense for assignment using #{assignment} in ternary", broken_on: :prism do
+           source = "foo? ? #{name} #{assignment} 1 : #{name} #{assignment} 2"
+           expect_offense(<<~RUBY, source: source)
+             %{source}
+@@ -1230,7 +1238,9 @@
+   end
+ 
+   describe 'autocorrect' do
+-    it 'corrects =~ in ternary operations' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'corrects =~ in ternary operations', broken_on: :prism do
+       expect_offense(<<~RUBY)
+         foo? ? bar =~ /a/ : bar =~ /b/
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Use the return of the conditional for variable assignment and comparison.
+@@ -2238,7 +2248,9 @@
+                           })
+     end
+ 
+-    it 'allows assignment in ternary operation' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'allows assignment in ternary operation', broken_on: :prism do
+       expect_no_offenses('foo? ? bar = "a" : bar = "b"')
+     end
+   end
+diff --git a/spec/rubocop/cop/style/data_inheritance_spec.rb b/spec/rubocop/cop/style/data_inheritance_spec.rb
+index 3318ee2b4863..a5ccf6ef0611 100644
+--- a/spec/rubocop/cop/style/data_inheritance_spec.rb
++++ b/spec/rubocop/cop/style/data_inheritance_spec.rb
+@@ -130,7 +130,7 @@ def age
+     end
+   end
+ 
+-  context 'Ruby <= 3.1', :ruby31 do
++  context 'Ruby <= 3.1', :ruby31, unsupported_on: :prism do
+     it 'accepts extending instance of `Data.define`' do
+       expect_no_offenses(<<~RUBY)
+         class Person < Data.define(:first_name, :last_name)
+diff --git a/spec/rubocop/cop/style/dir_empty_spec.rb b/spec/rubocop/cop/style/dir_empty_spec.rb
+index dc8b24473594..e7ad128e4c4a 100644
+--- a/spec/rubocop/cop/style/dir_empty_spec.rb
++++ b/spec/rubocop/cop/style/dir_empty_spec.rb
+@@ -100,7 +100,7 @@
+     end
+   end
+ 
+-  context 'target ruby version < 2.4', :ruby23 do
++  context 'target ruby version < 2.4', :ruby23, unsupported_on: :prism do
+     it 'does not register an offense for `Dir.entries.size == 2`' do
+       expect_no_offenses('Dir.entries("path/to/dir").size == 2')
+     end
+diff --git a/spec/rubocop/cop/style/file_empty_spec.rb b/spec/rubocop/cop/style/file_empty_spec.rb
+index fc4dfbc1c684..cf8a1057642b 100644
+--- a/spec/rubocop/cop/style/file_empty_spec.rb
++++ b/spec/rubocop/cop/style/file_empty_spec.rb
+@@ -177,7 +177,7 @@
+     end
+   end
+ 
+-  context 'target ruby version < 2.4', :ruby23 do
++  context 'target ruby version < 2.4', :ruby23, unsupported_on: :prism do
+     it 'does not register an offense for `File.zero?`' do
+       expect_no_offenses("File.zero?('path/to/file')")
+     end
+diff --git a/spec/rubocop/cop/style/frozen_string_literal_comment_spec.rb b/spec/rubocop/cop/style/frozen_string_literal_comment_spec.rb
+index f857ab014e62..e43a78f1f9c9 100644
+--- a/spec/rubocop/cop/style/frozen_string_literal_comment_spec.rb
++++ b/spec/rubocop/cop/style/frozen_string_literal_comment_spec.rb
+@@ -1043,7 +1043,7 @@
+     end
+   end
+ 
+-  context 'target_ruby_version < 2.3', :ruby22 do
++  context 'target_ruby_version < 2.3', :ruby22, unsupported_on: :prism do
+     it 'accepts freezing a string' do
+       expect_no_offenses('"x".freeze')
+     end
+diff --git a/spec/rubocop/cop/style/guard_clause_spec.rb b/spec/rubocop/cop/style/guard_clause_spec.rb
+index 69625365b576..0a73659045dc 100644
+--- a/spec/rubocop/cop/style/guard_clause_spec.rb
++++ b/spec/rubocop/cop/style/guard_clause_spec.rb
+@@ -460,7 +460,8 @@ def func
+     RUBY
+   end
+ 
+-  it 'registers an offense when using xstr heredoc as an argument of raise in `else` branch' do
++  # FIXME: https://github.com/ruby/prism/issues/2498
++  it 'registers an offense when using xstr heredoc as an argument of raise in `else` branch', broken_on: :prism do
+     expect_offense(<<~RUBY)
+       def func
+         unless condition
+diff --git a/spec/rubocop/cop/style/hash_except_spec.rb b/spec/rubocop/cop/style/hash_except_spec.rb
+index 7c1690622608..8577be43d0a2 100644
+--- a/spec/rubocop/cop/style/hash_except_spec.rb
++++ b/spec/rubocop/cop/style/hash_except_spec.rb
+@@ -684,7 +684,7 @@
+     end
+   end
+ 
+-  context 'Ruby 2.7 or lower', :ruby27 do
++  context 'Ruby 2.7 or lower', :ruby27, unsupported_on: :prism do
+     it 'does not register an offense when using `reject` and comparing with `lvar == :key`' do
+       expect_no_offenses(<<~RUBY)
+         {foo: 1, bar: 2, baz: 3}.reject { |k, v| k == :bar }
+diff --git a/spec/rubocop/cop/style/hash_syntax_spec.rb b/spec/rubocop/cop/style/hash_syntax_spec.rb
+index 8782dcd5754f..e38ac0572908 100644
+--- a/spec/rubocop/cop/style/hash_syntax_spec.rb
++++ b/spec/rubocop/cop/style/hash_syntax_spec.rb
+@@ -68,7 +68,7 @@
+         expect_no_offenses('{}')
+       end
+ 
+-      context 'ruby < 2.2', :ruby21 do
++      context 'ruby < 2.2', :ruby21, unsupported_on: :prism do
+         it 'accepts hash rockets when symbol keys have string in them' do
+           expect_no_offenses('x = { :"string" => 0 }')
+         end
+@@ -478,7 +478,7 @@
+         RUBY
+       end
+ 
+-      context 'ruby < 2.2', :ruby21 do
++      context 'ruby < 2.2', :ruby21, unsupported_on: :prism do
+         it 'accepts hash rockets when keys have whitespaces in them' do
+           expect_no_offenses('x = { :"t o" => 0, :b => 1 }')
+         end
+@@ -658,7 +658,7 @@
+         RUBY
+       end
+ 
+-      context 'ruby < 2.2', :ruby21 do
++      context 'ruby < 2.2', :ruby21, unsupported_on: :prism do
+         it 'accepts hash rockets when keys have whitespaces in them' do
+           expect_no_offenses('x = { :"t o" => 0, :b => 1 }')
+         end
+@@ -1496,7 +1496,7 @@ def buz(foo:, bar:); end
+       end
+     end
+ 
+-    context 'Ruby <= 3.0', :ruby30 do
++    context 'Ruby <= 3.0', :ruby30, unsupported_on: :prism do
+       it 'does not register an offense when hash key and hash value are the same' do
+         expect_no_offenses(<<~RUBY)
+           {foo: foo, bar: bar}
+@@ -1667,7 +1667,7 @@ def buz(foo:, bar:); end
+       end
+     end
+ 
+-    context 'Ruby <= 3.0', :ruby30 do
++    context 'Ruby <= 3.0', :ruby30, unsupported_on: :prism do
+       it 'does not register an offense when all hash key and hash values are the same' do
+         expect_no_offenses(<<~RUBY)
+           {foo: foo, bar: bar}
+diff --git a/spec/rubocop/cop/style/hash_transform_keys_spec.rb b/spec/rubocop/cop/style/hash_transform_keys_spec.rb
+index a8a77f2c7c01..4cead04b21c1 100644
+--- a/spec/rubocop/cop/style/hash_transform_keys_spec.rb
++++ b/spec/rubocop/cop/style/hash_transform_keys_spec.rb
+@@ -256,7 +256,7 @@
+     end
+   end
+ 
+-  context 'below Ruby 2.5', :ruby24 do
++  context 'below Ruby 2.5', :ruby24, unsupported_on: :prism do
+     it 'does not flag even if transform_keys could be used' do
+       expect_no_offenses('x.each_with_object({}) {|(k, v), h| h[foo(k)] = v}')
+     end
+@@ -311,7 +311,7 @@
+     end
+   end
+ 
+-  context 'below Ruby 2.6', :ruby25 do
++  context 'below Ruby 2.6', :ruby25, unsupported_on: :prism do
+     it 'does not flag _.to_h{...}' do
+       expect_no_offenses(<<~RUBY)
+         x.to_h {|k, v| [k.to_sym, v]}
+diff --git a/spec/rubocop/cop/style/hash_transform_values_spec.rb b/spec/rubocop/cop/style/hash_transform_values_spec.rb
+index f43970ad15da..a360f753f770 100644
+--- a/spec/rubocop/cop/style/hash_transform_values_spec.rb
++++ b/spec/rubocop/cop/style/hash_transform_values_spec.rb
+@@ -297,13 +297,13 @@
+     end
+   end
+ 
+-  context 'below Ruby 2.4', :ruby23 do
++  context 'below Ruby 2.4', :ruby23, unsupported_on: :prism do
+     it 'does not flag even if transform_values could be used' do
+       expect_no_offenses('x.each_with_object({}) {|(k, v), h| h[k] = foo(v)}')
+     end
+   end
+ 
+-  context 'below Ruby 2.6', :ruby25 do
++  context 'below Ruby 2.6', :ruby25, unsupported_on: :prism do
+     it 'does not flag _.to_h{...}' do
+       expect_no_offenses(<<~RUBY)
+         x.to_h {|k, v| [k, foo(v)]}
+diff --git a/spec/rubocop/cop/style/if_with_boolean_literal_branches_spec.rb b/spec/rubocop/cop/style/if_with_boolean_literal_branches_spec.rb
+index e9d85c3c438c..cdf7fa4cd3a1 100644
+--- a/spec/rubocop/cop/style/if_with_boolean_literal_branches_spec.rb
++++ b/spec/rubocop/cop/style/if_with_boolean_literal_branches_spec.rb
+@@ -381,7 +381,9 @@ def foo
+   end
+ 
+   context 'when complex condition' do
+-    it 'registers and corrects an offense when using `if foo? && bar && baz?` with boolean literal branches' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'registers and corrects an offense when using `if foo? && bar && baz?` with boolean literal branches', broken_on: :prism do
+       expect_offense(<<~RUBY)
+         if foo? && bar && baz?
+         ^^ Remove redundant `if` with boolean literal branches.
+@@ -406,7 +408,9 @@ def foo
+       RUBY
+     end
+ 
+-    it 'registers and corrects an offense when using `if foo? || bar && baz?` with boolean literal branches' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'registers and corrects an offense when using `if foo? || bar && baz?` with boolean literal branches', broken_on: :prism do
+       expect_offense(<<~RUBY)
+         if foo? || bar && baz?
+         ^^ Remove redundant `if` with boolean literal branches.
+@@ -421,7 +425,9 @@ def foo
+       RUBY
+     end
+ 
+-    it 'registers and corrects an offense when using `if foo? || (bar && baz)?` with boolean literal branches' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'registers and corrects an offense when using `if foo? || (bar && baz)?` with boolean literal branches', broken_on: :prism do
+       expect_offense(<<~RUBY)
+         if foo? || (bar && baz?)
+         ^^ Remove redundant `if` with boolean literal branches.
+@@ -483,7 +489,9 @@ def foo
+   end
+ 
+   context 'when condition is a logical operator and all operands are predicate methods' do
+-    it 'registers and corrects an offense when using `if foo? && bar?` with boolean literal branches' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'registers and corrects an offense when using `if foo? && bar?` with boolean literal branches', broken_on: :prism do
+       expect_offense(<<~RUBY)
+         if foo? && bar?
+         ^^ Remove redundant `if` with boolean literal branches.
+@@ -513,7 +521,9 @@ def foo
+       RUBY
+     end
+ 
+-    it 'registers and corrects an offense when using `unless foo? || bar?` with boolean literal branches' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'registers and corrects an offense when using `unless foo? || bar?` with boolean literal branches', broken_on: :prism do
+       expect_offense(<<~RUBY)
+         unless foo? || bar?
+         ^^^^^^ Remove redundant `unless` with boolean literal branches.
+@@ -543,7 +553,9 @@ def foo
+       RUBY
+     end
+ 
+-    it 'registers and corrects an offense when using `if foo? && bar? && baz?` with boolean literal branches' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'registers and corrects an offense when using `if foo? && bar? && baz?` with boolean literal branches', broken_on: :prism do
+       expect_offense(<<~RUBY)
+         if foo? && bar? && baz?
+         ^^ Remove redundant `if` with boolean literal branches.
+@@ -558,7 +570,9 @@ def foo
+       RUBY
+     end
+ 
+-    it 'registers and corrects an offense when using `if foo? && bar? || baz?` with boolean literal branches' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'registers and corrects an offense when using `if foo? && bar? || baz?` with boolean literal branches', broken_on: :prism do
+       expect_offense(<<~RUBY)
+         if foo? && bar? || baz?
+         ^^ Remove redundant `if` with boolean literal branches.
+diff --git a/spec/rubocop/cop/style/multiline_ternary_operator_spec.rb b/spec/rubocop/cop/style/multiline_ternary_operator_spec.rb
+index 0f23c97d3486..b4c274cff8a1 100644
+--- a/spec/rubocop/cop/style/multiline_ternary_operator_spec.rb
++++ b/spec/rubocop/cop/style/multiline_ternary_operator_spec.rb
+@@ -50,7 +50,9 @@
+     RUBY
+   end
+ 
+-  it 'registers an offense and corrects when nesting multiline ternary operators' do
++  # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++  # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++  it 'registers an offense and corrects when nesting multiline ternary operators', broken_on: :prism do
+     expect_offense(<<~RUBY)
+       cond_a? ? foo :
+       ^^^^^^^^^^^^^^^ Avoid multi-line ternary operators, use `if` or `unless` instead.
+diff --git a/spec/rubocop/cop/style/multiline_when_then_spec.rb b/spec/rubocop/cop/style/multiline_when_then_spec.rb
+index 0417ff79ff59..57b9de427b95 100644
+--- a/spec/rubocop/cop/style/multiline_when_then_spec.rb
++++ b/spec/rubocop/cop/style/multiline_when_then_spec.rb
+@@ -1,7 +1,8 @@
+ # frozen_string_literal: true
+ 
+ RSpec.describe RuboCop::Cop::Style::MultilineWhenThen, :config do
+-  it 'registers an offense for empty when statement with then' do
++  # FIXME: https://github.com/ruby/prism/issues/2508
++  it 'registers an offense for empty when statement with then', broken_on: :prism do
+     expect_offense(<<~RUBY)
+       case foo
+       when bar then
+@@ -133,7 +134,8 @@
+     RUBY
+   end
+ 
+-  it 'registers an offense when one line for multiple candidate values of `when`' do
++  # FIXME: https://github.com/ruby/prism/issues/2508
++  it 'registers an offense when one line for multiple candidate values of `when`', broken_on: :prism do
+     expect_offense(<<~RUBY)
+       case foo
+       when bar, baz then
+diff --git a/spec/rubocop/cop/style/mutable_constant_spec.rb b/spec/rubocop/cop/style/mutable_constant_spec.rb
+index 67cd8b4ef98b..03cff786643b 100644
+--- a/spec/rubocop/cop/style/mutable_constant_spec.rb
++++ b/spec/rubocop/cop/style/mutable_constant_spec.rb
+@@ -160,7 +160,7 @@
+       end
+     end
+ 
+-    context 'Ruby 2.7 or lower', :ruby27 do
++    context 'Ruby 2.7 or lower', :ruby27, unsupported_on: :prism do
+       context 'when the frozen string literal comment is missing' do
+         it_behaves_like 'mutable objects', '"#{a}"'
+       end
+@@ -348,7 +348,7 @@
+       end
+     end
+ 
+-    context 'Ruby 2.7 or lower', :ruby27 do
++    context 'Ruby 2.7 or lower', :ruby27, unsupported_on: :prism do
+       context 'when assigning a regexp' do
+         it 'registers an offense' do
+           expect_offense(<<~RUBY)
+diff --git a/spec/rubocop/cop/style/nested_file_dirname_spec.rb b/spec/rubocop/cop/style/nested_file_dirname_spec.rb
+index 490378b37e35..a4f16eb7951c 100644
+--- a/spec/rubocop/cop/style/nested_file_dirname_spec.rb
++++ b/spec/rubocop/cop/style/nested_file_dirname_spec.rb
+@@ -37,7 +37,7 @@
+     end
+   end
+ 
+-  context 'Ruby <= 3.0', :ruby30 do
++  context 'Ruby <= 3.0', :ruby30, unsupported_on: :prism do
+     it 'does not register an offense when using `File.dirname(path)` nested two times' do
+       expect_no_offenses(<<~RUBY)
+         File.dirname(File.dirname(path))
+diff --git a/spec/rubocop/cop/style/numeric_literals_spec.rb b/spec/rubocop/cop/style/numeric_literals_spec.rb
+index b29c1647f48e..d6d0f798c5db 100644
+--- a/spec/rubocop/cop/style/numeric_literals_spec.rb
++++ b/spec/rubocop/cop/style/numeric_literals_spec.rb
+@@ -116,7 +116,8 @@
+     RUBY
+   end
+ 
+-  it 'autocorrects numbers with spaces between leading minus and numbers' do
++  # FIXME: https://github.com/ruby/prism/issues/2501
++  it 'autocorrects numbers with spaces between leading minus and numbers', broken_on: :prism do
+     expect_offense(<<~RUBY)
+       a = -
+           ^ Use underscores(_) as thousands separator and separate every 3 digits with them.
+diff --git a/spec/rubocop/cop/style/numeric_predicate_spec.rb b/spec/rubocop/cop/style/numeric_predicate_spec.rb
+index 26533e0c39c3..a7f8ff03a355 100644
+--- a/spec/rubocop/cop/style/numeric_predicate_spec.rb
++++ b/spec/rubocop/cop/style/numeric_predicate_spec.rb
+@@ -137,7 +137,7 @@ def m(foo)
+         end
+       end
+ 
+-      context 'when target ruby version is 2.2 or lower', :ruby22 do
++      context 'when target ruby version is 2.2 or lower', :ruby22, unsupported_on: :prism do
+         it 'does not register an offense' do
+           expect_no_offenses('number > 0')
+         end
+@@ -193,7 +193,7 @@ def m(foo)
+         end
+       end
+ 
+-      context 'when target ruby version is 2.2 or lower', :ruby22 do
++      context 'when target ruby version is 2.2 or lower', :ruby22, unsupported_on: :prism do
+         it 'does not register an offense' do
+           expect_no_offenses('number < 0')
+         end
+@@ -328,7 +328,7 @@ def m(foo)
+             end
+           end
+ 
+-          context 'when target ruby version is 2.2 or lower', :ruby22 do
++          context 'when target ruby version is 2.2 or lower', :ruby22, unsupported_on: :prism do
+             it 'does not register an offense' do
+               expect_no_offenses('exclude { number > 0 }')
+             end
+@@ -349,7 +349,7 @@ def m(foo)
+             end
+           end
+ 
+-          context 'when target ruby version is 2.2 or lower', :ruby22 do
++          context 'when target ruby version is 2.2 or lower', :ruby22, unsupported_on: :prism do
+             it 'does not register an offense' do
+               expect_no_offenses('exclude { number > 0 }')
+             end
+diff --git a/spec/rubocop/cop/style/object_then_spec.rb b/spec/rubocop/cop/style/object_then_spec.rb
+index 38f7a758dca5..1dd2a502a5d4 100644
+--- a/spec/rubocop/cop/style/object_then_spec.rb
++++ b/spec/rubocop/cop/style/object_then_spec.rb
+@@ -4,7 +4,7 @@
+   context 'EnforcedStyle: then' do
+     let(:cop_config) { { 'EnforcedStyle' => 'then' } }
+ 
+-    context 'Ruby 2.5', :ruby25 do
++    context 'Ruby 2.5', :ruby25, unsupported_on: :prism do
+       it 'accepts yield_self with block' do
+         expect_no_offenses(<<~RUBY)
+           obj.yield_self { |e| e.test }
+diff --git a/spec/rubocop/cop/style/quoted_symbols_spec.rb b/spec/rubocop/cop/style/quoted_symbols_spec.rb
+index 9ec9ec57ab37..482c281e9f9c 100644
+--- a/spec/rubocop/cop/style/quoted_symbols_spec.rb
++++ b/spec/rubocop/cop/style/quoted_symbols_spec.rb
+@@ -63,7 +63,8 @@
+       RUBY
+     end
+ 
+-    it 'accepts double quotes with line breaks' do
++    # FIXME: https://github.com/ruby/prism/issues/2506
++    it 'accepts double quotes with line breaks', broken_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         :"a
+           bc"
+@@ -216,14 +217,16 @@
+       RUBY
+     end
+ 
+-    it 'accepts single quotes with line breaks' do
++    # FIXME: https://github.com/ruby/prism/issues/2506
++    it 'accepts single quotes with line breaks', broken_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         :'a
+           bc'
+       RUBY
+     end
+ 
+-    it 'accepts double quotes with line breaks' do
++    # FIXME: https://github.com/ruby/prism/issues/2506
++    it 'accepts double quotes with line breaks', broken_on: :prism do
+       expect_no_offenses(<<~RUBY)
+         :'a
+           bc'
+diff --git a/spec/rubocop/cop/style/redundant_begin_spec.rb b/spec/rubocop/cop/style/redundant_begin_spec.rb
+index a37bde8049cc..f9ae1367e359 100644
+--- a/spec/rubocop/cop/style/redundant_begin_spec.rb
++++ b/spec/rubocop/cop/style/redundant_begin_spec.rb
+@@ -344,7 +344,7 @@ def method
+     RUBY
+   end
+ 
+-  context '< Ruby 2.5', :ruby24 do
++  context '< Ruby 2.5', :ruby24, unsupported_on: :prism do
+     it 'accepts a do-end block with a begin-end' do
+       expect_no_offenses(<<~RUBY)
+         do_something do
+diff --git a/spec/rubocop/cop/style/redundant_freeze_spec.rb b/spec/rubocop/cop/style/redundant_freeze_spec.rb
+index 07110f036af9..d70906cd45be 100644
+--- a/spec/rubocop/cop/style/redundant_freeze_spec.rb
++++ b/spec/rubocop/cop/style/redundant_freeze_spec.rb
+@@ -93,7 +93,7 @@
+       end
+     end
+ 
+-    context 'Ruby 2.7 or lower', :ruby27 do
++    context 'Ruby 2.7 or lower', :ruby27, unsupported_on: :prism do
+       context 'when the frozen string literal comment is missing' do
+         it_behaves_like 'mutable objects', '"#{a}"'
+       end
+@@ -122,7 +122,7 @@
+         it_behaves_like 'immutable objects', '(1...5)'
+       end
+ 
+-      context 'Ruby 2.7 or lower', :ruby27 do
++      context 'Ruby 2.7 or lower', :ruby27, unsupported_on: :prism do
+         it_behaves_like 'mutable objects', '/./'
+         it_behaves_like 'mutable objects', '(1..5)'
+         it_behaves_like 'mutable objects', '(1...5)'
+diff --git a/spec/rubocop/cop/style/redundant_heredoc_delimiter_quotes_spec.rb b/spec/rubocop/cop/style/redundant_heredoc_delimiter_quotes_spec.rb
+index 842f69bf198f..de49c98c9291 100644
+--- a/spec/rubocop/cop/style/redundant_heredoc_delimiter_quotes_spec.rb
++++ b/spec/rubocop/cop/style/redundant_heredoc_delimiter_quotes_spec.rb
+@@ -61,7 +61,8 @@
+     RUBY
+   end
+ 
+-  it 'does not register an offense when using the redundant heredoc delimiter backquotes' do
++  # FIXME: https://github.com/ruby/prism/issues/2498
++  it 'does not register an offense when using the redundant heredoc delimiter backquotes', broken_on: :prism do
+     expect_no_offenses(<<~RUBY)
+       do_something(<<~`EOS`)
+         command
+@@ -162,7 +163,9 @@
+     RUBY
+   end
+ 
+-  it 'does not register an offense when using the blank heredoc delimiter' do
++  # FIXME: `<<''` is a syntax error in Ruby. This test was added because Parser gem can parse it,
++  # but this will be removed after https://github.com/whitequark/parser/issues/996 is resolved.
++  it 'does not register an offense when using the blank heredoc delimiter', unsupported_on: :prism do
+     expect_no_offenses(<<~RUBY)
+       <<''
+     RUBY
+diff --git a/spec/rubocop/cop/style/redundant_parentheses_spec.rb b/spec/rubocop/cop/style/redundant_parentheses_spec.rb
+index 192f21c6ffb0..2618da74afbb 100644
+--- a/spec/rubocop/cop/style/redundant_parentheses_spec.rb
++++ b/spec/rubocop/cop/style/redundant_parentheses_spec.rb
+@@ -905,7 +905,8 @@ def foo
+ 
+   context 'pin operator', :ruby31 do
+     shared_examples 'redundant parentheses' do |variable, description|
+-      it "registers an offense and corrects #{description}" do
++      # FIXME: https://github.com/ruby/prism/issues/2499
++      it "registers an offense and corrects #{description}", broken_on: :prism do
+         expect_offense(<<~RUBY, variable: variable)
+           var = 0
+           foo in { bar: ^(%{variable}) }
+diff --git a/spec/rubocop/cop/style/rescue_modifier_spec.rb b/spec/rubocop/cop/style/rescue_modifier_spec.rb
+index 68dc1cb2159b..8392c3edc62d 100644
+--- a/spec/rubocop/cop/style/rescue_modifier_spec.rb
++++ b/spec/rubocop/cop/style/rescue_modifier_spec.rb
+@@ -18,14 +18,15 @@
+     RUBY
+   end
+ 
+-  it 'registers an offense for modifier rescue around parallel assignment', :ruby26 do
++  it 'registers an offense for modifier rescue around parallel assignment', :ruby26, unsupported_on: :prism do
+     expect_offense(<<~RUBY)
+       a, b = 1, 2 rescue nil
+       ^^^^^^^^^^^^^^^^^^^^^^ Avoid using `rescue` in its modifier form.
+     RUBY
+   end
+ 
+-  it 'registers an offense for modifier rescue around parallel assignment', :ruby27 do
++  # FIXME: https://github.com/ruby/prism/issues/2500
++  it 'registers an offense for modifier rescue around parallel assignment', :ruby27, broken_on: :prism do
+     expect_offense(<<~RUBY)
+       a, b = 1, 2 rescue nil
+              ^^^^^^^^^^^^^^^ Avoid using `rescue` in its modifier form.
+diff --git a/spec/rubocop/cop/style/safe_navigation_spec.rb b/spec/rubocop/cop/style/safe_navigation_spec.rb
+index 7b539f75f3c1..3900046c9762 100644
+--- a/spec/rubocop/cop/style/safe_navigation_spec.rb
++++ b/spec/rubocop/cop/style/safe_navigation_spec.rb
+@@ -1191,7 +1191,7 @@ def foobar
+     end
+   end
+ 
+-  context 'when Ruby <= 2.2', :ruby22 do
++  context 'when Ruby <= 2.2', :ruby22, unsupported_on: :prism do
+     it 'does not register an offense when a method call that nil responds to safe guarded by an object check' do
+       expect_no_offenses('foo.bar if foo')
+     end
+diff --git a/spec/rubocop/cop/style/select_by_regexp_spec.rb b/spec/rubocop/cop/style/select_by_regexp_spec.rb
+index 3bb92dc82493..14e5e4767bcf 100644
+--- a/spec/rubocop/cop/style/select_by_regexp_spec.rb
++++ b/spec/rubocop/cop/style/select_by_regexp_spec.rb
+@@ -482,7 +482,7 @@
+     include_examples('regexp mismatch', 'find_all', 'grep_v')
+   end
+ 
+-  context 'when Ruby <= 2.2', :ruby22 do
++  context 'when Ruby <= 2.2', :ruby22, unsupported_on: :prism do
+     include_examples('regexp match', 'select', 'grep')
+     include_examples('regexp match', 'find_all', 'grep')
+     include_examples('regexp mismatch', 'reject', 'grep')
+diff --git a/spec/rubocop/cop/style/single_line_methods_spec.rb b/spec/rubocop/cop/style/single_line_methods_spec.rb
+index 6fb102e8ae26..759285f37a2d 100644
+--- a/spec/rubocop/cop/style/single_line_methods_spec.rb
++++ b/spec/rubocop/cop/style/single_line_methods_spec.rb
+@@ -318,7 +318,7 @@ def some_method;#{trailing_whitespace}
+       it_behaves_like 'convert to endless method'
+     end
+ 
+-    context 'prior to ruby 3.0', :ruby27 do
++    context 'prior to ruby 3.0', :ruby27, unsupported_on: :prism do
+       let(:endless_method_config) { { 'EnforcedStyle' => 'allow_always' } }
+ 
+       it 'corrects to a multiline method' do
+diff --git a/spec/rubocop/cop/style/slicing_with_range_spec.rb b/spec/rubocop/cop/style/slicing_with_range_spec.rb
+index 6408f79329da..d9104885fa6f 100644
+--- a/spec/rubocop/cop/style/slicing_with_range_spec.rb
++++ b/spec/rubocop/cop/style/slicing_with_range_spec.rb
+@@ -1,7 +1,7 @@
+ # frozen_string_literal: true
+ 
+ RSpec.describe RuboCop::Cop::Style::SlicingWithRange, :config do
+-  context '<= Ruby 2.5', :ruby25 do
++  context '<= Ruby 2.5', :ruby25, unsupported_on: :prism do
+     it 'reports no offense for array slicing end with `-1`' do
+       expect_no_offenses(<<~RUBY)
+         ary[1..-1]
+diff --git a/spec/rubocop/cop/style/string_literals_spec.rb b/spec/rubocop/cop/style/string_literals_spec.rb
+index fdbd300f46cc..e9bd6dcc8789 100644
+--- a/spec/rubocop/cop/style/string_literals_spec.rb
++++ b/spec/rubocop/cop/style/string_literals_spec.rb
+@@ -338,7 +338,8 @@
+         }
+       end
+ 
+-      it 'registers an offense for strings with line breaks in them' do
++      # FIXME: https://github.com/ruby/prism/issues/2515
++      it 'registers an offense for strings with line breaks in them', broken_on: :prism do
+         expect_offense(<<~RUBY)
+           "--
+           ^^^ Prefer single-quoted strings when you don't need string interpolation or special symbols.
+diff --git a/spec/rubocop/cop/style/ternary_parentheses_spec.rb b/spec/rubocop/cop/style/ternary_parentheses_spec.rb
+index e2c7f4709b7c..ee331a3b35e1 100644
+--- a/spec/rubocop/cop/style/ternary_parentheses_spec.rb
++++ b/spec/rubocop/cop/style/ternary_parentheses_spec.rb
+@@ -401,7 +401,7 @@
+     # $ ruby-parse --27 -e 'foo in bar'
+     # (match-pattern (send nil :foo) (match-var :bar))
+     #
+-    context 'with one line pattern matching', :ruby27 do
++    context 'with one line pattern matching', :ruby27, unsupported_on: :prism do
+       it 'does not register an offense' do
+         expect_no_offenses(<<~RUBY)
+           (foo in bar) ? a : b
+@@ -414,7 +414,8 @@
+     # $ ruby-parse --30 -e 'foo in bar'
+     # (match-pattern-p (send nil :foo) (match-var :bar))
+     #
+-    context 'with one line pattern matching', :ruby30 do
++    # FIXME: https://github.com/ruby/prism/pull/2525
++    context 'with one line pattern matching', :ruby30, broken_on: :prism do
+       it 'does not register an offense' do
+         expect_no_offenses(<<~RUBY)
+           (foo in bar) ? a : b
+diff --git a/spec/rubocop/cop/style/yaml_file_read_spec.rb b/spec/rubocop/cop/style/yaml_file_read_spec.rb
+index 85b719ab475e..a2ceb2195ab9 100644
+--- a/spec/rubocop/cop/style/yaml_file_read_spec.rb
++++ b/spec/rubocop/cop/style/yaml_file_read_spec.rb
+@@ -77,7 +77,7 @@
+     end
+   end
+ 
+-  context 'when Ruby <= 2.7', :ruby27 do
++  context 'when Ruby <= 2.7', :ruby27, unsupported_on: :prism do
+     it 'registers an offense when using `YAML.load` with `File.read` argument' do
+       expect_offense(<<~RUBY)
+         YAML.load(File.read(path))
+diff --git a/spec/rubocop/cop/style/yoda_condition_spec.rb b/spec/rubocop/cop/style/yoda_condition_spec.rb
+index 518efd9cea7d..209b0e99c51a 100644
+--- a/spec/rubocop/cop/style/yoda_condition_spec.rb
++++ b/spec/rubocop/cop/style/yoda_condition_spec.rb
+@@ -109,7 +109,9 @@
+       RUBY
+     end
+ 
+-    it 'registers an offense for boolean literal on left' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'registers an offense for boolean literal on left', broken_on: :prism do
+       expect_offense(<<~RUBY)
+         false == active?
+         ^^^^^^^^^^^^^^^^ Reverse the order of the operands `false == active?`.
+@@ -350,7 +352,9 @@
+       RUBY
+     end
+ 
+-    it 'registers an offense for boolean literal on right' do
++    # FIXME: `undefined method `[]' for nil` occurs Prism 0.24.0. It has been resolved in
++    # the development line. This will be resolved in Prism > 0.24.0 and higher releases.
++    it 'registers an offense for boolean literal on right', broken_on: :prism do
+       expect_offense(<<~RUBY)
+         active? == false
+         ^^^^^^^^^^^^^^^^ Reverse the order of the operands `active? == false`.
+diff --git a/spec/rubocop/cop/team_spec.rb b/spec/rubocop/cop/team_spec.rb
+index 2b373d5a8e63..38e30b74a205 100644
+--- a/spec/rubocop/cop/team_spec.rb
++++ b/spec/rubocop/cop/team_spec.rb
+@@ -90,7 +90,9 @@ def a
+ 
+     let(:file_path) { 'example.rb' }
+     let(:source) do
+-      source = RuboCop::ProcessedSource.from_file(file_path, ruby_version)
++      source = RuboCop::ProcessedSource.from_file(
++        file_path, ruby_version, parser_engine: parser_engine
++      )
+       source.config = config
+       source.registry = RuboCop::Cop::Registry.new(cop_classes.cops)
+       source
+@@ -109,7 +111,8 @@ def a
+ 
+       let(:cop_names) { offenses.map(&:cop_name) }
+ 
+-      it 'returns Parser warning offenses' do
++      # FIXME: https://github.com/ruby/prism/issues/2513
++      it 'returns Parser warning offenses', broken_on: :prism do
+         expect(cop_names.include?('Lint/AmbiguousOperator')).to be(true)
+       end
+ 
+@@ -118,7 +121,8 @@ def a
+       end
+ 
+       context 'when a cop has no interest in the file' do
+-        it 'returns all offenses except the ones of the cop' do
++        # FIXME: https://github.com/ruby/prism/issues/2513
++        it 'returns all offenses except the ones of the cop', broken_on: :prism do
+           allow_any_instance_of(RuboCop::Cop::Layout::LineLength)
+             .to receive(:excluded_file?).and_return(true)
+ 
+diff --git a/spec/rubocop/cop/variable_force/assignment_spec.rb b/spec/rubocop/cop/variable_force/assignment_spec.rb
+index a598fb7310e5..d0a87a567deb 100644
+--- a/spec/rubocop/cop/variable_force/assignment_spec.rb
++++ b/spec/rubocop/cop/variable_force/assignment_spec.rb
+@@ -3,7 +3,7 @@
+ RSpec.describe RuboCop::Cop::VariableForce::Assignment do
+   include RuboCop::AST::Sexp
+ 
+-  let(:ast) { RuboCop::ProcessedSource.new(source, ruby_version).ast }
++  let(:ast) { RuboCop::ProcessedSource.new(source, ruby_version, parser_engine: parser_engine).ast }
+ 
+   let(:source) do
+     <<~RUBY
+diff --git a/spec/rubocop/cop/variable_force/scope_spec.rb b/spec/rubocop/cop/variable_force/scope_spec.rb
+index ea0ce598c503..bb2e134f4b79 100644
+--- a/spec/rubocop/cop/variable_force/scope_spec.rb
++++ b/spec/rubocop/cop/variable_force/scope_spec.rb
+@@ -5,7 +5,7 @@
+ 
+   subject(:scope) { described_class.new(scope_node) }
+ 
+-  let(:ast) { RuboCop::ProcessedSource.new(source, ruby_version).ast }
++  let(:ast) { RuboCop::ProcessedSource.new(source, ruby_version, parser_engine: parser_engine).ast }
+ 
+   let(:scope_node) { ast.each_node(scope_node_type).first }
+ 
+diff --git a/spec/rubocop/runner_spec.rb b/spec/rubocop/runner_spec.rb
+index f97fc2bbaa04..b5f6545ea8cf 100644
+--- a/spec/rubocop/runner_spec.rb
++++ b/spec/rubocop/runner_spec.rb
+@@ -136,12 +136,13 @@ def INVALID_CODE; end
+         described_class.ruby_extractors.shift
+       end
+ 
++      # rubocop:disable Layout/LineLength
+       let(:custom_ruby_extractor) do
+         lambda do |_processed_source|
+           [
+             {
+               offset: 1,
+-              processed_source: RuboCop::ProcessedSource.new(<<~RUBY, 3.1, 'dummy.rb')
++              processed_source: RuboCop::ProcessedSource.new(<<~RUBY, 3.3, 'dummy.rb', parser_engine: parser_engine)
+                 # frozen_string_literal: true
+ 
+                 def valid_code; end
+@@ -149,11 +150,12 @@ def valid_code; end
+             },
+             {
+               offset: 2,
+-              processed_source: RuboCop::ProcessedSource.new(source, 3.1, 'dummy.rb')
++              processed_source: RuboCop::ProcessedSource.new(source, 3.3, 'dummy.rb', parser_engine: parser_engine)
+             }
+           ]
+         end
+       end
++      # rubocop:enable Layout/LineLength
+ 
+       let(:source) do
+         <<~RUBY
+diff --git a/spec/spec_helper.rb b/spec/spec_helper.rb
+index 68fd2b78d55b..3e32ce289cfa 100644
+--- a/spec/spec_helper.rb
++++ b/spec/spec_helper.rb
+@@ -59,6 +59,10 @@
+   end
+ 
+   config.filter_run_excluding broken_on: :jruby if ENV.fetch('GITHUB_JOB', nil) == 'jruby'
++  config.filter_run_excluding broken_on: :prism if ENV['PARSER_ENGINE'] == 'parser_prism'
++
++  # Prism supports Ruby 3.3+ parsing.
++  config.filter_run_excluding unsupported_on: :prism if ENV['PARSER_ENGINE'] == 'parser_prism'
+ end
+ 
+ module ::RSpec
+diff --git a/tasks/spec_runner.rake b/tasks/spec_runner.rake
+index 26701d2d06cc..2c8e5a9a670e 100644
+--- a/tasks/spec_runner.rake
++++ b/tasks/spec_runner.rake
+@@ -168,3 +168,8 @@ desc 'Run RSpec code examples with ASCII encoding'
+ task :ascii_spec do
+   RuboCop::SpecRunner.new(external_encoding: 'ASCII').run_specs
+ end
++
++desc 'Run RSpec code examples with Prism'
++task :prism_spec do
++  sh('PARSER_ENGINE=parser_prism bundle exec rake spec')
++end

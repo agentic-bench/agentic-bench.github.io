@@ -1,0 +1,6 @@
+{
+  "issue_title": "Extra linear scaling in `LlamaRotaryEmbedding` classes",
+  "issue_body": "I've been doing some work around NTK and YaRN scaling, and I noticed that PR https://github.com/huggingface/transformers/pull/29198 adds linear scaling `t = t / self.scaling_factor` to the constructor for the `LlamaRotaryEmbedding` base class, possibly pulled in from `GPTNeoXLinearScalingRotaryEmbedding` (which uses a different style of `forward` function to `LlamaLinearScalingRotaryEmbedding`) - if I'm reading this correctly, it's a behavioural change that means the Llama RoPE subclasses are now being scaled twice, once linearly by the base class constructor and then again by their respective `forward` functions. \r\n\r\nShould be a simple fix to just take out this one line, assuming I haven't missed anything: https://github.com/huggingface/transformers/blob/main/src/transformers/models/llama/modeling_llama.py#L108",
+  "pr_title": "RoPE models: add numerical sanity-check test for RoPE scaling",
+  "pr_body": "# What does this PR do?\r\n\r\nFixes #29765 \r\n\r\n#29765 asks a pertinent question, where I had to look at the code to confirm the answer. This question should be checked automatically in a test instead -- confirm that RoPE scaling is working as intended."
+}

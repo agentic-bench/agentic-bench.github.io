@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "pandas_issue_32988_pr_33067_sm_ec40b411"
+contextcrbench2_full_name = "pandas-dev/pandas"
+contextcrbench2_lang = "python"
+contextcrbench2_issue_number = "32988"
+contextcrbench2_issue_title = "REGR: `replace` casts columns to `object`"
+contextcrbench2_pr_number = "33067"
+contextcrbench2_pr_title = "BUG: Fix unwanted type casting while replacing values in a DataFrame"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "ec40b4117e2c0067e10dc113e83da036eb64011d"
+contextcrbench2_commit_id = "8d5b2ce55d4d0105b2a52c39ab4d7747d619fd85"
+contextcrbench2_created_at = "2020-03-27T16:37:15Z"
+contextcrbench2_entry_count = "1"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

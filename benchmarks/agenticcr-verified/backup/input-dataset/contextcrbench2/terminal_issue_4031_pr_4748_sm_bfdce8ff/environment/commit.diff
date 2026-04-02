@@ -1,0 +1,314 @@
+diff --git a/src/cascadia/TerminalControl/SearchBoxControl.cpp b/src/cascadia/TerminalControl/SearchBoxControl.cpp
+index 96d24cc576b..ff6acc150f9 100644
+--- a/src/cascadia/TerminalControl/SearchBoxControl.cpp
++++ b/src/cascadia/TerminalControl/SearchBoxControl.cpp
+@@ -95,39 +95,19 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
+     }
+ 
+     // Method Description:
+-    // - Handler for pressing Enter on TextBox, trigger
+-    //   text search
+-    // Arguments:
+-    // - <none>
+-    // Return Value:
+-    // - <none>
+-    void SearchBoxControl::SetFocusOnTextbox()
++    // - Funnels focus into the textbox and selects it
++    // - Selects all text.
++    void SearchBoxControl::OnGotFocus(/*const IInspectable& sender,*/ Windows::UI::Xaml::RoutedEventArgs const& args)
+     {
+-        if (TextBox())
++        if (args.OriginalSource() == *this)
+         {
+-            Input::FocusManager::TryFocusAsync(TextBox(), FocusState::Keyboard);
++            // The text box gets focus because it's our first focusable element,
++            // but let's be safe.
++            TextBox().Focus(FocusState::Keyboard);
+             TextBox().SelectAll();
+         }
+     }
+ 
+-    // Method Description:
+-    // - Check if the current focus is on any element within the
+-    //   search box
+-    // Arguments:
+-    // - <none>
+-    // Return Value:
+-    // - bool: whether the current focus is on the search box
+-    bool SearchBoxControl::ContainsFocus()
+-    {
+-        auto focusedElement = Input::FocusManager::GetFocusedElement(this->XamlRoot());
+-        if (_focusableElements.count(focusedElement) > 0)
+-        {
+-            return true;
+-        }
+-
+-        return false;
+-    }
+-
+     // Method Description:
+     // - Handler for clicking the GoBackward button. This change the value of _goForward,
+     //   mark GoBackward button as checked and ensure GoForward button
+diff --git a/src/cascadia/TerminalControl/SearchBoxControl.h b/src/cascadia/TerminalControl/SearchBoxControl.h
+index c48ca8d58ed..9b30ddbff54 100644
+--- a/src/cascadia/TerminalControl/SearchBoxControl.h
++++ b/src/cascadia/TerminalControl/SearchBoxControl.h
+@@ -26,10 +26,9 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
+     {
+         SearchBoxControl();
+ 
+-        void TextBoxKeyDown(winrt::Windows::Foundation::IInspectable const& /*sender*/, winrt::Windows::UI::Xaml::Input::KeyRoutedEventArgs const& e);
++        void OnGotFocus(Windows::UI::Xaml::RoutedEventArgs const& args);
+ 
+-        void SetFocusOnTextbox();
+-        bool ContainsFocus();
++        void TextBoxKeyDown(winrt::Windows::Foundation::IInspectable const& /*sender*/, winrt::Windows::UI::Xaml::Input::KeyRoutedEventArgs const& e);
+ 
+         void GoBackwardClicked(winrt::Windows::Foundation::IInspectable const& /*sender*/, winrt::Windows::UI::Xaml::RoutedEventArgs const& /*e*/);
+         void GoForwardClicked(winrt::Windows::Foundation::IInspectable const& /*sender*/, winrt::Windows::UI::Xaml::RoutedEventArgs const& /*e*/);
+diff --git a/src/cascadia/TerminalControl/SearchBoxControl.idl b/src/cascadia/TerminalControl/SearchBoxControl.idl
+index ed6c4e4cc7f..25a81dba279 100644
+--- a/src/cascadia/TerminalControl/SearchBoxControl.idl
++++ b/src/cascadia/TerminalControl/SearchBoxControl.idl
+@@ -8,8 +8,6 @@ namespace Microsoft.Terminal.TerminalControl
+     [default_interface] runtimeclass SearchBoxControl : Windows.UI.Xaml.Controls.UserControl
+     {
+         SearchBoxControl();
+-        void SetFocusOnTextbox();
+-        Boolean ContainsFocus();
+ 
+         event SearchHandler Search;
+         event Windows.Foundation.TypedEventHandler<SearchBoxControl, Windows.UI.Xaml.RoutedEventArgs> Closed;
+diff --git a/src/cascadia/TerminalControl/SearchBoxControl.xaml b/src/cascadia/TerminalControl/SearchBoxControl.xaml
+index 2bf71326451..63212509e00 100644
+--- a/src/cascadia/TerminalControl/SearchBoxControl.xaml
++++ b/src/cascadia/TerminalControl/SearchBoxControl.xaml
+@@ -3,7 +3,6 @@
+     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+-    xmlns:local="using:Microsoft.Terminal.TerminalControl"
+     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+     mc:Ignorable="d"
+     x:Name="Root"
+@@ -11,7 +10,8 @@
+     VerticalAlignment="Top"
+     d:DesignHeight="55"
+     d:DesignWidth="285"
+-    TabNavigation="Cycle">
++    TabNavigation="Cycle"
++    IsTabStop="True">
+ 
+     <UserControl.Resources>
+         <ResourceDictionary>
+diff --git a/src/cascadia/TerminalControl/TermControl.cpp b/src/cascadia/TerminalControl/TermControl.cpp
+index 42eeb355eab..c4db2899afb 100644
+--- a/src/cascadia/TerminalControl/TermControl.cpp
++++ b/src/cascadia/TerminalControl/TermControl.cpp
+@@ -67,7 +67,6 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
+         _cursorTimer{},
+         _lastMouseClick{},
+         _lastMouseClickPos{},
+-        _searchBox{ nullptr },
+         _unfocusedClickPos{ std::nullopt },
+         _isClickDragSelection{ false }
+     {
+@@ -97,6 +96,19 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
+         _ApplyUISettings();
+     }
+ 
++    // Method Description:
++    // - Funnels focus from TermControl to its input control
++    // Arguments:
++    // - e: the event args for the focus event
++    void TermControl::OnGotFocus(const RoutedEventArgs& e)
++    {
++        if (e.OriginalSource() == *this)
++        {
++            // If we're about to get focus, funnel it into our input site.
++            TerminalInputTarget().Focus(FocusState::Programmatic);
++        }
++    }
++
+     // Method Description:
+     // - Loads the search box from the xaml UI and focuses it.
+     void TermControl::CreateSearchBoxControl()
+@@ -104,13 +116,9 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
+         // Lazy load the search box control.
+         if (auto loadedSearchBox{ FindName(L"SearchBox") })
+         {
+-            if (auto searchBox{ loadedSearchBox.try_as<::winrt::Microsoft::Terminal::TerminalControl::SearchBoxControl>() })
+-            {
+-                // get at its private implementation
+-                _searchBox.copy_from(winrt::get_self<implementation::SearchBoxControl>(searchBox));
+-                _searchBox->Visibility(Visibility::Visible);
+-                _searchBox->SetFocusOnTextbox();
+-            }
++            // We loaded it, so Xaml wired it up to this property.
++            SearchBox().Visibility(Visibility::Visible);
++            SearchBox().Focus(FocusState::Programmatic);
+         }
+     }
+ 
+@@ -158,10 +166,10 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
+     // - <none>
+     void TermControl::_CloseSearchBoxControl(const winrt::Windows::Foundation::IInspectable& /*sender*/, RoutedEventArgs const& /*args*/)
+     {
+-        _searchBox->Visibility(Visibility::Collapsed);
++        SearchBox().Visibility(Visibility::Collapsed);
+ 
+         // Set focus back to terminal control
+-        this->Focus(FocusState::Programmatic);
++        TerminalInputTarget().Focus(FocusState::Programmatic);
+     }
+ 
+     // Method Description:
+@@ -632,7 +640,7 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
+         //      focus won't actually get passed to us. I believe this is because
+         //      we're not technically a part of the UI tree yet, so focusing us
+         //      becomes a no-op.
+-        this->Focus(FocusState::Programmatic);
++        TerminalInputTarget().Focus(FocusState::Programmatic);
+ 
+         _connection.Start();
+         _initializedTerminal = true;
+@@ -657,13 +665,6 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
+     void TermControl::_KeyDownHandler(winrt::Windows::Foundation::IInspectable const& /*sender*/,
+                                       Input::KeyRoutedEventArgs const& e)
+     {
+-        // If the current focused element is a child element of searchbox,
+-        // we do not send this event up to terminal
+-        if (_searchBox && _searchBox->ContainsFocus())
+-        {
+-            return;
+-        }
+-
+         // mark event as handled and do nothing if...
+         //   - closing
+         //   - key modifier is pressed
+@@ -764,7 +765,7 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
+     // - args: event data
+     void TermControl::_TappedHandler(const IInspectable& /*sender*/, const TappedRoutedEventArgs& e)
+     {
+-        Focus(FocusState::Pointer);
++        TerminalInputTarget().Focus(FocusState::Pointer);
+         e.Handled(true);
+     }
+ 
+@@ -783,7 +784,7 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
+ 
+         if (!_focused)
+         {
+-            Focus(FocusState::Pointer);
++            TerminalInputTarget().Focus(FocusState::Pointer);
+ 
+             // Save the click position here when the terminal does not have focus
+             // because they might be performing a click-drag selection. Since we
+@@ -1263,14 +1264,6 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
+ 
+         _focused = true;
+ 
+-        // If the searchbox is focused, we don't want TSFInputControl to think
+-        // it has focus so it doesn't intercept IME input. We also don't want the
+-        // terminal's cursor to start blinking. So, we'll just return quickly here.
+-        if (_searchBox && _searchBox->ContainsFocus())
+-        {
+-            return;
+-        }
+-
+         if (_uiaEngine.get())
+         {
+             THROW_IF_FAILED(_uiaEngine->Enable());
+diff --git a/src/cascadia/TerminalControl/TermControl.h b/src/cascadia/TerminalControl/TermControl.h
+index 0fcc63cde4d..1bee128b4cd 100644
+--- a/src/cascadia/TerminalControl/TermControl.h
++++ b/src/cascadia/TerminalControl/TermControl.h
+@@ -14,7 +14,6 @@
+ #include "../../cascadia/TerminalCore/Terminal.hpp"
+ #include "../buffer/out/search.h"
+ #include "cppwinrt_utils.h"
+-#include "SearchBoxControl.h"
+ 
+ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
+ {
+@@ -58,6 +57,8 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
+         TermControl();
+         TermControl(Settings::IControlSettings settings, TerminalConnection::ITerminalConnection connection);
+ 
++        void OnGotFocus(Windows::UI::Xaml::RoutedEventArgs const& args);
++
+         winrt::fire_and_forget UpdateSettings(Settings::IControlSettings newSettings);
+ 
+         hstring Title();
+@@ -110,8 +111,6 @@ namespace winrt::Microsoft::Terminal::TerminalControl::implementation
+         TerminalConnection::ITerminalConnection _connection;
+         bool _initializedTerminal;
+ 
+-        winrt::com_ptr<SearchBoxControl> _searchBox;
+-
+         event_token _connectionOutputEventToken;
+         TerminalConnection::ITerminalConnection::StateChanged_revoker _connectionStateChangedRevoker;
+ 
+diff --git a/src/cascadia/TerminalControl/TermControl.xaml b/src/cascadia/TerminalControl/TermControl.xaml
+index 734edf938b4..64c1a213fd8 100644
+--- a/src/cascadia/TerminalControl/TermControl.xaml
++++ b/src/cascadia/TerminalControl/TermControl.xaml
+@@ -11,22 +11,13 @@
+     d:DesignHeight="768"
+     d:DesignWidth="1024"
+     TabNavigation="Cycle"
+-    IsTabStop="True"
+-    AllowFocusOnInteraction="True"
++    IsTabStop="False"
++    AllowFocusOnInteraction="True" 
+     AllowDrop="True"
+     Drop="_DragDropHandler"
+     DragOver="_DragOverHandler"
+     Tapped="_TappedHandler"
+-    PointerWheelChanged="_MouseWheelHandler"
+-    PreviewKeyDown="_KeyDownHandler"
+-    CharacterReceived="_CharacterHandler"
+-    GotFocus="_GotFocusHandler"
+-    LostFocus="_LostFocusHandler">
+-    <!--
+-        TODO GH#4031: We've investigated whether we should be using KeyDown or PreviewKeyDown
+-        but not necessarily come to a consensus. It's possible that moving input to the SwapChainPanel
+-        will solve a bunch of the search input issues we found last time we switched.
+-    -->
++    PointerWheelChanged="_MouseWheelHandler">
+ 
+     <Grid x:Name="RootGrid">
+         <Image x:Name="BackgroundImage" />
+@@ -42,7 +33,20 @@
+                                 CompositionScaleChanged="_SwapChainScaleChanged"
+                                 PointerPressed="_PointerPressedHandler"
+                                 PointerMoved="_PointerMovedHandler"
+-                                PointerReleased="_PointerReleasedHandler" />
++                                PointerReleased="_PointerReleasedHandler">
++                    <!-- The pointer events must be on the panel,
++                         because our empty input site control can't
++                         be hit-test... but the keyboard events must
++                         be on the input target, because a SwapChainPanel
++                         can't be focused... -->
++                    <UserControl x:Name="TerminalInputTarget"
++                                 KeyDown="_KeyDownHandler"
++                                 IsTabStop="True"
++                                 AllowFocusOnInteraction="True"
++                                 CharacterReceived="_CharacterHandler"
++                                 GotFocus="_GotFocusHandler"
++                                 LostFocus="_LostFocusHandler" />
++                </SwapChainPanel>
+ 
+                 <!-- Putting this in a grid w/ the SwapChainPanel
+                 ensures that it's always aligned w/ the scrollbar -->
+@@ -74,7 +78,9 @@
+         <local:TSFInputControl x:Name="TSFInputControl"
+                                CompositionCompleted="_CompositionCompleted"
+                                CurrentCursorPosition="_CurrentCursorPositionHandler"
+-                               CurrentFontInfo="_FontInfoHandler" />
++                               CurrentFontInfo="_FontInfoHandler"
++                               IsTabStop="False"
++                               AllowFocusOnInteraction="False" />
+ 
+     </Grid>
+ 

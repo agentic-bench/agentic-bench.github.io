@@ -1,0 +1,40 @@
+version = "1.0"
+source = "ContextCRBench2"
+
+[metadata]
+author_name = "Ping Charoenwet"
+author_email = "charoenwetw@unimelb.edu.eu"
+difficulty = "easy"
+category = "code review"
+tags = [ "security", "code review",]
+contextcrbench2_task_id = "spring-boot_issue_22128_pr_22138_sm_fe6c7b44"
+contextcrbench2_full_name = "spring-projects/spring-boot"
+contextcrbench2_lang = "java"
+contextcrbench2_issue_number = "22128"
+contextcrbench2_issue_title = "EnumSet.copyOf calls fail with empty collections"
+contextcrbench2_pr_number = "22138"
+contextcrbench2_pr_title = "Accept empty filter dispatcher types in auto-configurations"
+contextcrbench2_pr_size = "sm"
+contextcrbench2_checked_commit_id = "fe6c7b4489fec28a69121de86b8237620c2d9714"
+contextcrbench2_commit_id = "fe6c7b4489fec28a69121de86b8237620c2d9714"
+contextcrbench2_created_at = "2020-06-27T17:32:57Z"
+contextcrbench2_entry_count = "2"
+
+[verifier]
+timeout_sec = 120.0
+
+[agent]
+timeout_sec = 600.0
+
+[environment]
+build_timeout_sec = 600.0
+docker_image = ""
+cpus = 1
+memory_mb = 2048
+storage_mb = 10240
+gpus = 0
+allow_internet = true
+
+[verifier.env]
+
+[solution.env]

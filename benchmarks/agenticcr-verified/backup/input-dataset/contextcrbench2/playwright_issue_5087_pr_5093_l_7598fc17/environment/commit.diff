@@ -1,0 +1,501 @@
+diff --git a/src/client/download.ts b/src/client/download.ts
+index 5f51c4ed05c7d..896fd1369fa2a 100644
+--- a/src/client/download.ts
++++ b/src/client/download.ts
+@@ -69,18 +69,24 @@ export class Download extends ChannelOwner<channels.DownloadChannel, channels.Do
+   }
+ 
+   async failure(): Promise<string | null> {
+-    return (await this._channel.failure()).error || null;
++    return this._wrapApiCall('download.failure', async () => {
++      return (await this._channel.failure()).error || null;
++    });
+   }
+ 
+   async createReadStream(): Promise<Readable | null> {
+-    const result = await this._channel.stream();
+-    if (!result.stream)
+-      return null;
+-    const stream = Stream.from(result.stream);
+-    return stream.stream();
++    return this._wrapApiCall('download.createReadStream', async () => {
++      const result = await this._channel.stream();
++      if (!result.stream)
++        return null;
++      const stream = Stream.from(result.stream);
++      return stream.stream();
++    });
+   }
+ 
+   async delete(): Promise<void> {
+-    return this._channel.delete();
++    return this._wrapApiCall('download.delete', async () => {
++      return this._channel.delete();
++    });
+   }
+ }
+diff --git a/src/client/electron.ts b/src/client/electron.ts
+index f0bcd4744db8f..0dc8c8dca0d12 100644
+--- a/src/client/electron.ts
++++ b/src/client/electron.ts
+@@ -86,14 +86,18 @@ export class ElectronApplication extends ChannelOwner<channels.ElectronApplicati
+   }
+ 
+   async firstWindow(): Promise<electronApi.ElectronPage> {
+-    if (this._windows.size)
+-      return this._windows.values().next().value;
+-    return this.waitForEvent('window');
++    return this._wrapApiCall('electronApplication.firstWindow', async () => {
++      if (this._windows.size)
++        return this._windows.values().next().value;
++      return this.waitForEvent('window');
++    });
+   }
+ 
+   async newBrowserWindow(options: any): Promise<electronApi.ElectronPage> {
+-    const result = await this._channel.newBrowserWindow({ arg: serializeArgument(options) });
+-    return Page.from(result.page) as any as electronApi.ElectronPage;
++    return this._wrapApiCall('electronApplication.newBrowserWindow', async () => {
++      const result = await this._channel.newBrowserWindow({ arg: serializeArgument(options) });
++      return Page.from(result.page) as any as electronApi.ElectronPage;
++    });
+   }
+ 
+   context(): ChromiumBrowserContext {
+@@ -117,12 +121,16 @@ export class ElectronApplication extends ChannelOwner<channels.ElectronApplicati
+   }
+ 
+   async evaluate<R, Arg>(pageFunction: structs.PageFunctionOn<ElectronAppType, Arg, R>, arg: Arg): Promise<R> {
+-    const result = await this._channel.evaluateExpression({ expression: String(pageFunction), isFunction: typeof pageFunction === 'function', arg: serializeArgument(arg) });
+-    return parseResult(result.value);
++    return this._wrapApiCall('electronApplication.evaluate', async () => {
++      const result = await this._channel.evaluateExpression({ expression: String(pageFunction), isFunction: typeof pageFunction === 'function', arg: serializeArgument(arg) });
++      return parseResult(result.value);
++    });
+   }
+ 
+   async evaluateHandle<R, Arg>(pageFunction: structs.PageFunctionOn<ElectronAppType, Arg, R>, arg: Arg): Promise<structs.SmartHandle<R>> {
+-    const result = await this._channel.evaluateExpressionHandle({ expression: String(pageFunction), isFunction: typeof pageFunction === 'function', arg: serializeArgument(arg) });
+-    return JSHandle.from(result.handle) as any as structs.SmartHandle<R>;
++    return this._wrapApiCall('electronApplication.evaluateHandle', async () => {
++      const result = await this._channel.evaluateExpressionHandle({ expression: String(pageFunction), isFunction: typeof pageFunction === 'function', arg: serializeArgument(arg) });
++      return JSHandle.from(result.handle) as any as structs.SmartHandle<R>;
++    });
+   }
+ }
+diff --git a/src/client/fileChooser.ts b/src/client/fileChooser.ts
+index 6f39c30c8c7b6..442b271a73cdf 100644
+--- a/src/client/fileChooser.ts
++++ b/src/client/fileChooser.ts
+@@ -44,6 +44,8 @@ export class FileChooser implements api.FileChooser {
+   }
+ 
+   async setFiles(files: string | FilePayload | string[] | FilePayload[], options?: channels.ElementHandleSetInputFilesOptions) {
+-    return this._elementHandle.setInputFiles(files, options);
++    return this._page._wrapApiCall('fileChooser.setFiles', async () => {
++      return this._elementHandle.setInputFiles(files, options);
++    });
+   }
+ }
+diff --git a/src/client/frame.ts b/src/client/frame.ts
+index f60b9684a2790..156e4e7537e15 100644
+--- a/src/client/frame.ts
++++ b/src/client/frame.ts
+@@ -441,7 +441,9 @@ export class Frame extends ChannelOwner<channels.FrameChannel, channels.FrameIni
+   }
+ 
+   async waitForTimeout(timeout: number) {
+-    await new Promise(fulfill => setTimeout(fulfill, timeout));
++    return this._wrapApiCall(this._apiName('waitForTimeout'), async () => {
++      await new Promise(fulfill => setTimeout(fulfill, timeout));
++    });
+   }
+ 
+   async waitForFunction<R, Arg>(pageFunction: structs.PageFunction<Arg, R>, arg?: Arg, options: WaitForFunctionOptions = {}): Promise<structs.SmartHandle<R>> {
+diff --git a/src/client/jsHandle.ts b/src/client/jsHandle.ts
+index 5c2c410e909a0..541da4c04a00b 100644
+--- a/src/client/jsHandle.ts
++++ b/src/client/jsHandle.ts
+@@ -34,29 +34,39 @@ export class JSHandle<T = any> extends ChannelOwner<channels.JSHandleChannel, ch
+   }
+ 
+   async evaluate<R, Arg>(pageFunction: structs.PageFunctionOn<T, Arg, R>, arg?: Arg): Promise<R> {
+-    const result = await this._channel.evaluateExpression({ expression: String(pageFunction), isFunction: typeof pageFunction === 'function', arg: serializeArgument(arg) });
+-    return parseResult(result.value);
++    return this._wrapApiCall('jsHandle.evaluate', async () => {
++      const result = await this._channel.evaluateExpression({ expression: String(pageFunction), isFunction: typeof pageFunction === 'function', arg: serializeArgument(arg) });
++      return parseResult(result.value);
++    });
+   }
+ 
+   async evaluateHandle<R, Arg>(pageFunction: structs.PageFunctionOn<T, Arg, R>, arg?: Arg): Promise<structs.SmartHandle<R>> {
+-    const result = await this._channel.evaluateExpressionHandle({ expression: String(pageFunction), isFunction: typeof pageFunction === 'function', arg: serializeArgument(arg) });
+-    return JSHandle.from(result.handle) as any as structs.SmartHandle<R>;
++    return this._wrapApiCall('jsHandle.evaluateHandle', async () => {
++      const result = await this._channel.evaluateExpressionHandle({ expression: String(pageFunction), isFunction: typeof pageFunction === 'function', arg: serializeArgument(arg) });
++      return JSHandle.from(result.handle) as any as structs.SmartHandle<R>;
++    });
+   }
+ 
+   async getProperty(propertyName: string): Promise<JSHandle> {
+-    const result = await this._channel.getProperty({ name: propertyName });
+-    return JSHandle.from(result.handle);
++    return this._wrapApiCall('jsHandle.getProperty', async () => {
++      const result = await this._channel.getProperty({ name: propertyName });
++      return JSHandle.from(result.handle);
++    });
+   }
+ 
+   async getProperties(): Promise<Map<string, JSHandle>> {
+-    const map = new Map<string, JSHandle>();
+-    for (const { name, value } of (await this._channel.getPropertyList()).properties)
+-      map.set(name, JSHandle.from(value));
+-    return map;
++    return this._wrapApiCall('jsHandle.getProperties', async () => {
++      const map = new Map<string, JSHandle>();
++      for (const { name, value } of (await this._channel.getPropertyList()).properties)
++        map.set(name, JSHandle.from(value));
++      return map;
++    });
+   }
+ 
+   async jsonValue(): Promise<T> {
+-    return parseResult((await this._channel.jsonValue()).value);
++    return this._wrapApiCall('jsHandle.jsonValue', async () => {
++      return parseResult((await this._channel.jsonValue()).value);
++    });
+   }
+ 
+   asElement(): T extends Node ? api.ElementHandle<T> : null {
+diff --git a/src/client/network.ts b/src/client/network.ts
+index 990ed99a9f111..10dcf69d10e3b 100644
+--- a/src/client/network.ts
++++ b/src/client/network.ts
+@@ -132,7 +132,9 @@ export class Request extends ChannelOwner<channels.RequestChannel, channels.Requ
+   }
+ 
+   async response(): Promise<Response | null> {
+-    return Response.fromNullable((await this._channel.response()).response);
++    return this._wrapApiCall('request.response', async () => {
++      return Response.fromNullable((await this._channel.response()).response);
++    });
+   }
+ 
+   frame(): Frame {
+@@ -182,53 +184,59 @@ export class Route extends ChannelOwner<channels.RouteChannel, channels.RouteIni
+   }
+ 
+   async abort(errorCode?: string) {
+-    await this._channel.abort({ errorCode });
++    return this._wrapApiCall('route.abort', async () => {
++      await this._channel.abort({ errorCode });
++    });
+   }
+ 
+   async fulfill(options: { status?: number, headers?: Headers, contentType?: string, body?: string | Buffer, path?: string } = {}) {
+-    let body = '';
+-    let isBase64 = false;
+-    let length = 0;
+-    if (options.path) {
+-      const buffer = await util.promisify(fs.readFile)(options.path);
+-      body = buffer.toString('base64');
+-      isBase64 = true;
+-      length = buffer.length;
+-    } else if (isString(options.body)) {
+-      body = options.body;
+-      isBase64 = false;
+-      length = Buffer.byteLength(body);
+-    } else if (options.body) {
+-      body = options.body.toString('base64');
+-      isBase64 = true;
+-      length = options.body.length;
+-    }
+-
+-    const headers: Headers = {};
+-    for (const header of Object.keys(options.headers || {}))
+-      headers[header.toLowerCase()] = String(options.headers![header]);
+-    if (options.contentType)
+-      headers['content-type'] = String(options.contentType);
+-    else if (options.path)
+-      headers['content-type'] = mime.getType(options.path) || 'application/octet-stream';
+-    if (length && !('content-length' in headers))
+-      headers['content-length'] = String(length);
+-
+-    await this._channel.fulfill({
+-      status: options.status || 200,
+-      headers: headersObjectToArray(headers),
+-      body,
+-      isBase64
++    return this._wrapApiCall('route.fulfill', async () => {
++      let body = '';
++      let isBase64 = false;
++      let length = 0;
++      if (options.path) {
++        const buffer = await util.promisify(fs.readFile)(options.path);
++        body = buffer.toString('base64');
++        isBase64 = true;
++        length = buffer.length;
++      } else if (isString(options.body)) {
++        body = options.body;
++        isBase64 = false;
++        length = Buffer.byteLength(body);
++      } else if (options.body) {
++        body = options.body.toString('base64');
++        isBase64 = true;
++        length = options.body.length;
++      }
++
++      const headers: Headers = {};
++      for (const header of Object.keys(options.headers || {}))
++        headers[header.toLowerCase()] = String(options.headers![header]);
++      if (options.contentType)
++        headers['content-type'] = String(options.contentType);
++      else if (options.path)
++        headers['content-type'] = mime.getType(options.path) || 'application/octet-stream';
++      if (length && !('content-length' in headers))
++        headers['content-length'] = String(length);
++
++      await this._channel.fulfill({
++        status: options.status || 200,
++        headers: headersObjectToArray(headers),
++        body,
++        isBase64
++      });
+     });
+   }
+ 
+   async continue(options: { url?: string, method?: string, headers?: Headers, postData?: string | Buffer } = {}) {
+-    const postDataBuffer = isString(options.postData) ? Buffer.from(options.postData, 'utf8') : options.postData;
+-    await this._channel.continue({
+-      url: options.url,
+-      method: options.method,
+-      headers: options.headers ? headersObjectToArray(options.headers) : undefined,
+-      postData: postDataBuffer ? postDataBuffer.toString('base64') : undefined,
++    return this._wrapApiCall('route.continue', async () => {
++      const postDataBuffer = isString(options.postData) ? Buffer.from(options.postData, 'utf8') : options.postData;
++      await this._channel.continue({
++        url: options.url,
++        method: options.method,
++        headers: options.headers ? headersObjectToArray(options.headers) : undefined,
++        postData: postDataBuffer ? postDataBuffer.toString('base64') : undefined,
++      });
+     });
+   }
+ }
+@@ -295,7 +303,9 @@ export class Response extends ChannelOwner<channels.ResponseChannel, channels.Re
+   }
+ 
+   async body(): Promise<Buffer> {
+-    return Buffer.from((await this._channel.body()).binary, 'base64');
++    return this._wrapApiCall('response.body', async () => {
++      return Buffer.from((await this._channel.body()).binary, 'base64');
++    });
+   }
+ 
+   async text(): Promise<string> {
+diff --git a/src/client/page.ts b/src/client/page.ts
+index 9081222dc9066..203b419c8ebd7 100644
+--- a/src/client/page.ts
++++ b/src/client/page.ts
+@@ -359,27 +359,43 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
+   }
+ 
+   async waitForRequest(urlOrPredicate: string | RegExp | ((r: Request) => boolean), options: { timeout?: number } = {}): Promise<Request> {
+-    const predicate = (request: Request) => {
+-      if (isString(urlOrPredicate) || isRegExp(urlOrPredicate))
+-        return urlMatches(request.url(), urlOrPredicate);
+-      return urlOrPredicate(request);
+-    };
+-    return this.waitForEvent(Events.Page.Request, { predicate, timeout: options.timeout });
++    return this._wrapApiCall('page.waitForRequest', async () => {
++      const predicate = (request: Request) => {
++        if (isString(urlOrPredicate) || isRegExp(urlOrPredicate))
++          return urlMatches(request.url(), urlOrPredicate);
++        return urlOrPredicate(request);
++      };
++      const trimmedUrl = trimUrl(urlOrPredicate);
++      const logLine = trimmedUrl ? `waiting for request "${trimmedUrl}"` : undefined;
++      return this._waitForEvent(Events.Page.Request, { predicate, timeout: options.timeout }, logLine);
++    });
+   }
+ 
+   async waitForResponse(urlOrPredicate: string | RegExp | ((r: Response) => boolean), options: { timeout?: number } = {}): Promise<Response> {
+-    const predicate = (response: Response) => {
+-      if (isString(urlOrPredicate) || isRegExp(urlOrPredicate))
+-        return urlMatches(response.url(), urlOrPredicate);
+-      return urlOrPredicate(response);
+-    };
+-    return this.waitForEvent(Events.Page.Response, { predicate, timeout: options.timeout });
++    return this._wrapApiCall('page.waitForResponse', async () => {
++      const predicate = (response: Response) => {
++        if (isString(urlOrPredicate) || isRegExp(urlOrPredicate))
++          return urlMatches(response.url(), urlOrPredicate);
++        return urlOrPredicate(response);
++      };
++      const trimmedUrl = trimUrl(urlOrPredicate);
++      const logLine = trimmedUrl ? `waiting for response "${trimmedUrl}"` : undefined;
++      return this._waitForEvent(Events.Page.Response, { predicate, timeout: options.timeout }, logLine);
++    });
+   }
+ 
+   async waitForEvent(event: string, optionsOrPredicate: WaitForEventOptions = {}): Promise<any> {
++    return this._wrapApiCall('page.waitForEvent', async () => {
++      return this._waitForEvent(event, optionsOrPredicate, `waiting for event "${event}"`);
++    });
++  }
++
++  private async _waitForEvent(event: string, optionsOrPredicate: WaitForEventOptions, logLine?: string): Promise<any> {
+     const timeout = this._timeoutSettings.timeout(typeof optionsOrPredicate === 'function' ? {} : optionsOrPredicate);
+     const predicate = typeof optionsOrPredicate === 'function' ? optionsOrPredicate : optionsOrPredicate.predicate;
+     const waiter = new Waiter();
++    if (logLine)
++      waiter.log(logLine);
+     waiter.rejectOnTimeout(timeout, `Timeout while waiting for event "${event}"`);
+     if (event !== Events.Page.Crash)
+       waiter.rejectOnEvent(this, Events.Page.Crash, new Error('Page crashed'));
+@@ -584,7 +600,7 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
+   }
+ 
+   async waitForTimeout(timeout: number) {
+-    await this._mainFrame.waitForTimeout(timeout);
++    return this._attributeToPage(() => this._mainFrame.waitForTimeout(timeout));
+   }
+ 
+   async waitForFunction<R, Arg>(pageFunction: structs.PageFunction<Arg, R>, arg?: Arg, options?: WaitForFunctionOptions): Promise<structs.SmartHandle<R>> {
+@@ -624,25 +640,27 @@ export class Page extends ChannelOwner<channels.PageChannel, channels.PageInitia
+   }
+ 
+   async _pdf(options: PDFOptions = {}): Promise<Buffer> {
+-    const transportOptions: channels.PagePdfParams = { ...options } as channels.PagePdfParams;
+-    if (transportOptions.margin)
+-      transportOptions.margin = { ...transportOptions.margin };
+-    if (typeof options.width === 'number')
+-      transportOptions.width = options.width + 'px';
+-    if (typeof options.height === 'number')
+-      transportOptions.height  = options.height + 'px';
+-    for (const margin of ['top', 'right', 'bottom', 'left']) {
+-      const index = margin as 'top' | 'right' | 'bottom' | 'left';
+-      if (options.margin && typeof options.margin[index] === 'number')
+-        transportOptions.margin![index] = transportOptions.margin![index] + 'px';
+-    }
+-    const result = await this._channel.pdf(transportOptions);
+-    const buffer = Buffer.from(result.pdf, 'base64');
+-    if (options.path) {
+-      await mkdirAsync(path.dirname(options.path), { recursive: true });
+-      await fsWriteFileAsync(options.path, buffer);
+-    }
+-    return buffer;
++    return this._wrapApiCall('page.pdf', async () => {
++      const transportOptions: channels.PagePdfParams = { ...options } as channels.PagePdfParams;
++      if (transportOptions.margin)
++        transportOptions.margin = { ...transportOptions.margin };
++      if (typeof options.width === 'number')
++        transportOptions.width = options.width + 'px';
++      if (typeof options.height === 'number')
++        transportOptions.height  = options.height + 'px';
++      for (const margin of ['top', 'right', 'bottom', 'left']) {
++        const index = margin as 'top' | 'right' | 'bottom' | 'left';
++        if (options.margin && typeof options.margin[index] === 'number')
++          transportOptions.margin![index] = transportOptions.margin![index] + 'px';
++      }
++      const result = await this._channel.pdf(transportOptions);
++      const buffer = Buffer.from(result.pdf, 'base64');
++      if (options.path) {
++        await mkdirAsync(path.dirname(options.path), { recursive: true });
++        await fsWriteFileAsync(options.path, buffer);
++      }
++      return buffer;
++    });
+   }
+ }
+ 
+@@ -674,3 +692,11 @@ export class BindingCall extends ChannelOwner<channels.BindingCallChannel, chann
+     }
+   }
+ }
++
++function trimUrl(param: any): string | undefined {
++  if (isString(param)) {
++    if (param.length > 50)
++      param = param.substring(0, 50) + '\u2026';
++    return param;
++  }
++}
+diff --git a/src/client/waiter.ts b/src/client/waiter.ts
+index aec5d0cc5da7b..0cd0497661aa0 100644
+--- a/src/client/waiter.ts
++++ b/src/client/waiter.ts
+@@ -17,6 +17,7 @@
+ import { EventEmitter } from 'events';
+ import { rewriteErrorMessage } from '../utils/stackTrace';
+ import { TimeoutError } from '../utils/errors';
++import { debugLogger } from '../utils/debugLogger';
+ 
+ export class Waiter {
+   private _dispose: (() => void)[] = [];
+@@ -63,6 +64,7 @@ export class Waiter {
+ 
+   log(s: string) {
+     this._logs.push(s);
++    debugLogger.log('api', s);
+   }
+ 
+   private _rejectOn(promise: Promise<any>, dispose?: () => void) {
+diff --git a/src/client/worker.ts b/src/client/worker.ts
+index 0d5d12dff9942..6f4d37ea2a3f5 100644
+--- a/src/client/worker.ts
++++ b/src/client/worker.ts
+@@ -49,13 +49,17 @@ export class Worker extends ChannelOwner<channels.WorkerChannel, channels.Worker
+ 
+   async evaluate<R, Arg>(pageFunction: structs.PageFunction<Arg, R>, arg?: Arg): Promise<R> {
+     assertMaxArguments(arguments.length, 2);
+-    const result = await this._channel.evaluateExpression({ expression: String(pageFunction), isFunction: typeof pageFunction === 'function', arg: serializeArgument(arg) });
+-    return parseResult(result.value);
++    return this._wrapApiCall('worker.evaluate', async () => {
++      const result = await this._channel.evaluateExpression({ expression: String(pageFunction), isFunction: typeof pageFunction === 'function', arg: serializeArgument(arg) });
++      return parseResult(result.value);
++    });
+   }
+ 
+   async evaluateHandle<R, Arg>(pageFunction: structs.PageFunction<Arg, R>, arg?: Arg): Promise<structs.SmartHandle<R>> {
+     assertMaxArguments(arguments.length, 2);
+-    const result = await this._channel.evaluateExpressionHandle({ expression: String(pageFunction), isFunction: typeof pageFunction === 'function', arg: serializeArgument(arg) });
+-    return JSHandle.from(result.handle) as any as structs.SmartHandle<R>;
++    return this._wrapApiCall('worker.evaluateHandle', async () => {
++      const result = await this._channel.evaluateExpressionHandle({ expression: String(pageFunction), isFunction: typeof pageFunction === 'function', arg: serializeArgument(arg) });
++      return JSHandle.from(result.handle) as any as structs.SmartHandle<R>;
++    });
+   }
+ }
+diff --git a/test/page-wait-for-request.spec.ts b/test/page-wait-for-request.spec.ts
+index 01248edc8133c..0b89bf1317b2e 100644
+--- a/test/page-wait-for-request.spec.ts
++++ b/test/page-wait-for-request.spec.ts
+@@ -58,6 +58,11 @@ it('should respect default timeout', async ({page, playwright}) => {
+   expect(error).toBeInstanceOf(playwright.errors.TimeoutError);
+ });
+ 
++it('should log the url', async ({page}) => {
++  const error = await page.waitForRequest('long-long-long-long-long-long-long-long-long-long-long-long-long-long.css', { timeout: 100 }).catch(e => e);
++  expect(error.message).toContain('waiting for request "long-long-long-long-long-long-long-long-long-long-…"');
++});
++
+ it('should work with no timeout', async ({page, server}) => {
+   await page.goto(server.EMPTY_PAGE);
+   const [request] = await Promise.all([
+diff --git a/test/page-wait-for-response.spec.ts b/test/page-wait-for-response.spec.ts
+index 96eb7e06dbe4c..efa17d2738324 100644
+--- a/test/page-wait-for-response.spec.ts
++++ b/test/page-wait-for-response.spec.ts
+@@ -43,6 +43,11 @@ it('should respect default timeout', async ({page, playwright}) => {
+   expect(error).toBeInstanceOf(playwright.errors.TimeoutError);
+ });
+ 
++it('should log the url', async ({page}) => {
++  const error = await page.waitForResponse('foo.css', { timeout: 100 }).catch(e => e);
++  expect(error.message).toContain('waiting for response "foo.css"');
++});
++
+ it('should work with predicate', async ({page, server}) => {
+   await page.goto(server.EMPTY_PAGE);
+   const [response] = await Promise.all([

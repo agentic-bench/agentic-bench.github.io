@@ -1,0 +1,6 @@
+{
+  "issue_title": "`uv add https://.../foo.git` throws a confusing error",
+  "issue_body": "We interpret it as a direct URL (e.g., a path to a wheel), and then `.git` doesn't match `.whl` or `.tar.gz` etc.\r\n\r\n```\r\n\u276f uv add https://github.com/ElmerCSC/elmer_circuitbuilder.git\r\nwarning: `uv add` is experimental and may change without warning\r\nUsing Python 3.12.4\r\nCreating virtualenv at: .venv\r\nerror: Failed to extract archive\r\n  Caused by: Unsupported archive type: elmer_circuitbuilder.git\r\n```\r\n",
+  "pr_title": "Enforce extension validity at parse time",
+  "pr_body": "## Summary\r\n\r\nThis PR adds a `DistExtension` field to some of our distribution types, which requires that we validate that the file type is known and supported when parsing (rather than when attempting to unzip). It removes a bunch of extension parsing from the code too, in favor of doing it once upfront.\r\n\r\nCloses https://github.com/astral-sh/uv/issues/5858.\r\n"
+}

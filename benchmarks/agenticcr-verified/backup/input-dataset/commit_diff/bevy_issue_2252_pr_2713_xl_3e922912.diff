@@ -1,0 +1,1323 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index dd9e585c39fbf..3ee916a9e55bc 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -302,6 +302,10 @@ path = "examples/ecs/ecs_guide.rs"
+ name = "component_change_detection"
+ path = "examples/ecs/component_change_detection.rs"
+ 
++[[example]]
++name = "custom_query_param"
++path = "examples/ecs/custom_query_param.rs"
++
+ [[example]]
+ name = "event"
+ path = "examples/ecs/event.rs"
+diff --git a/crates/bevy_ecs/macros/src/fetch.rs b/crates/bevy_ecs/macros/src/fetch.rs
+new file mode 100644
+index 0000000000000..9386e491227bc
+--- /dev/null
++++ b/crates/bevy_ecs/macros/src/fetch.rs
+@@ -0,0 +1,746 @@
++use proc_macro::TokenStream;
++use proc_macro2::{Ident, Span};
++use quote::quote;
++use syn::{
++    parse_macro_input, punctuated::Punctuated, Data, DataStruct, DeriveInput, Fields,
++    GenericArgument, GenericParam, ImplGenerics, Lifetime, LifetimeDef, PathArguments, Token, Type,
++    TypeGenerics, TypePath, TypeReference, WhereClause,
++};
++
++use crate::bevy_ecs_path;
++
++static READ_ONLY_ATTRIBUTE_NAME: &str = "read_only";
++static READ_ONLY_DERIVE_ATTRIBUTE_NAME: &str = "read_only_derive";
++
++pub fn derive_fetch_impl(input: TokenStream) -> TokenStream {
++    let ast = parse_macro_input!(input as DeriveInput);
++
++    let FetchImplTokens {
++        struct_name,
++        struct_name_read_only,
++        fetch_struct_name,
++        state_struct_name,
++        read_only_fetch_struct_name,
++        fetch_trait_punctuated_lifetimes,
++        impl_generics,
++        ty_generics,
++        where_clause,
++        has_world_lifetime,
++        has_read_only_attr,
++        world_lifetime,
++        state_lifetime,
++        phantom_field_idents,
++        phantom_field_types,
++        field_idents,
++        field_types: _,
++        query_types,
++        fetch_init_types,
++    } = fetch_impl_tokens(&ast);
++
++    if !has_world_lifetime {
++        panic!("Expected a struct with a lifetime");
++    }
++
++    let read_only_derive_attr = ast.attrs.iter().find(|attr| {
++        attr.path
++            .get_ident()
++            .map_or(false, |ident| ident == READ_ONLY_DERIVE_ATTRIBUTE_NAME)
++    });
++    let read_only_derive_macro_call = if let Some(read_only_derive_attr) = read_only_derive_attr {
++        if has_read_only_attr {
++            panic!("Attributes `read_only` and `read_only_derive` are mutually exclusive");
++        }
++        let derive_args = &read_only_derive_attr.tokens;
++        quote! { #[derive #derive_args] }
++    } else {
++        quote! {}
++    };
++
++    // Fetch's HRTBs require this hack to make the implementation compile. I don't fully understand
++    // why this works though. If anyone's curious enough to try to find a better work-around, I'll
++    // leave playground links here:
++    // - https://play.rust-lang.org/?version=stable&mode=debug&edition=2018&gist=da5e260a5c2f3e774142d60a199e854a (this fails)
++    // - https://play.rust-lang.org/?version=stable&mode=debug&edition=2018&gist=802517bb3d8f83c45ee8c0be360bb250 (this compiles)
++    let fetch_lifetime =
++        GenericParam::Lifetime(LifetimeDef::new(Lifetime::new("'fetch", Span::call_site())));
++    let mut fetch_generics = ast.generics.clone();
++    fetch_generics.params.insert(1, state_lifetime);
++    fetch_generics.params.push(fetch_lifetime.clone());
++    let (fetch_impl_generics, _, _) = fetch_generics.split_for_impl();
++
++    let mut fetch_generics = ast.generics.clone();
++    *fetch_generics.params.first_mut().unwrap() = fetch_lifetime;
++    let (_, fetch_ty_generics, _) = fetch_generics.split_for_impl();
++
++    let path = bevy_ecs_path();
++
++    let struct_read_only_declaration = if has_read_only_attr {
++        quote! {
++            // Statically checks that the safety guarantee actually holds true. We need this to make
++            // sure that we don't compile `ReadOnlyFetch` if our struct contains nested `WorldQuery`
++            // members that don't implement it.
++            #[allow(dead_code)]
++            const _: () = {
++                fn assert_readonly<T: #path::query::ReadOnlyFetch>() {}
++
++                // We generate a readonly assertion for every struct member.
++                fn assert_all #impl_generics () #where_clause {
++                    #(assert_readonly::<<#query_types as #path::query::WorldQuery>::Fetch>();)*
++                }
++            };
++        }
++    } else {
++        quote! {
++            // TODO: it would be great to be able to dedup this by just deriving `Fetch` again with `read_only` attribute,
++            //  but supporting QSelf types is tricky.
++            #read_only_derive_macro_call
++            struct #struct_name_read_only #impl_generics #where_clause {
++                #(#field_idents: <<#query_types as #path::query::WorldQuery>::ReadOnlyFetch as #path::query::Fetch<#world_lifetime, #world_lifetime>>::Item,)*
++                #(#phantom_field_idents: #phantom_field_types,)*
++            }
++
++            struct #read_only_fetch_struct_name #impl_generics #where_clause {
++                #(#field_idents: <#query_types as #path::query::WorldQuery>::ReadOnlyFetch,)*
++                #(#phantom_field_idents: #phantom_field_types,)*
++            }
++
++            impl #fetch_impl_generics #path::query::Fetch<#fetch_trait_punctuated_lifetimes> for #read_only_fetch_struct_name #fetch_ty_generics #where_clause {
++                type Item = #struct_name_read_only #ty_generics;
++                type State = #state_struct_name #fetch_ty_generics;
++
++                unsafe fn init(_world: &#path::world::World, state: &Self::State, _last_change_tick: u32, _change_tick: u32) -> Self {
++                    #read_only_fetch_struct_name {
++                        #(#field_idents: <#fetch_init_types as #path::query::WorldQuery>::ReadOnlyFetch::init(_world, &state.#field_idents, _last_change_tick, _change_tick),)*
++                        #(#phantom_field_idents: Default::default(),)*
++                    }
++                }
++
++                const IS_DENSE: bool = true #(&& <#query_types as #path::query::WorldQuery>::ReadOnlyFetch::IS_DENSE)*;
++
++                /// SAFETY: we call `set_archetype` for each member that implements `Fetch`
++                #[inline]
++                unsafe fn set_archetype(&mut self, _state: &Self::State, _archetype: &#path::archetype::Archetype, _tables: &#path::storage::Tables) {
++                    #(self.#field_idents.set_archetype(&_state.#field_idents, _archetype, _tables);)*
++                }
++
++                /// SAFETY: we call `set_table` for each member that implements `Fetch`
++                #[inline]
++                unsafe fn set_table(&mut self, _state: &Self::State, _table: &#path::storage::Table) {
++                    #(self.#field_idents.set_table(&_state.#field_idents, _table);)*
++                }
++
++                /// SAFETY: we call `table_fetch` for each member that implements `Fetch`.
++                #[inline]
++                unsafe fn table_fetch(&mut self, _table_row: usize) -> Self::Item {
++                    #struct_name_read_only {
++                        #(#field_idents: self.#field_idents.table_fetch(_table_row),)*
++                        #(#phantom_field_idents: Default::default(),)*
++                    }
++                }
++
++                /// SAFETY: we call `archetype_fetch` for each member that implements `Fetch`.
++                #[inline]
++                unsafe fn archetype_fetch(&mut self, _archetype_index: usize) -> Self::Item {
++                    #struct_name_read_only {
++                        #(#field_idents: self.#field_idents.archetype_fetch(_archetype_index),)*
++                        #(#phantom_field_idents: Default::default(),)*
++                    }
++                }
++            }
++
++            impl #impl_generics #path::query::WorldQuery for #struct_name_read_only #ty_generics #where_clause {
++                type Fetch = #read_only_fetch_struct_name #ty_generics;
++                type State = #state_struct_name #ty_generics;
++                type ReadOnlyFetch = #read_only_fetch_struct_name #ty_generics;
++            }
++        }
++    };
++
++    let tokens = TokenStream::from(quote! {
++        struct #fetch_struct_name #impl_generics #where_clause {
++            #(#field_idents: <#query_types as #path::query::WorldQuery>::Fetch,)*
++            #(#phantom_field_idents: #phantom_field_types,)*
++        }
++
++        struct #state_struct_name #impl_generics #where_clause {
++            #(#field_idents: <#query_types as #path::query::WorldQuery>::State,)*
++            #(#phantom_field_idents: #phantom_field_types,)*
++        }
++
++        impl #fetch_impl_generics #path::query::Fetch<#fetch_trait_punctuated_lifetimes> for #fetch_struct_name #fetch_ty_generics #where_clause {
++            type Item = #struct_name #ty_generics;
++            type State = #state_struct_name #fetch_ty_generics;
++
++            unsafe fn init(_world: &#path::world::World, state: &Self::State, _last_change_tick: u32, _change_tick: u32) -> Self {
++                #fetch_struct_name {
++                    #(#field_idents: <#fetch_init_types as #path::query::WorldQuery>::Fetch::init(_world, &state.#field_idents, _last_change_tick, _change_tick),)*
++                    #(#phantom_field_idents: Default::default(),)*
++                }
++            }
++
++            const IS_DENSE: bool = true #(&& <#query_types as #path::query::WorldQuery>::Fetch::IS_DENSE)*;
++
++            /// SAFETY: we call `set_archetype` for each member that implements `Fetch`
++            #[inline]
++            unsafe fn set_archetype(&mut self, _state: &Self::State, _archetype: &#path::archetype::Archetype, _tables: &#path::storage::Tables) {
++                #(self.#field_idents.set_archetype(&_state.#field_idents, _archetype, _tables);)*
++            }
++
++            /// SAFETY: we call `set_table` for each member that implements `Fetch`
++            #[inline]
++            unsafe fn set_table(&mut self, _state: &Self::State, _table: &#path::storage::Table) {
++                #(self.#field_idents.set_table(&_state.#field_idents, _table);)*
++            }
++
++            /// SAFETY: we call `table_fetch` for each member that implements `Fetch`.
++            #[inline]
++            unsafe fn table_fetch(&mut self, _table_row: usize) -> Self::Item {
++                #struct_name {
++                    #(#field_idents: self.#field_idents.table_fetch(_table_row),)*
++                    #(#phantom_field_idents: Default::default(),)*
++                }
++            }
++
++            /// SAFETY: we call `archetype_fetch` for each member that implements `Fetch`.
++            #[inline]
++            unsafe fn archetype_fetch(&mut self, _archetype_index: usize) -> Self::Item {
++                #struct_name {
++                    #(#field_idents: self.#field_idents.archetype_fetch(_archetype_index),)*
++                    #(#phantom_field_idents: Default::default(),)*
++                }
++            }
++        }
++
++        // SAFETY: `update_component_access` and `update_archetype_component_access` are called for each item in the struct
++        unsafe impl #impl_generics #path::query::FetchState for #state_struct_name #ty_generics #where_clause {
++            fn init(world: &mut #path::world::World) -> Self {
++                #state_struct_name {
++                    #(#field_idents: <#query_types as #path::query::WorldQuery>::State::init(world),)*
++                    #(#phantom_field_idents: Default::default(),)*
++                }
++            }
++
++            fn update_component_access(&self, _access: &mut #path::query::FilteredAccess<#path::component::ComponentId>) {
++                #(self.#field_idents.update_component_access(_access);)*
++            }
++
++            fn update_archetype_component_access(&self, _archetype: &#path::archetype::Archetype, _access: &mut #path::query::Access<#path::archetype::ArchetypeComponentId>) {
++                #(self.#field_idents.update_archetype_component_access(_archetype, _access);)*
++            }
++
++            fn matches_archetype(&self, _archetype: &#path::archetype::Archetype) -> bool {
++                true #(&& self.#field_idents.matches_archetype(_archetype))*
++            }
++
++            fn matches_table(&self, _table: &#path::storage::Table) -> bool {
++                true #(&& self.#field_idents.matches_table(_table))*
++            }
++        }
++
++        #struct_read_only_declaration
++
++        impl #impl_generics #path::query::WorldQuery for #struct_name #ty_generics #where_clause {
++            type Fetch = #fetch_struct_name #ty_generics;
++            type State = #state_struct_name #ty_generics;
++            type ReadOnlyFetch = #read_only_fetch_struct_name #ty_generics;
++        }
++
++        /// SAFETY: each item in the struct is read only
++        unsafe impl #impl_generics #path::query::ReadOnlyFetch for #read_only_fetch_struct_name #ty_generics #where_clause {}
++    });
++    tokens
++}
++
++pub fn derive_filter_fetch_impl(input: TokenStream) -> TokenStream {
++    let ast = parse_macro_input!(input as DeriveInput);
++
++    let FetchImplTokens {
++        struct_name,
++        struct_name_read_only: _,
++        fetch_struct_name,
++        state_struct_name,
++        read_only_fetch_struct_name: _,
++        fetch_trait_punctuated_lifetimes,
++        impl_generics,
++        ty_generics,
++        where_clause,
++        world_lifetime,
++        has_read_only_attr: _,
++        has_world_lifetime,
++        state_lifetime,
++        phantom_field_idents,
++        phantom_field_types,
++        field_idents,
++        field_types,
++        query_types: _,
++        fetch_init_types: _,
++    } = fetch_impl_tokens(&ast);
++
++    if has_world_lifetime {
++        panic!("Expected a struct without a lifetime");
++    }
++
++    // Fetch's HRTBs require this hack to make the implementation compile. I don't fully understand
++    // why this works though. If anyone's curious enough to try to find a better work-around, I'll
++    // leave playground links here:
++    // - https://play.rust-lang.org/?version=stable&mode=debug&edition=2018&gist=da5e260a5c2f3e774142d60a199e854a (this fails)
++    // - https://play.rust-lang.org/?version=stable&mode=debug&edition=2018&gist=802517bb3d8f83c45ee8c0be360bb250 (this compiles)
++    let fetch_lifetime =
++        GenericParam::Lifetime(LifetimeDef::new(Lifetime::new("'fetch", Span::call_site())));
++    let mut fetch_generics = ast.generics.clone();
++    fetch_generics.params.insert(0, world_lifetime);
++    fetch_generics.params.insert(1, state_lifetime);
++    fetch_generics.params.push(fetch_lifetime);
++    let (fetch_impl_generics, _, _) = fetch_generics.split_for_impl();
++
++    let path = bevy_ecs_path();
++
++    let tokens = TokenStream::from(quote! {
++        struct #fetch_struct_name #impl_generics #where_clause {
++            #(#field_idents: <#field_types as #path::query::WorldQuery>::Fetch,)*
++            #(#phantom_field_idents: #phantom_field_types,)*
++        }
++
++        struct #state_struct_name #impl_generics #where_clause {
++            #(#field_idents: <#field_types as #path::query::WorldQuery>::State,)*
++            #(#phantom_field_idents: #phantom_field_types,)*
++        }
++
++        impl #fetch_impl_generics #path::query::Fetch<#fetch_trait_punctuated_lifetimes> for #fetch_struct_name #ty_generics #where_clause {
++            type Item = bool;
++            type State = #state_struct_name #ty_generics;
++
++            unsafe fn init(_world: &#path::world::World, state: &Self::State, _last_change_tick: u32, _change_tick: u32) -> Self {
++                #fetch_struct_name {
++                    #(#field_idents: <#field_types as #path::query::WorldQuery>::ReadOnlyFetch::init(_world, &state.#field_idents, _last_change_tick, _change_tick),)*
++                    #(#phantom_field_idents: Default::default(),)*
++                }
++            }
++
++            const IS_DENSE: bool = true #(&& <#field_types as #path::query::WorldQuery>::ReadOnlyFetch::IS_DENSE)*;
++
++            #[inline]
++            unsafe fn set_archetype(&mut self, _state: &Self::State, _archetype: &#path::archetype::Archetype, _tables: &#path::storage::Tables) {
++                #(self.#field_idents.set_archetype(&_state.#field_idents, _archetype, _tables);)*
++            }
++
++            #[inline]
++            unsafe fn set_table(&mut self, _state: &Self::State, _table: &#path::storage::Table) {
++                #(self.#field_idents.set_table(&_state.#field_idents, _table);)*
++            }
++
++            #[inline]
++            unsafe fn table_fetch(&mut self, _table_row: usize) -> Self::Item {
++                use #path::query::FilterFetch;
++                true #(&& self.#field_idents.table_filter_fetch(_table_row))*
++            }
++
++            #[inline]
++            unsafe fn archetype_fetch(&mut self, _archetype_index: usize) -> Self::Item {
++                use #path::query::FilterFetch;
++                true #(&& self.#field_idents.archetype_filter_fetch(_archetype_index))*
++            }
++        }
++
++        // SAFETY: update_component_access and update_archetype_component_access are called for each item in the struct
++        unsafe impl #impl_generics #path::query::FetchState for #state_struct_name #ty_generics #where_clause {
++            fn init(world: &mut #path::world::World) -> Self {
++                #state_struct_name {
++                    #(#field_idents: <#field_types as #path::query::WorldQuery>::State::init(world),)*
++                    #(#phantom_field_idents: Default::default(),)*
++                }
++            }
++
++            fn update_component_access(&self, _access: &mut #path::query::FilteredAccess<#path::component::ComponentId>) {
++                #(self.#field_idents.update_component_access(_access);)*
++            }
++
++            fn update_archetype_component_access(&self, _archetype: &#path::archetype::Archetype, _access: &mut #path::query::Access<#path::archetype::ArchetypeComponentId>) {
++                #(self.#field_idents.update_archetype_component_access(_archetype, _access);)*
++            }
++
++            fn matches_archetype(&self, _archetype: &#path::archetype::Archetype) -> bool {
++                true #(&& self.#field_idents.matches_archetype(_archetype))*
++            }
++
++            fn matches_table(&self, _table: &#path::storage::Table) -> bool {
++                true #(&& self.#field_idents.matches_table(_table))*
++            }
++        }
++
++        impl #impl_generics #path::query::WorldQuery for #struct_name #ty_generics #where_clause {
++            type Fetch = #fetch_struct_name #ty_generics;
++            type State = #state_struct_name #ty_generics;
++            type ReadOnlyFetch = #fetch_struct_name #ty_generics;
++        }
++
++        /// SAFETY: each item in the struct is read only
++        unsafe impl #impl_generics #path::query::ReadOnlyFetch for #fetch_struct_name #ty_generics #where_clause {}
++    });
++    tokens
++}
++
++// This struct is used to share common tokens between `Fetch` and `FilterFetch` implementations.
++struct FetchImplTokens<'a> {
++    struct_name: Ident,
++    // Equals `struct_name` if `has_read_only_attr` is true.
++    struct_name_read_only: Ident,
++    fetch_struct_name: Ident,
++    state_struct_name: Ident,
++    read_only_fetch_struct_name: Ident,
++    fetch_trait_punctuated_lifetimes: Punctuated<GenericParam, Token![,]>,
++    impl_generics: ImplGenerics<'a>,
++    ty_generics: TypeGenerics<'a>,
++    where_clause: Option<&'a WhereClause>,
++    has_read_only_attr: bool,
++    has_world_lifetime: bool,
++    world_lifetime: GenericParam,
++    state_lifetime: GenericParam,
++    phantom_field_idents: Vec<Ident>,
++    phantom_field_types: Vec<Type>,
++    field_idents: Vec<Ident>,
++    field_types: Vec<Type>,
++    query_types: Vec<Type>,
++    fetch_init_types: Vec<Type>,
++}
++
++fn fetch_impl_tokens(ast: &DeriveInput) -> FetchImplTokens {
++    let has_read_only_attr = ast.attrs.iter().any(|attr| {
++        attr.path
++            .get_ident()
++            .map_or(false, |ident| ident == READ_ONLY_ATTRIBUTE_NAME)
++    });
++
++    let world_lifetime = ast.generics.params.first().and_then(|param| match param {
++        lt @ GenericParam::Lifetime(_) => Some(lt.clone()),
++        _ => None,
++    });
++    let has_world_lifetime = world_lifetime.is_some();
++    let world_lifetime = world_lifetime.unwrap_or_else(|| {
++        GenericParam::Lifetime(LifetimeDef::new(Lifetime::new("'world", Span::call_site())))
++    });
++    let state_lifetime =
++        GenericParam::Lifetime(LifetimeDef::new(Lifetime::new("'state", Span::call_site())));
++
++    let mut fetch_trait_punctuated_lifetimes = Punctuated::<_, Token![,]>::new();
++    fetch_trait_punctuated_lifetimes.push(world_lifetime.clone());
++    fetch_trait_punctuated_lifetimes.push(state_lifetime.clone());
++
++    let (impl_generics, ty_generics, where_clause) = ast.generics.split_for_impl();
++
++    let struct_name = ast.ident.clone();
++    let struct_name_read_only = if has_read_only_attr {
++        ast.ident.clone()
++    } else {
++        Ident::new(&format!("{}ReadOnly", struct_name), Span::call_site())
++    };
++    let fetch_struct_name = Ident::new(&format!("{}Fetch", struct_name), Span::call_site());
++    let state_struct_name = Ident::new(&format!("{}State", struct_name), Span::call_site());
++    let read_only_fetch_struct_name = if has_read_only_attr {
++        fetch_struct_name.clone()
++    } else {
++        Ident::new(&format!("{}ReadOnlyFetch", struct_name), Span::call_site())
++    };
++
++    let fields = match &ast.data {
++        Data::Struct(DataStruct {
++            fields: Fields::Named(fields),
++            ..
++        }) => &fields.named,
++        _ => panic!("Expected a struct with named fields"),
++    };
++
++    let mut phantom_field_idents = Vec::new();
++    let mut phantom_field_types = Vec::new();
++    let mut field_idents = Vec::new();
++    let mut field_types = Vec::new();
++    let mut query_types = Vec::new();
++    let mut fetch_init_types = Vec::new();
++
++    let generic_names = ast
++        .generics
++        .params
++        .iter()
++        .filter_map(|param| match param {
++            GenericParam::Type(ty) => Some(ty.ident.to_string()),
++            _ => None,
++        })
++        .collect::<Vec<_>>();
++
++    for field in fields.iter() {
++        let WorldQueryFieldTypeInfo {
++            query_type,
++            fetch_init_type: init_type,
++            is_phantom,
++        } = read_world_query_field_type_info(&field.ty, false, &generic_names);
++
++        let field_ident = field.ident.as_ref().unwrap().clone();
++        if is_phantom {
++            phantom_field_idents.push(field_ident.clone());
++            phantom_field_types.push(field.ty.clone());
++        } else {
++            field_idents.push(field_ident.clone());
++            field_types.push(field.ty.clone());
++            query_types.push(query_type);
++            fetch_init_types.push(init_type);
++        }
++    }
++
++    FetchImplTokens {
++        struct_name,
++        struct_name_read_only,
++        fetch_struct_name,
++        state_struct_name,
++        read_only_fetch_struct_name,
++        fetch_trait_punctuated_lifetimes,
++        impl_generics,
++        ty_generics,
++        where_clause,
++        has_read_only_attr,
++        has_world_lifetime,
++        world_lifetime,
++        state_lifetime,
++        phantom_field_idents,
++        phantom_field_types,
++        field_idents,
++        field_types,
++        query_types,
++        fetch_init_types,
++    }
++}
++
++struct WorldQueryFieldTypeInfo {
++    /// We convert `Mut<T>` to `&mut T` (because this is the type that implements `WorldQuery`)
++    /// and store it here.
++    query_type: Type,
++    /// The same as `query_type` but with `'fetch` lifetime.
++    fetch_init_type: Type,
++    is_phantom: bool,
++}
++
++fn read_world_query_field_type_info(
++    ty: &Type,
++    is_tuple_element: bool,
++    generic_names: &[String],
++) -> WorldQueryFieldTypeInfo {
++    let mut query_type = ty.clone();
++    let mut fetch_init_type = ty.clone();
++    let mut is_phantom = false;
++
++    match (ty, &mut fetch_init_type) {
++        (Type::Path(path), Type::Path(path_init)) => {
++            if path.qself.is_some() {
++                // There's a risk that it contains a generic parameter that we can't test
++                // whether it's read-only or not.
++                panic!("Self type qualifiers aren't supported");
++            }
++
++            let segment = path.path.segments.last().unwrap();
++            if segment.ident == "Option" {
++                // We expect that `Option` stores either `&T` or `Mut<T>`.
++                let ty = match &segment.arguments {
++                    PathArguments::AngleBracketed(args) => {
++                        args.args.last().and_then(|arg| match arg {
++                            GenericArgument::Type(ty) => Some(ty),
++                            _ => None,
++                        })
++                    }
++                    _ => None,
++                };
++                match ty.expect("Option type is expected to have generic arguments") {
++                    // If it's a read-only reference, we just update the lifetime for `fetch_init_type` to `'fetch`.
++                    Type::Reference(reference) => {
++                        if reference.mutability.is_some() {
++                            panic!("Invalid reference type: use `Mut<T>` instead of `&mut T`");
++                        }
++                        match &mut path_init.path.segments.last_mut().unwrap().arguments {
++                            PathArguments::AngleBracketed(args) => {
++                                match args.args.last_mut().unwrap() {
++                                    GenericArgument::Type(Type::Reference(ty)) => ty.lifetime = Some(Lifetime::new("'fetch", Span::call_site())),
++                                    _ => unreachable!(),
++                                }
++                            }
++                            _ => unreachable!(),
++                        }
++                    }
++                    // If it's a mutable reference, we set `query_type` and `fetch_init_type` to `&mut T`,
++                    // we also update the lifetime for `fetch_init_type` to `'fetch`.
++                    Type::Path(path) => {
++                        assert_not_generic(path, generic_names);
++
++                        let segment = path.path.segments.last().unwrap();
++                        let ty_ident = &segment.ident;
++                        if ty_ident == "Mut" {
++                            let (mut_lifetime, mut_ty) = match &segment.arguments {
++                                PathArguments::AngleBracketed(args) => {
++                                    (args.args.first().and_then(|arg| {
++                                        match arg {
++                                            GenericArgument::Lifetime(lifetime) => Some(lifetime.clone()),
++                                            _ => None,
++                                        }
++                                    }).expect("Mut is expected to have a lifetime"),
++                                     args.args.last().and_then(|arg| {
++                                         match arg {
++                                             GenericArgument::Type(ty) => Some(ty.clone()),
++                                             _ => None,
++                                         }
++                                     }).expect("Mut is expected to have a lifetime"))
++                                }
++                                _ => panic!("Mut type is expected to have generic arguments")
++                            };
++
++                            match query_type {
++                                Type::Path(ref mut path) => {
++                                    let segment = path.path.segments.last_mut().unwrap();
++                                    match segment.arguments {
++                                        PathArguments::AngleBracketed(ref mut args) => {
++                                            match args.args.last_mut().unwrap() {
++                                                GenericArgument::Type(ty) => {
++                                                    *ty = Type::Reference(TypeReference {
++                                                        and_token: Token![&](Span::call_site()),
++                                                        lifetime: Some(mut_lifetime),
++                                                        mutability: Some(Token![mut](Span::call_site())),
++                                                        elem: Box::new(mut_ty.clone()),
++                                                    });
++                                                }
++                                                _ => unreachable!()
++                                            }
++                                        }
++                                        _ => unreachable!()
++                                    }
++                                }
++                                _ => unreachable!()
++                            }
++
++                            let segment = path_init.path.segments.last_mut().unwrap();
++                            match segment.arguments {
++                                PathArguments::AngleBracketed(ref mut args) => {
++                                    match args.args.last_mut().unwrap() {
++                                        GenericArgument::Type(ty) => {
++                                            *ty = Type::Reference(TypeReference {
++                                                and_token: Token![&](Span::call_site()),
++                                                lifetime: Some(Lifetime::new("'fetch", Span::call_site())),
++                                                mutability: Some(Token![mut](Span::call_site())),
++                                                elem: Box::new(mut_ty),
++                                            });
++                                        }
++                                        _ => unreachable!()
++                                    }
++                                }
++                                _ => unreachable!()
++                            }
++                        } else {
++                            panic!("Option type is expected to have a reference value (`Option<&T>` or `Option<Mut<T>>`)");
++                        }
++                    }
++                    _ => panic!("Option type is expected to have a reference value (`Option<&T>` or `Option<Mut<T>>`)"),
++                }
++            } else if segment.ident == "Mut" {
++                // If it's a mutable reference, we set `query_type` and `fetch_init_type` to `&mut T`,
++                // we also update the lifetime for `fetch_init_type` to `'fetch`.
++                let (mut_lifetime, mut_ty) = match &segment.arguments {
++                    PathArguments::AngleBracketed(args) => {
++                        let lt = args.args.first().and_then(|arg| {
++                            match arg {
++                                GenericArgument::Lifetime(lifetime) => Some(lifetime.clone()),
++                                _ => None,
++                            }
++                        }).expect("`Mut` is expected to have a lifetime");
++                        let ty = args.args.last().and_then(|arg| {
++                            match arg {
++                                GenericArgument::Type(ty) => Some(ty.clone()),
++                                _ => None,
++                            }
++                        }).expect("`Mut` is expected to have a lifetime");
++                        (lt, ty)
++                    }
++                    _ => panic!("`Mut` is expected to have generic arguments")
++                };
++
++                query_type = Type::Reference(TypeReference {
++                    and_token: Token![&](Span::call_site()),
++                    lifetime: Some(mut_lifetime),
++                    mutability: Some(Token![mut](Span::call_site())),
++                    elem: Box::new(mut_ty.clone()),
++                });
++                fetch_init_type = Type::Reference(TypeReference {
++                    and_token: Token![&](Span::call_site()),
++                    lifetime: Some(Lifetime::new("'fetch", Span::call_site())),
++                    mutability: Some(Token![mut](Span::call_site())),
++                    elem: Box::new(mut_ty),
++                });
++            } else if segment.ident == "PhantomData" {
++                if is_tuple_element {
++                    panic!("Invalid tuple element: PhantomData");
++                }
++                is_phantom = true;
++            } else if segment.ident != "Entity" {
++                assert_not_generic(path, generic_names);
++
++                // Here, we assume that this member is another type that implements `Fetch`.
++                // If it doesn't, the code won't compile.
++
++                // Also, we don't support `Fetch` implementations that specify custom `Item` types,
++                // except for the well-known ones, such as `WriteFetch`.
++                // See https://github.com/bevyengine/bevy/pull/2713#issuecomment-904773083.
++
++                if let PathArguments::AngleBracketed(args) = &mut path_init.path.segments.last_mut().unwrap().arguments {
++                    if let Some(GenericArgument::Lifetime(lt)) = args.args.first_mut() {
++                        *lt = Lifetime::new("'fetch", Span::call_site());
++                    }
++                }
++            }
++        }
++        (Type::Reference(reference), Type::Reference(init_reference)) => {
++            if reference.mutability.is_some() {
++                panic!("Invalid reference type: use `Mut<T>` instead of `&mut T`");
++            }
++            init_reference.lifetime = Some(Lifetime::new("'fetch", Span::call_site()));
++        }
++        (Type::Tuple(tuple), Type::Tuple(init_tuple)) => {
++            let mut query_tuple_elems = tuple.elems.clone();
++            query_tuple_elems.clear();
++            let mut fetch_init_tuple_elems = query_tuple_elems.clone();
++            for ty in tuple.elems.iter() {
++                let WorldQueryFieldTypeInfo {
++                    query_type,
++                    fetch_init_type,
++                    is_phantom: _,
++                } = read_world_query_field_type_info(
++                    ty,
++                    true,
++                    generic_names,
++                );
++                query_tuple_elems.push(query_type);
++                fetch_init_tuple_elems.push(fetch_init_type);
++            }
++            match query_type {
++                Type::Tuple(ref mut tuple) => {
++                    tuple.elems = query_tuple_elems;
++                }
++                _ => unreachable!(),
++            }
++            init_tuple.elems = fetch_init_tuple_elems;
++        }
++        _ => panic!("Only the following types (or their tuples) are supported for WorldQuery: &T, &mut T, Option<&T>, Option<&mut T>, Entity, or other structs that implement WorldQuery"),
++    }
++
++    WorldQueryFieldTypeInfo {
++        query_type,
++        fetch_init_type,
++        is_phantom,
++    }
++}
++
++fn assert_not_generic(type_path: &TypePath, generic_names: &[String]) {
++    // `get_ident` returns Some if it consists of a single segment, in this case it
++    // makes sense to ensure that it's not a generic.
++    if let Some(ident) = type_path.path.get_ident() {
++        let is_generic = generic_names
++            .iter()
++            .any(|generic_name| ident == generic_name.as_str());
++        if is_generic {
++            panic!("Only references to generic types are supported: i.e. instead of `component: T`, use `component: &T` or `component: Mut<T>` (optional references are supported as well)");
++        }
++    }
++}
+diff --git a/crates/bevy_ecs/macros/src/lib.rs b/crates/bevy_ecs/macros/src/lib.rs
+index ed6fd79f95e8f..bcdce597fd43b 100644
+--- a/crates/bevy_ecs/macros/src/lib.rs
++++ b/crates/bevy_ecs/macros/src/lib.rs
+@@ -1,7 +1,9 @@
+ extern crate proc_macro;
+ 
+ mod component;
++mod fetch;
+ 
++use crate::fetch::{derive_fetch_impl, derive_filter_fetch_impl};
+ use bevy_macro_utils::{derive_label, BevyManifest};
+ use proc_macro::TokenStream;
+ use proc_macro2::Span;
+@@ -426,6 +428,18 @@ pub fn derive_system_param(input: TokenStream) -> TokenStream {
+     })
+ }
+ 
++/// Implement `WorldQuery` to use a struct as a parameter in a query
++#[proc_macro_derive(Fetch, attributes(read_only, read_only_derive))]
++pub fn derive_fetch(input: TokenStream) -> TokenStream {
++    derive_fetch_impl(input)
++}
++
++/// Implement `FilterFetch` to use a struct as a filter parameter in a query
++#[proc_macro_derive(FilterFetch)]
++pub fn derive_filter_fetch(input: TokenStream) -> TokenStream {
++    derive_filter_fetch_impl(input)
++}
++
+ #[proc_macro_derive(SystemLabel)]
+ pub fn derive_system_label(input: TokenStream) -> TokenStream {
+     let input = parse_macro_input!(input as DeriveInput);
+diff --git a/crates/bevy_ecs/src/query/fetch.rs b/crates/bevy_ecs/src/query/fetch.rs
+index a98cdd9dcd298..05bc1fcbb4578 100644
+--- a/crates/bevy_ecs/src/query/fetch.rs
++++ b/crates/bevy_ecs/src/query/fetch.rs
+@@ -8,6 +8,7 @@ use crate::{
+     world::{Mut, World},
+ };
+ use bevy_ecs_macros::all_tuples;
++pub use bevy_ecs_macros::{Fetch, FilterFetch};
+ use std::{
+     cell::UnsafeCell,
+     marker::PhantomData,
+@@ -21,6 +22,10 @@ use std::{
+ ///
+ /// See [`Query`](crate::system::Query) for a primer on queries.
+ ///
++/// If you want to implement a custom query, see [`Fetch`] trait documentation.
++///
++/// If you want to implement a custom query filter, see [`FilterFetch`] trait documentation.
++///
+ /// # Basic [`WorldQuery`]'s
+ ///
+ /// Here is a small list of the most important world queries to know about where `C` stands for a
+@@ -49,6 +54,213 @@ pub trait WorldQuery {
+ 
+ pub type QueryItem<'w, 's, Q> = <<Q as WorldQuery>::Fetch as Fetch<'w, 's>>::Item;
+ 
++/// Types that implement this trait are responsible for fetching query items from tables or
++/// archetypes.
++///
++/// Every type that implements [`WorldQuery`] have their associated [`WorldQuery::Fetch`] and
++/// [`WorldQuery::State`] types that are essential for fetching component data. If you want to
++/// implement a custom query type, you'll need to implement [`Fetch`] and [`FetchState`] for
++/// those associated types.
++///
++/// You may want to implement a custom query for the following reasons:
++/// - Named structs can be clearer and easier to use than complex query tuples. Access via struct
++///   fields is more convenient than destructuring tuples or accessing them via `q.0, q.1, ...`
++///   pattern and saves a lot of maintenance burden when adding or removing components.
++/// - Nested queries enable the composition pattern and makes query types easier to re-use.
++/// - You can bypass the limit of 15 components that exists for query tuples.
++///
++/// Implementing the trait manually can allow for a fundamentally new type of behaviour.
++///
++/// # Derive
++///
++/// This trait can be derived with the [`derive@super::Fetch`] macro.
++/// To do so, all fields in the struct must themselves impl [`WorldQuery`].
++///
++/// The derive macro implements [`WorldQuery`] for your type and declares two structs that
++/// implement [`Fetch`] and [`FetchState`] and are used as [`WorldQuery::Fetch`] and
++/// [`WorldQuery::State`] associated types respectively.
++///
++/// **Note:** currently, the macro only supports named structs.
++///
++/// ```
++/// # use bevy_ecs::prelude::*;
++/// use bevy_ecs::query::Fetch;
++///
++/// #[derive(Component)]
++/// struct Foo;
++/// #[derive(Component)]
++/// struct Bar;
++/// #[derive(Component)]
++/// struct OptionalFoo;
++/// #[derive(Component)]
++/// struct OptionalBar;
++///
++/// #[derive(Fetch)]
++/// struct MyQuery<'w> {
++///     entity: Entity,
++///     foo: &'w Foo,
++///     // `Mut<'w, T>` is a necessary replacement for `&'w mut T`
++///     bar: Mut<'w, Bar>,
++///     optional_foo: Option<&'w OptionalFoo>,
++///     optional_bar: Option<Mut<'w, OptionalBar>>,
++/// }
++///
++/// fn my_system(mut query: Query<MyQuery>) {
++///     for q in query.iter_mut() {
++///         q.foo;
++///     }
++/// }
++///
++/// # my_system.system();
++/// ```
++///
++/// ## Nested queries
++///
++/// Using nested queries enable the composition pattern, which makes it possible to re-use other
++/// query types. All types that implement [`WorldQuery`] (including the ones that use this derive
++/// macro) are supported.
++///
++/// ```
++/// # use bevy_ecs::prelude::*;
++/// use bevy_ecs::query::Fetch;
++///
++/// #[derive(Component)]
++/// struct Foo;
++/// #[derive(Component)]
++/// struct Bar;
++/// #[derive(Component)]
++/// struct OptionalFoo;
++/// #[derive(Component)]
++/// struct OptionalBar;
++///
++/// #[derive(Fetch)]
++/// struct MyQuery<'w> {
++///     foo: FooQuery<'w>,
++///     bar: (&'w Bar, Option<&'w OptionalBar>)
++/// }
++///
++/// #[derive(Fetch)]
++/// struct FooQuery<'w> {
++///     foo: &'w Foo,
++///     optional_foo: Option<&'w OptionalFoo>,
++/// }
++///
++/// ```
++///
++/// ## Read-only queries
++///
++/// All queries that are derived with `Fetch` macro have their read-only variants with `ReadOnly`
++/// suffix. If you are going to use a query only for reading, you can mark it with `read_only`
++/// attribute.
++///
++/// ```
++/// # use bevy_ecs::prelude::*;
++/// use bevy_ecs::query::{Fetch, ReadOnlyFetch, WorldQuery};
++///
++/// #[derive(Component)]
++/// struct Foo;
++/// #[derive(Component)]
++/// struct Bar;
++///
++/// #[derive(Fetch)]
++/// #[read_only]
++/// struct FooQuery<'w> {
++///     foo: &'w Foo,
++///     bar_query: BarQueryReadOnly<'w>,
++/// }
++///
++/// #[derive(Fetch)]
++/// struct BarQuery<'w> {
++///     bar: &'w Bar,
++/// }
++///
++/// fn assert_read_only<T: ReadOnlyFetch>() {}
++///
++/// assert_read_only::<<FooQuery as WorldQuery>::Fetch>();
++/// assert_read_only::<<BarQuery as WorldQuery>::ReadOnlyFetch>();
++/// // the following will fail to compile:
++/// // assert_read_only::<<BarQuery as WorldQuery>::Fetch>();
++/// ```
++///
++/// If you want to use derive macros with read-only query variants, you need to pass them with
++/// using `read_only_derive` attribute.
++///
++/// # use bevy_ecs::prelude::*;
++/// use bevy_ecs::query::{Fetch, ReadOnlyFetch, WorldQuery};
++///
++/// ```
++/// # use bevy_ecs::prelude::*;
++/// use bevy_ecs::query::{Fetch, ReadOnlyFetch, WorldQuery};
++///
++/// #[derive(Component, Debug)]
++/// struct Foo;
++///
++/// #[derive(Fetch, Debug)]
++/// #[read_only_derive(Debug)]
++/// struct FooQuery<'w> {
++///     foo: &'w Foo,
++/// }
++///
++/// fn assert_debug<T: std::fmt::Debug>() {}
++///
++/// assert_debug::<FooQuery>();
++/// assert_debug::<FooQueryReadOnly>();
++/// ```
++///
++/// **Note:** if you mark a query that doesn't implement `ReadOnlyFetch` as `read_only`,
++/// compilation will fail. We insert static checks as in the example above for every nested query
++/// marked as `read_only`. (They neither affect the runtime, nor pollute your local namespace.)
++///
++/// ```compile_fail
++/// # use bevy_ecs::prelude::*;
++/// use bevy_ecs::query::{Fetch, ReadOnlyFetch, WorldQuery};
++///
++/// #[derive(Component)]
++/// struct Foo;
++/// #[derive(Component)]
++/// struct Bar;
++///
++/// #[derive(Fetch)]
++/// #[read_only]
++/// struct FooQuery<'w> {
++///     foo: &'w Foo,
++///     bar_query: BarQuery<'w>,
++/// }
++///
++/// #[derive(Fetch)]
++/// struct BarQuery<'w> {
++///     bar: Mut<'w, Bar>,
++/// }
++/// ```
++///
++/// ## Limitations
++///
++/// Currently, we don't support members that have a manual [`WorldQuery`] implementation if their
++/// [`Fetch::Item`] is different from the member type. For instance, the following code won't
++/// compile:
++///
++/// ```ignore
++/// #[derive(Component)]
++/// struct CustomQueryParameter;
++/// #[derive(Component)]
++/// struct ItemDataType;
++///
++/// struct CustomQueryParameterFetch {
++///   // ...
++/// }
++///
++/// impl<'w, 's> Fetch<'w, 's> for CustomQueryParameterFetch {
++///   type Item = ItemDataType;
++///
++///   // ...
++/// }
++///
++/// #[derive(Fetch)]
++/// struct MyQuery {
++///   custom_item: ItemDataType,
++/// }
++///
++/// ```
+ pub trait Fetch<'world, 'state>: Sized {
+     type Item;
+     type State: FetchState;
+diff --git a/crates/bevy_ecs/src/query/filter.rs b/crates/bevy_ecs/src/query/filter.rs
+index 7849f1823029d..af7a6224f9dfe 100644
+--- a/crates/bevy_ecs/src/query/filter.rs
++++ b/crates/bevy_ecs/src/query/filter.rs
+@@ -11,6 +11,53 @@ use std::{cell::UnsafeCell, marker::PhantomData, ptr};
+ 
+ /// Extension trait for [`Fetch`] containing methods used by query filters.
+ /// This trait exists to allow "short circuit" behaviors for relevant query filter fetches.
++///
++/// This trait is automatically implemented for every type that implements [`Fetch`] trait and
++/// specifies `bool` as the associated type for [`Fetch::Item`].
++///
++/// Using [`derive@super::FilterFetch`] macro allows creating custom query filters.
++/// You may want to implement a custom query filter for the following reasons:
++/// - Nested query filters enable the composition pattern and makes them easier to re-use.
++/// - You can bypass the limit of 15 components that exists for query filters declared as tuples.
++///
++/// Implementing the trait manually can allow for a fundamentally new type of behaviour.
++///
++/// ## Derive
++///
++/// This trait can be derived with the [`derive@super::FilterFetch`] macro.
++/// To do so, all fields in the struct must be filters themselves (their [`WorldQuery::Fetch`]
++/// associated types should implement [`FilterFetch`]).
++///
++/// **Note:** currently, the macro only supports named structs.
++///
++/// ```
++/// # use bevy_ecs::prelude::*;
++/// use bevy_ecs::{query::FilterFetch, component::Component};
++///
++/// #[derive(Component)]
++/// struct Foo;
++/// #[derive(Component)]
++/// struct Bar;
++/// #[derive(Component)]
++/// struct Baz;
++/// #[derive(Component)]
++/// struct Qux;
++///
++/// #[derive(FilterFetch)]
++/// struct MyFilter<T: Component, P: Component> {
++///     _foo: With<Foo>,
++///     _bar: With<Bar>,
++///     _or: Or<(With<Baz>, Changed<Foo>, Added<Bar>)>,
++///     _generic_tuple: (With<T>, Without<P>),
++///     _tp: std::marker::PhantomData<(T, P)>,
++/// }
++///
++/// fn my_system(query: Query<Entity, MyFilter<Foo, Qux>>) {
++///     for _ in query.iter() {}
++/// }
++///
++/// # my_system.system();
++/// ```
+ pub trait FilterFetch: for<'w, 's> Fetch<'w, 's> {
+     /// # Safety
+     ///
+diff --git a/crates/bevy_ecs/src/system/system_param.rs b/crates/bevy_ecs/src/system/system_param.rs
+index d919f2788052c..1b7866249b9e9 100644
+--- a/crates/bevy_ecs/src/system/system_param.rs
++++ b/crates/bevy_ecs/src/system/system_param.rs
+@@ -188,7 +188,7 @@ fn assert_component_access_compatibility(
+         .collect::<Vec<&str>>();
+     let accesses = conflicting_components.join(", ");
+     panic!("error[B0001]: Query<{}, {}> in system {} accesses component(s) {} in a way that conflicts with a previous system parameter. Consider using `Without<T>` to create disjoint Queries or merging conflicting Queries into a `QuerySet`.",
+-                query_type, filter_type, system_name, accesses);
++           query_type, filter_type, system_name, accesses);
+ }
+ 
+ pub struct QuerySet<'w, 's, T> {
+@@ -203,6 +203,7 @@ pub struct QuerySetState<T>(T);
+ impl_query_set!();
+ 
+ pub trait Resource: Send + Sync + 'static {}
++
+ impl<T> Resource for T where T: Send + Sync + 'static {}
+ 
+ /// Shared borrow of a resource.
+diff --git a/examples/README.md b/examples/README.md
+index 81190f58866e4..6579c3cf90c4d 100644
+--- a/examples/README.md
++++ b/examples/README.md
+@@ -163,6 +163,7 @@ Example | File | Description
+ --- | --- | ---
+ `ecs_guide` | [`ecs/ecs_guide.rs`](./ecs/ecs_guide.rs) | Full guide to Bevy's ECS
+ `component_change_detection` | [`ecs/component_change_detection.rs`](./ecs/component_change_detection.rs) | Change detection on components
++`custom_query_param` | [`ecs/custom_query_param.rs`](./ecs/custom_query_param.rs) | Groups commonly used compound queries and query filters into a single type
+ `event` | [`ecs/event.rs`](./ecs/event.rs) | Illustrates event creation, activation, and reception
+ `fixed_timestep` | [`ecs/fixed_timestep.rs`](./ecs/fixed_timestep.rs) | Shows how to create systems that run every fixed timestep, rather than every tick
+ `hierarchy` | [`ecs/hierarchy.rs`](./ecs/hierarchy.rs) | Creates a hierarchy of parents and children entities
+diff --git a/examples/ecs/custom_query_param.rs b/examples/ecs/custom_query_param.rs
+new file mode 100644
+index 0000000000000..3294c7a6deabf
+--- /dev/null
++++ b/examples/ecs/custom_query_param.rs
+@@ -0,0 +1,189 @@
++use bevy::{
++    ecs::{
++        component::Component,
++        query::{Fetch, FilterFetch},
++    },
++    prelude::*,
++};
++use std::{fmt::Debug, marker::PhantomData};
++
++/// This examples illustrates the usage of `Fetch` and `FilterFetch` derive macros, that allow
++/// defining custom query and filter types.
++///
++/// While regular tuple queries work great in most of simple scenarios, using custom queries
++/// declared as named structs can bring the following advantages:
++/// - They help to avoid destructuring or using `q.0, q.1, ...` access pattern.
++/// - Adding, removing components or changing items order with structs greatly reduces maintenance
++///   burden, as you don't need to update statements that destructure tuples, care abort order
++///   of elements, etc. Instead, you can just add or remove places where a certain element is used.
++/// - Named structs enable the composition pattern, that makes query types easier to re-use.
++/// - You can bypass the limit of 15 components that exists for query tuples.
++///
++/// For more details on the `Fetch` and `FilterFetch` derive macros, see their documentation.
++fn main() {
++    App::new()
++        .add_startup_system(spawn)
++        .add_system(print_components_iter_mut.label("print_components_iter_mut"))
++        .add_system(
++            print_components_iter
++                .label("print_components_iter")
++                .after("print_components_iter_mut"),
++        )
++        .add_system(
++            print_components_read_only
++                .label("print_components_read_only")
++                .after("print_components_iter"),
++        )
++        .add_system(print_components_tuple.after("print_components_read_only"))
++        .run();
++}
++
++#[derive(Component, Debug)]
++struct ComponentA;
++#[derive(Component, Debug)]
++struct ComponentB;
++#[derive(Component, Debug)]
++struct ComponentC;
++#[derive(Component, Debug)]
++struct ComponentD;
++#[derive(Component, Debug)]
++struct ComponentZ;
++
++#[derive(Fetch)]
++struct CustomQuery<'w, T: Component + Debug, P: Component + Debug> {
++    entity: Entity,
++    // `Mut<'w, T>` is a necessary replacement for `&'w mut T`
++    a: Mut<'w, ComponentA>,
++    b: Option<Mut<'w, ComponentB>>,
++    nested: NestedQuery<'w>,
++    generic: GenericQuery<'w, T, P>,
++    #[allow(dead_code)]
++    empty: EmptyQuery<'w>,
++}
++
++// This is a valid query as well, which would iterate over every entity.
++#[derive(Fetch)]
++struct EmptyQuery<'w> {
++    _w: std::marker::PhantomData<&'w ()>,
++}
++
++#[derive(Fetch, Debug)]
++#[read_only_derive(Debug)]
++#[allow(dead_code)]
++struct NestedQuery<'w> {
++    c: &'w ComponentC,
++    d: Option<&'w ComponentD>,
++}
++
++#[derive(Fetch, Debug)]
++#[read_only_derive(Debug)]
++#[allow(dead_code)]
++struct GenericQuery<'w, T: Component, P: Component> {
++    generic: (&'w T, &'w P),
++}
++
++#[derive(FilterFetch)]
++struct QueryFilter<T: Component, P: Component> {
++    _c: With<ComponentC>,
++    _d: With<ComponentD>,
++    _or: Or<(Added<ComponentC>, Changed<ComponentD>, Without<ComponentZ>)>,
++    _generic_tuple: (With<T>, With<P>),
++    _tp: PhantomData<(T, P)>,
++}
++
++fn spawn(mut commands: Commands) {
++    commands
++        .spawn()
++        .insert(ComponentA)
++        .insert(ComponentB)
++        .insert(ComponentC)
++        .insert(ComponentD);
++}
++
++fn print_components_iter_mut(
++    mut query: Query<CustomQuery<ComponentC, ComponentD>, QueryFilter<ComponentC, ComponentD>>,
++) {
++    println!("Print components (iter_mut):");
++    for e in query.iter_mut() {
++        println!("Entity: {:?}", e.entity);
++        println!("A: {:?}", e.a);
++        println!("B: {:?}", e.b);
++        println!("Nested: {:?}", e.nested);
++        println!("Generic: {:?}", e.generic);
++    }
++    println!();
++}
++
++fn print_components_iter(
++    query: Query<CustomQuery<ComponentC, ComponentD>, QueryFilter<ComponentC, ComponentD>>,
++) {
++    println!("Print components (iter):");
++    for e in query.iter() {
++        // Note that the actual type is different when you iterate with `iter`.
++        let e: CustomQueryReadOnly<'_, _, _> = e;
++        println!("Entity: {:?}", e.entity);
++        println!("A: {:?}", e.a);
++        println!("B: {:?}", e.b);
++        println!("Nested: {:?}", e.nested);
++        println!("Generic: {:?}", e.generic);
++    }
++    println!();
++}
++
++// If you are going to use a query only for reading, you can mark it with `read_only` attribute
++// to avoid creating an additional type with `ReadOnly` suffix.
++#[derive(Fetch)]
++#[read_only]
++struct ReadOnlyCustomQuery<'w, T: Component + Debug, P: Component + Debug> {
++    entity: Entity,
++    a: &'w ComponentA,
++    b: Option<&'w ComponentB>,
++    nested: NestedQueryReadOnly<'w>,
++    generic: GenericQueryReadOnly<'w, T, P>,
++    #[allow(dead_code)]
++    empty: EmptyQueryReadOnly<'w>,
++}
++
++fn print_components_read_only(
++    query: Query<ReadOnlyCustomQuery<ComponentC, ComponentD>, QueryFilter<ComponentC, ComponentD>>,
++) {
++    println!("Print components (read_only):");
++    for e in query.iter() {
++        let e: ReadOnlyCustomQuery<'_, _, _> = e;
++        println!("Entity: {:?}", e.entity);
++        println!("A: {:?}", e.a);
++        println!("B: {:?}", e.b);
++        println!("Nested: {:?}", e.nested);
++        println!("Generic: {:?}", e.generic);
++    }
++    println!();
++}
++
++type NestedTupleQuery<'w> = (&'w ComponentC, &'w ComponentD);
++type GenericTupleQuery<'w, T, P> = (&'w T, &'w P);
++
++fn print_components_tuple(
++    query: Query<
++        (
++            Entity,
++            &ComponentA,
++            &ComponentB,
++            NestedTupleQuery,
++            GenericTupleQuery<ComponentC, ComponentD>,
++        ),
++        (
++            With<ComponentC>,
++            With<ComponentD>,
++            Or<(Added<ComponentC>, Changed<ComponentD>, Without<ComponentZ>)>,
++        ),
++    >,
++) {
++    println!("Print components (tuple):");
++    for (entity, a, b, nested, (generic_c, generic_d)) in query.iter() {
++        println!("Entity: {:?}", entity);
++        println!("A: {:?}", a);
++        println!("B: {:?}", b);
++        println!("Nested: {:?} {:?}", nested.0, nested.1);
++        println!("Generic: {:?} {:?}", generic_c, generic_d);
++    }
++}
