@@ -136,9 +136,27 @@
 
     <footer class="py-4 mt-4">
         <div class="container-xl px-4">
-            <div class="text-center">
+            <!-- Powered-by logo bar -->
+            <div class="logo-bar-footer">
+                <div class="logo-slots">
+                    <!-- University of Melbourne: square SVG with dark navy bg, show as-is -->
+                    <a href="https://www.unimelb.edu.au" target="_blank" class="logo-slot" title="University of Melbourne">
+                        <img src="logos/unimelb-logo.svg"
+                             alt="University of Melbourne"
+                             style="height:80px;width:auto;border-radius:4px">
+                    </a>
+                    <!-- Monash University: wide PNG, invert to white on dark bar -->
+                    <a href="https://www.monash.edu" target="_blank" class="logo-slot" title="Monash University">
+                        <img src="logos/monash-logo.png"
+                             alt="Monash University"
+                             style="height:60px;width:auto;opacity:1">
+                    </a>
+                </div>
+            </div>
+            <div class="text-center mt-3">
                 <p class="mb-0" style="font-size:.85rem;color:var(--text-muted)">
-                    &copy; 2026 Agentic Code Review Leaderboard
+                    &copy; 2026 Agentic Code Review Leaderboard &mdash; AI for Software Engineering Research. <br>
+                    This work is supported by contributions from Atlassian.
                 </p>
             </div>
         </div>
