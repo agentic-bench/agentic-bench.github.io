@@ -28,7 +28,7 @@
       "trajectory/input_tokens": 381243.24507042253,
       "trajectory/output_tokens": 7721.501408450704,
       "trajectory/steps": 18.687323943661973,
-      "trajectory/trajectory_input_costs": 2.136732523943662,
+      "trajectory/trajectory_input_costs": 2.1367325239436616,
       "trajectory/trajectory_output_costs": 0.15760267605633801,
       "trajectory/trajectory_total_costs": 2.2943352
     },
