@@ -39,7 +39,6 @@ from dataloader import (
     find_eval_result_pair,
 )
 
-
 # ---------------------------------------------------------------------------
 # Aggregation modes
 # ---------------------------------------------------------------------------
@@ -870,6 +869,8 @@ def _aggregate_benchmark(
         eval_df = load_eval_comments(str(comments_path))
         traj_df = load_eval_trajectory(str(traj_path))
 
+        print(comments_path, " rows ", eval_df.shape[0])
+
         # Extract submission metadata and evaluation version from first row
         # Read evaluation_version directly from JSONL to preserve string format
         model = ""
@@ -1420,15 +1421,13 @@ def _generate_evaluation_versions_page(
 
         # Build tab navigation item
         active_class = "active" if is_active else ""
-        tab_nav_parts.append(
-            f"""
+        tab_nav_parts.append(f"""
                 <li class="nav-item" role="presentation">
                     <button class="nav-link {active_class}" id="{tab_id}-tab" data-bs-toggle="tab" 
                             data-bs-target="#{tab_id}" type="button" role="tab">
                         {display_name}
                     </button>
-                </li>"""
-        )
+                </li>""")
 
         # Build tab content pane
         current_version = versions_data.get("current_version", "N/A")
@@ -1472,8 +1471,7 @@ def _generate_evaluation_versions_page(
                         f'<li><code>{eval_class}</code><br/><small class="text-muted">{desc}</small></li>'
                     )
 
-            version_cards.append(
-                f"""
+            version_cards.append(f"""
                 <div class="card mb-3">
                     <div class="card-header">
                         <h6 class="mb-0 fw-bold">Version {version} {badge}</h6>
@@ -1488,18 +1486,15 @@ def _generate_evaluation_versions_page(
                             {''.join(evaluator_list)}
                         </ul>
                     </div>
-                </div>"""
-            )
+                </div>""")
 
         show_class = "show active" if is_active else ""
-        tab_content_parts.append(
-            f"""
+        tab_content_parts.append(f"""
             <div class="tab-pane fade {show_class}" id="{tab_id}" role="tabpanel">
                 <div class="p-4">
                     {''.join(version_cards)}
                 </div>
-            </div>"""
-        )
+            </div>""")
 
     tabs_nav_html = "\n".join(tab_nav_parts)
     tabs_content_html = "\n".join(tab_content_parts)
